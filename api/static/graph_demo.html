@@ -440,7 +440,7 @@
   function normalizePersonIdFromGraphvizTitle(title) {
     if (!title) return null;
     const t = String(title).trim();
-    // Support composite node ids (e.g. spouse proxy nodes).
+    // Support composite node ids (e.g. spouse port nodes).
     // Format: <person_id>__spouse__<family_id>
     const m = t.match(/^(?<pid>.+?)__spouse__.+$/);
     if (m?.groups?.pid) return m.groups.pid;
@@ -959,7 +959,8 @@
       );
     };
 
-    // Nodes: one node per person, plus optional per-family spouse proxy nodes.
+    // Nodes: one node per person, plus optional per-family spouse port nodes
+    // (invisible layout helpers for multi-spouse / duplicate-couple families).
     for (const [pid] of people.entries()) {
       emitPersonCardNode(pid, pid);
     }
@@ -1007,24 +1008,19 @@
       if (uniq.length >= 2) multiPartnerPeople.add(pid);
     }
 
-    const spouseProxyId = (pid, fid) => `${pid}__spouse__${fid}`;
-    const shouldUseSpouseProxyForFamily = (fid) => {
-      const { father, mother, hasTwoParents } = getCouple(fid);
-      if (!hasTwoParents || !father || !mother) return false;
-      if (multiPartnerPeople.has(father) || multiPartnerPeople.has(mother)) return true;
-      const group = coupleGroups.get(coupleKeyOf(father, mother));
-      return (group?.fids?.length || 0) >= 2;
-    };
-
-    // Emit spouse proxy nodes (duplicate spouse boxes) for families that need them.
-    // This avoids DOT trying (and failing) to keep a single person node adjacent to
-    // multiple spouse/family nodes on the same rank.
+    // For prioritizing which spouse block should be "closest" to the shared person,
+    // keep per-person family+spouse info including child counts.
+    const spouseFamiliesByPerson = new Map(); // pid -> [{ fid, spouseId, childCount }]
     for (const fid of families) {
       const { father, mother, hasTwoParents } = getCouple(fid);
       if (!hasTwoParents || !father || !mother) continue;
-      if (!shouldUseSpouseProxyForFamily(fid)) continue;
-      emitPersonCardNode(spouseProxyId(father, fid), father);
-      emitPersonCardNode(spouseProxyId(mother, fid), mother);
+      const childCount = (famChildren.get(fid) || []).length;
+      const a = spouseFamiliesByPerson.get(father) || [];
+      a.push({ fid, spouseId: mother, childCount });
+      spouseFamiliesByPerson.set(father, a);
+      const b = spouseFamiliesByPerson.get(mother) || [];
+      b.push({ fid, spouseId: father, childCount });
+      spouseFamiliesByPerson.set(mother, b);
     }
 
     // Build birth-family lookup (child -> families where they're a child).
@@ -1063,6 +1059,11 @@
       const childSet = new Set(rawChildren);
 
       for (const childId of rawChildren) {
+        // If a person is a parent (has their own family), don't drag their spouses into
+        // their birth-family sibling row. This is exactly what makes Wolter's spouses
+        // show up alongside his siblings.
+        if (parentFamiliesByPerson.has(childId)) continue;
+
         const spouses = spouseOf.get(childId) || [];
         for (const spouseId of spouses) {
           if (!spouseId) continue;
@@ -1103,12 +1104,14 @@
     for (const fid of families) {
       const { father, mother, hasTwoParents } = getCouple(fid);
       if (hasTwoParents && father && mother) {
+        const isMultiSpouseFamily = multiPartnerPeople.has(father) || multiPartnerPeople.has(mother);
         // Gramps Web style: use a per-family cluster to keep the couple cohesive.
         // This is the single most effective nudge DOT has for spouse adjacency.
         // We keep it invisible (no box) and only use it as a layout hint.
-        const useProxy = shouldUseSpouseProxyForFamily(fid);
-        const fatherNode = useProxy ? spouseProxyId(father, fid) : father;
-        const motherNode = useProxy ? spouseProxyId(mother, fid) : mother;
+        // Always use the real person nodes for the visible spouse↔family structure.
+        // Using per-family ports here can visually separate the spouse from the hub.
+        const fatherNode = father;
+        const motherNode = mother;
 
         const gf = (people.get(father)?.gender || '').toString().trim().toUpperCase();
         const gm = (people.get(mother)?.gender || '').toString().trim().toUpperCase();
@@ -1123,10 +1126,17 @@
           right = fatherNode;
         }
 
-        // Always draw the visible connectors from spouses to the family node.
+        // Always draw the visible connectors into the family node.
         // constraint=false keeps the family node on the same rank when we add rank hints.
         lines.push(`  ${dotEscape(fatherNode)} -> ${dotEscape(fid)} [arrowhead=none, constraint=false, weight=50, minlen=0];`);
         lines.push(`  ${dotEscape(motherNode)} -> ${dotEscape(fid)} [arrowhead=none, constraint=false, weight=50, minlen=0];`);
+
+        // Multi-spouse families are ordered by the dedicated multi-spouse cluster.
+        // If we also create per-family couple clusters, Graphviz may "split" spouses
+        // into separate rows due to conflicting cluster membership.
+        if (isMultiSpouseFamily) {
+          continue;
+        }
 
         // Keep the whole couple (spouse + family hub + spouse) cohesive.
         // Using a cluster makes DOT treat this as a block and reduces the chance
@@ -1148,6 +1158,56 @@
       }
     }
 
+    // Multi-spouse layout: prefer showing a single shared person centered between
+    // their spouse blocks in one dedicated row.
+    // Order spouse blocks by number of children in-view (descending), so "main" family
+    // (e.g., ancestor line with many children) is prioritized.
+    for (const pid of multiPartnerPeople) {
+      const famsRaw = spouseFamiliesByPerson.get(pid) || [];
+      const fams = [];
+      const seenF = new Set();
+      for (const x of famsRaw) {
+        if (!x?.fid || seenF.has(x.fid)) continue;
+        // Only include spouse blocks that are in-view.
+        if (!families.has(x.fid)) continue;
+        if (!people.has(x.spouseId)) continue;
+        seenF.add(x.fid);
+        fams.push(x);
+      }
+      if (fams.length < 2) continue;
+
+      fams.sort((a, b) => {
+        if (a.childCount !== b.childCount) return b.childCount - a.childCount;
+        // Prefer closer spouse blocks to the BFS root.
+        const da = distKey(a.spouseId);
+        const db = distKey(b.spouseId);
+        if (da !== db) return da - db;
+        return String(a.fid).localeCompare(String(b.fid));
+      });
+
+      // Build an ordering chain: spouse1, fid1, pid, fid2, spouse2, fid3, spouse3...
+      const row = [];
+      row.push(fams[0].spouseId);
+      row.push(fams[0].fid);
+      row.push(pid);
+      for (let i = 1; i < fams.length; i++) {
+        row.push(fams[i].fid);
+        row.push(fams[i].spouseId);
+      }
+
+      lines.push(`  subgraph ${dotEscape('cluster_multi_' + pid)} {`);
+      lines.push('    cluster=true;');
+      lines.push('    style=invis;');
+      lines.push('    label=".";');
+      lines.push('    rank=same;');
+      lines.push(`    ${row.map(dotEscape).join('; ')};`);
+      lines.push('  }');
+
+      for (let i = 0; i < row.length - 1; i++) {
+        lines.push(`  ${dotEscape(row[i])} -> ${dotEscape(row[i + 1])} [style=invis, weight=26000, minlen=0, constraint=true, dir=none];`);
+      }
+    }
+
     // Helper: find an in-view two-parent family hub for a spouse pair (if any).
     const familyHubForSpousePair = (a, b) => {
       const g = coupleGroups.get(coupleKeyOf(a, b));
@@ -1166,6 +1226,9 @@
       // remove them from their own sibling row in this view to avoid contradictory
       // rank constraints.
       const children = rawChildren.filter(cid => {
+        // If someone is a parent (has their own family), don't pin them into a sibling row.
+        // Otherwise DOT tends to keep them with siblings while their marriages drift away.
+        if (parentFamiliesByPerson.has(cid)) return false;
         const target = spouseAttachmentTargetByPerson.get(cid);
         return !target || target === fid;
       });
