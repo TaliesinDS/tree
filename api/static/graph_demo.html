@@ -879,10 +879,9 @@
 
       const footer = footerBits.length ? htmlEscape(footerBits.join(' · ')) : '';
 
-      // Robust fixed-size node with a “rim” via gradient fill.
-      // Graphviz supports gradients using a ':' color list; many builds also support
-      // stops like 'color;0.12:color'. If stops aren't supported, it will degrade to a gradient.
-      const bodyBg = '#cccccc'; // ~20% black
+      // Flat fixed-size node.
+      // The top rim band is drawn in SVG post-processing to match Gramps Web.
+      const bodyBg = '#d0d5dd';
       const labelLines = [nameLine1, nameLine2, birthLine || '', deathLine || '']
         .filter(v => v && String(v).trim().length)
         .map(escLabelLine);
@@ -891,12 +890,13 @@
       // Trailing \l keeps the last line left-aligned too.
       const label = labelLines.join('\\l') + '\\l';
 
-      const fill = `${rim};0.12:${bodyBg}`;
+      const fill = bodyBg;
       lines.push(
         `  ${dotEscape(pid)} [` +
         `shape=box, style="rounded,filled", fixedsize=true, width=1.60, height=1.10, ` +
-        `fillcolor="${fill}", gradientangle=270, ` +
-        `color="#9aa4b5", penwidth=1.1, ` +
+        `fillcolor="${fill}", ` +
+        // Hide the default outline/trim; keep the card flat.
+        `color="${fill}", penwidth=1.0, ` +
         `fontname="Inter, Segoe UI, Arial", fontsize=10, fontcolor="#0b0f16", ` +
         `labeljust=l, labelloc=c, margin="0.10,0.08", ` +
         `label="${label}"` +
@@ -1296,6 +1296,26 @@
 
     const svg = gvEl.querySelector('svg');
     if (svg) {
+      // Ensure edges render beneath nodes.
+      // SVG has no z-index; paint order is DOM order, so we reorder sibling groups.
+      (function reorderGraphvizLayers() {
+        const containers = Array.from(svg.querySelectorAll('g')).filter(g => {
+          const kids = Array.from(g.children);
+          return kids.some(k => k.classList?.contains('edge')) && kids.some(k => k.classList?.contains('node'));
+        });
+
+        for (const g of containers) {
+          const kids = Array.from(g.children);
+          const firstNode = kids.find(k => k.classList?.contains('node'));
+          if (!firstNode) continue;
+          for (const k of kids) {
+            if (k.classList?.contains('edge')) {
+              g.insertBefore(k, firstNode);
+            }
+          }
+        }
+      })();
+
       // Make the SVG behave like a canvas inside the panel.
       svg.style.display = 'block';
       svg.style.maxWidth = 'none';
@@ -1319,7 +1339,6 @@
       gvPanZoom = enableSvgPanZoom(svg, { container: gvEl });
     }
 
-
   function postProcessGraphvizSvg(svg, { personMetaById } = {}) {
     const nodes = svg.querySelectorAll('g.node');
     let processed = 0;
@@ -1327,8 +1346,8 @@
       // Skip non-person nodes (family hubs are circles/ellipses)
       if (node.querySelector('ellipse')) continue;
 
-      // Add a curved, gender-colored “rim” on top of each person card.
-      // We do this in SVG (not DOT) because DOT gradients can only be straight.
+      // Add a thin, gender-colored rim at the top of each person card.
+      // We do this in SVG (not DOT) so the rim follows the rounded corners (Gramps-like).
       try {
         const title = node.querySelector('title')?.textContent?.trim();
         const pid = normalizePersonIdFromGraphvizTitle(title);
@@ -1342,6 +1361,14 @@
 
           const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
           if (shape && typeof shape.getBBox === 'function') {
+            const ns = 'http://www.w3.org/2000/svg';
+
+            // Ensure the underlying card has no visible trim.
+            try {
+              shape.setAttribute('stroke', 'none');
+              shape.setAttribute('fill', 'none');
+            } catch (_) {}
+
             const bb = shape.getBBox();
             const x0 = bb.x;
             const y0 = bb.y;
@@ -1349,48 +1376,76 @@
             const h = bb.height;
             const x1 = x0 + w;
 
-            const rimH = Math.max(7, Math.min(14, h * 0.18));
-            const yRim = y0 + rimH;
-            const curve = Math.max(2, Math.min(8, rimH * 0.55));
-            const corner = Math.max(3, Math.min(10, Math.min(w, h) * 0.12));
-            const xMid = x0 + (w / 2);
+            const corner = Math.max(4, Math.min(12, Math.min(w, h) * 0.12));
+            const cornerOuter = Math.min(corner * 2, Math.min(w, h) / 2);
+            // Rim thickness (thin and Gramps-like).
+            const rimH = Math.max(2, Math.min(4, h * 0.05));
+            // Make the boundary curve feel like an offset of the outer curve.
+            // This prevents the colored corner arc from “ending early”.
+            const cornerInner = Math.max(2, cornerOuter - rimH);
 
-            const d = [
-              `M ${x0 + corner} ${y0}`,
-              `H ${x1 - corner}`,
-              `A ${corner} ${corner} 0 0 1 ${x1} ${y0 + corner}`,
-              `V ${yRim}`,
-              `Q ${xMid} ${yRim + curve} ${x0} ${yRim}`,
-              `V ${y0 + corner}`,
-              `A ${corner} ${corner} 0 0 1 ${x0 + corner} ${y0}`,
-              'Z'
-            ].join(' ');
+            // Full rounded-rect path matching the card.
+            const roundedRectPath = (x, y, w0, h0, r) => {
+              const xA = x;
+              const yA = y;
+              const xB = x + w0;
+              const yB = y + h0;
+              const rr = Math.max(0, Math.min(r, Math.min(w0, h0) / 2));
+              return [
+                `M ${xA + rr} ${yA}`,
+                `H ${xB - rr}`,
+                `A ${rr} ${rr} 0 0 1 ${xB} ${yA + rr}`,
+                `V ${yB - rr}`,
+                `A ${rr} ${rr} 0 0 1 ${xB - rr} ${yB}`,
+                `H ${xA + rr}`,
+                `A ${rr} ${rr} 0 0 1 ${xA} ${yB - rr}`,
+                `V ${yA + rr}`,
+                `A ${rr} ${rr} 0 0 1 ${xA + rr} ${yA}`,
+                'Z'
+              ].join(' ');
+            };
 
-            const ns = 'http://www.w3.org/2000/svg';
-            const rimPath = document.createElementNS(ns, 'path');
-            rimPath.setAttribute('d', d);
-            rimPath.setAttribute('fill', rim);
-            rimPath.setAttribute('stroke', 'none');
-            rimPath.setAttribute('opacity', '1');
-            rimPath.setAttribute('data-rim', '1');
+            // This trick matches the Gramps Web look:
+            // 1) paint a full rounded rect in the rim color
+            // 2) paint the same rounded rect in the body color, shifted down by rimH
+            // The boundary between colors is the *top edge* of the shifted rounded rect,
+            // which has the same radius as the outer edge, just offset.
+            const dFullInner = roundedRectPath(x0, y0, w, h, cornerInner);
+            const dFullOuter = roundedRectPath(x0, y0, w, h, cornerOuter);
 
-            const rimEdge = document.createElementNS(ns, 'path');
-            rimEdge.setAttribute('d', `M ${x1} ${yRim} Q ${xMid} ${yRim + curve} ${x0} ${yRim}`);
-            rimEdge.setAttribute('fill', 'none');
-            rimEdge.setAttribute('stroke', 'rgba(255,255,255,0.35)');
-            rimEdge.setAttribute('stroke-width', '0.8');
-            rimEdge.setAttribute('stroke-linecap', 'round');
-            rimEdge.setAttribute('stroke-linejoin', 'round');
-            rimEdge.setAttribute('data-rim', '1');
+            // Base card overlay (grey) with the *outer* radius, so the larger rim radius
+            // doesn't reveal the original smaller-radius card corners underneath.
+            const baseCard = document.createElementNS(ns, 'path');
+            baseCard.setAttribute('d', dFullOuter);
+            baseCard.setAttribute('fill', '#d0d5dd');
+            baseCard.setAttribute('stroke', 'none');
+            baseCard.setAttribute('opacity', '1');
+            baseCard.setAttribute('data-rim', '1');
+            const rimFull = document.createElementNS(ns, 'path');
+            rimFull.setAttribute('d', dFullOuter);
+            rimFull.setAttribute('fill', rim);
+            rimFull.setAttribute('stroke', 'none');
+            rimFull.setAttribute('opacity', '1');
+            rimFull.setAttribute('data-rim', '1');
+
+            const rimCut = document.createElementNS(ns, 'path');
+            rimCut.setAttribute('d', dFullInner);
+            rimCut.setAttribute('fill', '#d0d5dd');
+            rimCut.setAttribute('stroke', 'none');
+            rimCut.setAttribute('opacity', '1');
+            rimCut.setAttribute('transform', `translate(0 ${rimH})`);
+            rimCut.setAttribute('data-rim', '1');
 
             // Insert before the first text element so it doesn't cover labels.
             const firstText = node.querySelector('text');
             if (firstText) {
-              node.insertBefore(rimEdge, firstText);
-              node.insertBefore(rimPath, rimEdge);
+              node.insertBefore(rimCut, firstText);
+              node.insertBefore(rimFull, rimCut);
+              node.insertBefore(baseCard, rimFull);
             } else {
-              node.appendChild(rimPath);
-              node.appendChild(rimEdge);
+              node.appendChild(baseCard);
+              node.appendChild(rimFull);
+              node.appendChild(rimCut);
             }
           }
         }

@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 try:
@@ -21,6 +21,12 @@ app = FastAPI(title="Genealogy API", version="0.0.1")
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+
+@app.get("/static/graph_demo.htm", include_in_schema=False)
+def _static_graph_demo_htm_redirect() -> RedirectResponse:
+    # Common typo/missing 'l'. Keep old links working.
+    return RedirectResponse(url="/static/graph_demo.html", status_code=307)
 
 
 @app.get("/demo/graph")
