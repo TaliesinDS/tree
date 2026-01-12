@@ -603,7 +603,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Export a Gramps .gramps/.xml into JSONL files")
     parser.add_argument("--in", dest="in_path", required=True, help="Path to .gramps or .xml export")
     parser.add_argument("--out-dir", required=True, help="Output directory (will be created)")
-    parser.add_argument("--living-cutoff-years", type=int, default=110)
+    parser.add_argument("--living-cutoff-years", type=int, default=90)
     parser.add_argument("--no-redact-living", action="store_true", help="Do not redact living people")
     parser.add_argument("--no-redact-private", action="store_true", help="Do not redact private records")
 

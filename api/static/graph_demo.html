@@ -261,6 +261,16 @@
           <details style="margin-top: 10px;">
             <summary style="cursor: pointer; color: var(--muted); font-size: 12px;">Options</summary>
             <div class="row" style="margin-top: 10px; gap: 14px; flex-wrap: wrap;">
+              <label>
+                Graphviz edges
+                <select id="optGvEdgeRouting" style="min-width: 210px;">
+                  <option value="gramps">Ortho + corner radius (Gramps-like)</option>
+                  <option value="spline">Spline (smooth everywhere)</option>
+                  <option value="ortho">Orthogonal (elbows)</option>
+                  <option value="polyline">Polyline (straight segments)</option>
+                  <option value="curved">Curved (slow; may hang on large graphs)</option>
+                </select>
+              </label>
               <label style="grid-auto-flow: column; align-items: center; gap: 8px;">
                 <input id="optCouplePriority" type="checkbox" checked />
                 Couple priority
@@ -335,6 +345,7 @@
   const optShowDistanceEl = document.getElementById('optShowDistance');
   const optCouplePriorityEl = document.getElementById('optCouplePriority');
   const optDateStyleEl = document.getElementById('optDateStyle');
+  const optGvEdgeRoutingEl = document.getElementById('optGvEdgeRouting');
 
   // v2: reset persisted settings so new defaults take effect
   // (otherwise an older localStorage value like couplePriority=false makes layout look unchanged).
@@ -353,6 +364,9 @@
 
   const settings = {
     // Defaults: Gramps-ish presentation.
+    // Graphviz edge routing: Gramps Web feels like mostly-straight edges with rounded corners.
+    // We achieve that feel by using polyline routing and rounding corners in SVG.
+    gvEdgeRouting: 'gramps',
     couplePriority: true,
     showIds: false,
     showDistance: false,
@@ -368,8 +382,14 @@
   optShowIdsEl.checked = !!settings.showIds;
   optShowDistanceEl.checked = !!settings.showDistance;
   optDateStyleEl.value = (settings.dateStyle === 'compact') ? 'compact' : 'full';
+  optGvEdgeRoutingEl.value = (settings.gvEdgeRouting === 'curved' || settings.gvEdgeRouting === 'polyline' || settings.gvEdgeRouting === 'ortho' || settings.gvEdgeRouting === 'spline' || settings.gvEdgeRouting === 'gramps')
+    ? settings.gvEdgeRouting
+    : 'gramps';
 
   function syncSettingsFromUi() {
+    settings.gvEdgeRouting = (optGvEdgeRoutingEl.value === 'curved' || optGvEdgeRoutingEl.value === 'polyline' || optGvEdgeRoutingEl.value === 'ortho' || optGvEdgeRoutingEl.value === 'spline' || optGvEdgeRoutingEl.value === 'gramps')
+      ? optGvEdgeRoutingEl.value
+      : 'gramps';
     settings.couplePriority = !!optCouplePriorityEl.checked;
     settings.showIds = !!optShowIdsEl.checked;
     settings.showDistance = !!optShowDistanceEl.checked;
@@ -420,6 +440,10 @@
   function normalizePersonIdFromGraphvizTitle(title) {
     if (!title) return null;
     const t = String(title).trim();
+    // Support composite node ids (e.g. spouse proxy nodes).
+    // Format: <person_id>__spouse__<family_id>
+    const m = t.match(/^(?<pid>.+?)__spouse__.+$/);
+    if (m?.groups?.pid) return m.groups.pid;
     return t;
   }
 
@@ -600,6 +624,37 @@
     const nodes = payload.nodes || [];
     const edges = payload.edges || [];
 
+    // Graphviz can become extremely slow or even effectively hang on larger graphs
+    // when using curved splines. Keep it safe by default.
+    const gvSplineMode = (() => {
+      const n = (payload?.nodes?.length ?? 0);
+      const m = (payload?.edges?.length ?? 0);
+
+      const requested = (settings.gvEdgeRouting === 'curved' || settings.gvEdgeRouting === 'polyline' || settings.gvEdgeRouting === 'ortho' || settings.gvEdgeRouting === 'spline' || settings.gvEdgeRouting === 'gramps')
+        ? settings.gvEdgeRouting
+        : 'gramps';
+
+      // Safety cutoffs: Graphviz WASM runs on the main thread here.
+      // - 'curved' is the most likely to hang on larger graphs.
+      // - 'spline' is usually OK, but still avoid it when graphs get big.
+      if (requested === 'curved') {
+        if (n > 250 || m > 400) return 'polyline';
+        return 'curved';
+      }
+      if (requested === 'gramps') {
+        // Requested look: orthogonal routing + rounded corners.
+        // We round it in SVG so the radius is larger than the stroke width.
+        return 'ortho';
+      }
+      if (requested === 'spline') {
+        if (n > 650 || m > 1100) return 'polyline';
+        return 'spline';
+      }
+      return requested;
+    })();
+
+    const wantsGrampsDefaults = (settings.gvEdgeRouting === 'gramps');
+
     const people = new Map();
     const families = new Set();
     const personDistance = new Map();
@@ -631,15 +686,29 @@
     lines.push('digraph gramps_like {');
     lines.push('  compound=true;');
     lines.push('  rankdir=TB;');
-    lines.push('  splines=polyline;');
-    // Slightly roomier defaults. Family separation is mainly handled by invisible
-    // spacers in sibling rows further below.
-    lines.push('  nodesep=0.32;');
-    lines.push('  ranksep=0.90;');
-    lines.push('  pad=0.2;');
+    lines.push(`  splines=${gvSplineMode};`);
+    // Help make splines feel balanced and symmetric.
+    // (Does nothing if splines is polyline/ortho.)
+    lines.push('  outputorder=edgesfirst;');
+    // Gramps Web defaults (helps edge aesthetics and general spacing).
+    // Keep these only in the dedicated Gramps edge mode.
+    if (wantsGrampsDefaults) {
+      lines.push('  ranksep=2.8;');
+      lines.push('  pad=2;');
+      // this controls the number of iterations = nslimit * no_nodes
+      lines.push('  nslimit=2.0;');
+      lines.push('  nodesep=0;');
+    } else {
+      // Slightly roomier defaults. Family separation is mainly handled by invisible
+      // spacers in sibling rows further below.
+      lines.push('  nodesep=0.32;');
+      lines.push('  ranksep=0.90;');
+      lines.push('  pad=0.2;');
+    }
     lines.push('  bgcolor="transparent";');
     lines.push('  node [fontname="Inter, Segoe UI, Arial", fontsize=10, style="filled", color="#2a3446", margin="0.08,0.06"];');
-    lines.push('  edge [color="#556277", arrowsize=0.7, penwidth=1.2];');
+    // Slightly thicker edges make corner-rounding actually visible.
+    lines.push('  edge [color="#556277", arrowsize=0.7, penwidth=1.6];');
     lines.push('  ordering=out;');
 
     const getCouple = (fid) => {
@@ -823,19 +892,10 @@
       return `${symbol} ${String(v).toLowerCase()}`;
     };
 
-    // Nodes: one node per person, one hub per family.
-    for (const [pid, p] of people.entries()) {
+    const emitPersonCardNode = (nodeId, pid) => {
+      const p = people.get(pid);
+      if (!p) return;
       const isPrivate = p.display_name === 'Private';
-      const g = normGender(p.gender);
-
-      // Gramps-like fixed-size card
-      // - light grey body
-      // - colored top rim by gender
-      // - stable vertical layout (name + birth + death)
-      let rim = '#7aa2ff';
-      if (g === 'F') rim = '#ff7ab6';
-      if (g === 'U') rim = '#b9c4dd';
-      if (isPrivate) rim = '#ffb86c';
 
       let given = '';
       let surname = '';
@@ -876,7 +936,6 @@
       if (settings.showIds && !isPrivate && p.gramps_id) {
         footerBits.push(p.gramps_id);
       }
-
       const footer = footerBits.length ? htmlEscape(footerBits.join(' · ')) : '';
 
       // Flat fixed-size node.
@@ -885,23 +944,24 @@
       const labelLines = [nameLine1, nameLine2, birthLine || '', deathLine || '']
         .filter(v => v && String(v).trim().length)
         .map(escLabelLine);
-
-      // Use Graphviz's left-justified newline marker (\l).
-      // Trailing \l keeps the last line left-aligned too.
       const label = labelLines.join('\\l') + '\\l';
 
       const fill = bodyBg;
       lines.push(
-        `  ${dotEscape(pid)} [` +
+        `  ${dotEscape(nodeId)} [` +
         `shape=box, style="rounded,filled", fixedsize=true, width=1.60, height=1.10, ` +
         `fillcolor="${fill}", ` +
-        // Hide the default outline/trim; keep the card flat.
         `color="${fill}", penwidth=1.0, ` +
         `fontname="Inter, Segoe UI, Arial", fontsize=10, fontcolor="#0b0f16", ` +
         `labeljust=l, labelloc=c, margin="0.10,0.08", ` +
         `label="${label}"` +
         `];`
       );
+    };
+
+    // Nodes: one node per person, plus optional per-family spouse proxy nodes.
+    for (const [pid] of people.entries()) {
+      emitPersonCardNode(pid, pid);
     }
     for (const fid of families) {
       const m = '⚭';
@@ -919,6 +979,52 @@
         spouseSet.add(mother);
         addSpousePair(father, mother);
       }
+    }
+
+    // Identify multi-partner people (appear as parent in multiple 2-parent families)
+    // and duplicate-couple families (same spouse pair appears in multiple family IDs).
+    const coupleKeyOf = (a, b) => {
+      const x = String(a);
+      const y = String(b);
+      return x <= y ? `${x}|${y}` : `${y}|${x}`;
+    };
+    const parentFamiliesByPerson = new Map();
+    const coupleGroups = new Map(); // coupleKey -> { father, mother, fids: [] }
+    for (const fid of families) {
+      const { father, mother, hasTwoParents } = getCouple(fid);
+      if (!hasTwoParents || !father || !mother) continue;
+      parentFamiliesByPerson.set(father, [...(parentFamiliesByPerson.get(father) || []), fid]);
+      parentFamiliesByPerson.set(mother, [...(parentFamiliesByPerson.get(mother) || []), fid]);
+
+      const key = coupleKeyOf(father, mother);
+      const g = coupleGroups.get(key) || { father, mother, fids: [] };
+      g.fids.push(fid);
+      coupleGroups.set(key, g);
+    }
+    const multiPartnerPeople = new Set();
+    for (const [pid, fids] of parentFamiliesByPerson.entries()) {
+      const uniq = [...new Set(fids.filter(Boolean))];
+      if (uniq.length >= 2) multiPartnerPeople.add(pid);
+    }
+
+    const spouseProxyId = (pid, fid) => `${pid}__spouse__${fid}`;
+    const shouldUseSpouseProxyForFamily = (fid) => {
+      const { father, mother, hasTwoParents } = getCouple(fid);
+      if (!hasTwoParents || !father || !mother) return false;
+      if (multiPartnerPeople.has(father) || multiPartnerPeople.has(mother)) return true;
+      const group = coupleGroups.get(coupleKeyOf(father, mother));
+      return (group?.fids?.length || 0) >= 2;
+    };
+
+    // Emit spouse proxy nodes (duplicate spouse boxes) for families that need them.
+    // This avoids DOT trying (and failing) to keep a single person node adjacent to
+    // multiple spouse/family nodes on the same rank.
+    for (const fid of families) {
+      const { father, mother, hasTwoParents } = getCouple(fid);
+      if (!hasTwoParents || !father || !mother) continue;
+      if (!shouldUseSpouseProxyForFamily(fid)) continue;
+      emitPersonCardNode(spouseProxyId(father, fid), father);
+      emitPersonCardNode(spouseProxyId(mother, fid), mother);
     }
 
     // Build birth-family lookup (child -> families where they're a child).
@@ -1000,15 +1106,9 @@
         // Gramps Web style: use a per-family cluster to keep the couple cohesive.
         // This is the single most effective nudge DOT has for spouse adjacency.
         // We keep it invisible (no box) and only use it as a layout hint.
-        lines.push(`  subgraph ${dotEscape('cluster_couple_' + fid)} {`);
-        lines.push('    cluster=true;');
-        lines.push('    style=invis;');
-        lines.push('    color=white;');
-        lines.push('    label=".";');
-        // Encourage both parents to sit on the same generation row.
-        lines.push('    rank=same;');
-        lines.push(`    ${dotEscape(father)}; ${dotEscape(mother)};`);
-        lines.push('  }');
+        const useProxy = shouldUseSpouseProxyForFamily(fid);
+        const fatherNode = useProxy ? spouseProxyId(father, fid) : father;
+        const motherNode = useProxy ? spouseProxyId(mother, fid) : mother;
 
         const gf = (people.get(father)?.gender || '').toString().trim().toUpperCase();
         const gm = (people.get(mother)?.gender || '').toString().trim().toUpperCase();
@@ -1016,19 +1116,44 @@
         // Hard glue: keep couples adjacent as much as DOT allows.
         // Use a very high weight and minlen=0 to strongly discourage any node in-between.
         // constraint=false so we don't fight the vertical generational ranking.
-        let left = father;
-        let right = mother;
+        let left = fatherNode;
+        let right = motherNode;
         if (gf === 'F' && gm === 'M') {
-          left = mother;
-          right = father;
+          left = motherNode;
+          right = fatherNode;
         }
-        lines.push(`  ${dotEscape(left)} -> ${dotEscape(right)} [style=invis, weight=20000, minlen=0, constraint=false, dir=none];`);
 
-        // Family node below couple.
-        lines.push(`  ${dotEscape(father)} -> ${dotEscape(fid)} [arrowhead=none, constraint=true, weight=8, minlen=1];`);
-        lines.push(`  ${dotEscape(mother)} -> ${dotEscape(fid)} [arrowhead=none, constraint=true, weight=8, minlen=1];`);
+        // Always draw the visible connectors from spouses to the family node.
+        // constraint=false keeps the family node on the same rank when we add rank hints.
+        lines.push(`  ${dotEscape(fatherNode)} -> ${dotEscape(fid)} [arrowhead=none, constraint=false, weight=50, minlen=0];`);
+        lines.push(`  ${dotEscape(motherNode)} -> ${dotEscape(fid)} [arrowhead=none, constraint=false, weight=50, minlen=0];`);
+
+        // Keep the whole couple (spouse + family hub + spouse) cohesive.
+        // Using a cluster makes DOT treat this as a block and reduces the chance
+        // of inserting unrelated couples between spouses.
+        lines.push(`  subgraph ${dotEscape('cluster_couple_' + fid)} {`);
+        lines.push('    cluster=true;');
+        lines.push('    style=invis;');
+        lines.push('    color=white;');
+        lines.push('    label=".";');
+        lines.push('    rank=same;');
+        lines.push(`    ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)};`);
+        lines.push('  }');
+
+        // Hard ordering: spouse - family - spouse.
+        // Use constraint=true here: because all three nodes are rank=same, this won't
+        // pull anything up/down, but it *will* give DOT a real ordering constraint.
+        lines.push(`  ${dotEscape(left)} -> ${dotEscape(fid)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
+        lines.push(`  ${dotEscape(fid)} -> ${dotEscape(right)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
       }
     }
+
+    // Helper: find an in-view two-parent family hub for a spouse pair (if any).
+    const familyHubForSpousePair = (a, b) => {
+      const g = coupleGroups.get(coupleKeyOf(a, b));
+      const fids = g?.fids || [];
+      return fids.length ? String(fids[0]) : null;
+    };
 
     // Keep siblings on the same rank (row) beneath their family.
     for (const fid of families) {
@@ -1116,8 +1241,12 @@
         }
 
         // Extra hard glue for couples inside this sibling row.
+        // If the pair has an in-view family hub, keep this glue weaker so the
+        // spouse–family–spouse ordering can still place the hub between them.
         for (const [l, r] of coupleGlueEdges) {
-          lines.push(`  ${dotEscape(l)} -> ${dotEscape(r)} [style=invis, weight=20000, minlen=0, constraint=false, dir=none];`);
+          const hasHub = !!familyHubForSpousePair(l, r);
+          const w = hasHub ? 2000 : 20000;
+          lines.push(`  ${dotEscape(l)} -> ${dotEscape(r)} [style=invis, weight=${w}, minlen=0, constraint=false, dir=none];`);
         }
         if (rowNodes.length >= 1) {
           lines.push(`  ${dotEscape(rowNodes[rowNodes.length - 1])} -> ${dotEscape(sepId)} [style=invis, weight=160, constraint=false, dir=none];`);
@@ -1287,9 +1416,10 @@
       g.node:hover polygon, g.node:hover rect, g.node:hover ellipse {
         filter: drop-shadow(0 2px 8px rgba(122,162,255,0.20));
       }
-      g.edge path {
-        stroke-linecap: round;
-        stroke-linejoin: round;
+      /* Graphviz often emits inline stroke-linecap/join; force rounded geometry. */
+      g.edge path, g.edge polyline, g.edge line {
+        stroke-linecap: round !important;
+        stroke-linejoin: round !important;
       }
     `;
     gvEl.prepend(style);
@@ -1335,9 +1465,485 @@
 
       postProcessGraphvizSvg(svg, { personMetaById });
 
+      // Force rounded joins/caps even when Graphviz emitted inline styles.
+      (function enforceEdgeRounding() {
+        const edgeShapes = svg.querySelectorAll('g.edge path, g.edge polyline, g.edge line');
+        for (const el of edgeShapes) {
+          try {
+            // Use !important to beat inline presentation attributes.
+            el.style.setProperty('stroke-linecap', 'round', 'important');
+            el.style.setProperty('stroke-linejoin', 'round', 'important');
+          } catch (_) {}
+        }
+      })();
+
+      // Requested look: Graphviz uses orthogonal routing; we then:
+      // 1) apply a small per-edge "fan-out" offset so sibling edges don't stack
+      // 2) convert the resulting elbow polyline into a smooth compound bezier
+      let edgeRoundStats = null;
+      if (settings.gvEdgeRouting === 'gramps') {
+        edgeRoundStats = (function convertEdgeElbowsToRoundedPaths() {
+          const edgeGroups = Array.from(svg.querySelectorAll('g.edge'));
+          if (!edgeGroups.length) return {
+            replaced: 0,
+            edgePolylines: 0,
+            edgePaths: 0,
+            edgeLines: 0,
+            parsedPaths: 0,
+            groupedEdges: 0,
+          };
+
+          const ns = 'http://www.w3.org/2000/svg';
+
+          // Build a lookup for person card node ports so edges always enter cards
+          // at the top-center (Graphviz's chosen intersection point drifts).
+          const personTopCenterById = new Map();
+          for (const node of svg.querySelectorAll('g.node')) {
+            // Skip non-person nodes (family hubs are ellipses).
+            if (node.querySelector('ellipse')) continue;
+            const id = node.querySelector('title')?.textContent?.trim();
+            if (!id) continue;
+            const shape = node.querySelector('path:not([data-rim="1"]), polygon, rect');
+            if (!shape || typeof shape.getBBox !== 'function') continue;
+            try {
+              const bb = shape.getBBox();
+              if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
+              personTopCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y });
+            } catch (_) {}
+          }
+
+          const parsePoints = (s) => {
+            const pts = [];
+            const parts = String(s || '').trim().split(/\s+/g);
+            for (const part of parts) {
+              const [xStr, yStr] = part.split(',');
+              const x = Number(xStr);
+              const y = Number(yStr);
+              if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ x, y });
+            }
+            return pts;
+          };
+
+          const len = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+          const unit = (a, b) => {
+            const d = len(a, b);
+            if (!Number.isFinite(d) || d <= 0) return { x: 0, y: 0 };
+            return { x: (b.x - a.x) / d, y: (b.y - a.y) / d };
+          };
+
+          // How much to "spread" edges in a bundle (Graphviz coord space).
+          // This is ONLY to stop sibling edges stacking on the same run.
+          // Smaller = subtler. (You generally want this small.)
+          const FAN_DELTA = 0;
+
+          // Smoothing amount (0..1). Higher => curvier.
+          const TENSION = 1;
+
+          const parsePathPoints = (d) => {
+            // Parser for Graphviz edge paths. Graphviz frequently encodes straight
+            // segments using cubic Beziers (C) where control points are collinear.
+            // We treat any of M/L/H/V/C/S/Q/T as producing a polyline via endpoints.
+            // (We do not support relative commands or arcs.)
+            const s = String(d || '').trim();
+            if (!s) return null;
+            if (/[a]/i.test(s)) return null; // arc
+
+            const tok = s.match(/[a-zA-Z]|-?\d*\.?\d+(?:e[-+]?\d+)?/g);
+            if (!tok || tok.length < 3) return null;
+
+            const pts = [];
+            let i = 0;
+            let cmd = null;
+            let x = 0;
+            let y = 0;
+
+            const readNum = () => {
+              const v = Number(tok[i]);
+              if (!Number.isFinite(v)) return null;
+              i += 1;
+              return v;
+            };
+
+            const push = (nx, ny) => {
+              if (!Number.isFinite(nx) || !Number.isFinite(ny)) return false;
+              x = nx;
+              y = ny;
+              pts.push({ x, y });
+              return true;
+            };
+
+            const isCmd = (t) => /^[a-zA-Z]$/.test(t);
+
+            while (i < tok.length) {
+              const t = tok[i];
+              if (isCmd(t)) {
+                cmd = t;
+                i += 1;
+                continue;
+              }
+
+              if (!cmd) return null;
+              const c = cmd;
+
+              // reject relative variants
+              if (c === c.toLowerCase()) return null;
+
+              if (c === 'M') {
+                // first pair is move, remaining pairs are implicit L
+                const nx = readNum();
+                const ny = readNum();
+                if (nx === null || ny === null) return null;
+                if (!push(nx, ny)) return null;
+                cmd = 'L';
+                continue;
+              }
+
+              if (c === 'L') {
+                const nx = readNum();
+                const ny = readNum();
+                if (nx === null || ny === null) return null;
+                if (!push(nx, ny)) return null;
+                continue;
+              }
+
+              if (c === 'H') {
+                const nx = readNum();
+                if (nx === null) return null;
+                if (!push(nx, y)) return null;
+                continue;
+              }
+
+              if (c === 'V') {
+                const ny = readNum();
+                if (ny === null) return null;
+                if (!push(x, ny)) return null;
+                continue;
+              }
+
+              if (c === 'C') {
+                // x1 y1 x2 y2 x y
+                const x1 = readNum();
+                const y1 = readNum();
+                const x2 = readNum();
+                const y2 = readNum();
+                const nx = readNum();
+                const ny = readNum();
+                if ([x1, y1, x2, y2, nx, ny].some(v => v === null)) return null;
+                if (!push(nx, ny)) return null;
+                continue;
+              }
+
+              if (c === 'S' || c === 'Q') {
+                // S: x2 y2 x y, Q: x1 y1 x y (we only care about endpoint)
+                const a = readNum();
+                const b = readNum();
+                const nx = readNum();
+                const ny = readNum();
+                if ([a, b, nx, ny].some(v => v === null)) return null;
+                if (!push(nx, ny)) return null;
+                continue;
+              }
+
+              if (c === 'T') {
+                const nx = readNum();
+                const ny = readNum();
+                if (nx === null || ny === null) return null;
+                if (!push(nx, ny)) return null;
+                continue;
+              }
+
+              // Unsupported command
+              return null;
+            }
+
+            // De-duplicate consecutive identical points (can happen with arrow-end clips).
+            const compact = [];
+            for (const p of pts) {
+              const prev = compact[compact.length - 1];
+              if (!prev || prev.x !== p.x || prev.y !== p.y) compact.push(p);
+            }
+
+            return compact.length >= 2 ? compact : null;
+          };
+
+          const pickEndpoints = (pts) => {
+            if (!pts || pts.length < 2) return null;
+            const a = pts[0];
+            const b = pts[pts.length - 1];
+            if (!a || !b) return null;
+            if (![a.x, a.y, b.x, b.y].every(Number.isFinite)) return null;
+            return { source: a, target: b };
+          };
+
+          const shiftLongestAxisSegment = (pts, offset) => {
+            if (!pts || pts.length < 3) return pts;
+            // Don't move endpoints (to keep arrowheads and node ports aligned).
+            let best = null;
+            for (let i = 1; i < pts.length - 2; i++) {
+              const p1 = pts[i];
+              const p2 = pts[i + 1];
+              const dx = Math.abs(p2.x - p1.x);
+              const dy = Math.abs(p2.y - p1.y);
+              const isH = dy < 1e-6 && dx > 1e-6;
+              const isV = dx < 1e-6 && dy > 1e-6;
+              if (!isH && !isV) continue;
+              const score = Math.max(dx, dy);
+              if (!best || score > best.score) {
+                best = { i, isH, isV, score };
+              }
+            }
+            if (!best) return pts;
+
+            const out = pts.map(p => ({ x: p.x, y: p.y }));
+            const a = out[best.i];
+            const b = out[best.i + 1];
+            if (best.isH) {
+              a.y += offset;
+              b.y += offset;
+            } else if (best.isV) {
+              a.x += offset;
+              b.x += offset;
+            }
+            return out;
+          };
+
+          const smoothVerticalConnectorD = ({ source, target, offsetX = 0 }) => {
+            // Mirrors Gramps Web's approach:
+            // take ONLY the first+last points of the Graphviz edge and draw a smooth connector.
+            // This avoids loops/spirals from overfitting intermediate polyline points.
+            const sx = source.x;
+            const sy = source.y;
+            const tx = target.x;
+            const ty = target.y;
+            const dy = ty - sy;
+            if (!Number.isFinite(dy) || Math.abs(dy) < 0.01) {
+              return `M ${sx} ${sy} L ${tx} ${ty}`;
+            }
+
+            // Stub length controls how long the edge goes straight down before turning.
+            // Smaller stubs = less visible straight section at endpoints.
+            const stub = Math.min(60, Math.max(4, Math.abs(dy) * 0.06));
+            const p0 = { x: sx, y: sy + Math.sign(dy) * stub };
+            const p1 = { x: tx, y: ty - Math.sign(dy) * stub };
+            const midY = (p0.y + p1.y) / 2;
+
+            // Main curve: keep start/end mostly vertical, allow mid bulge via offsetX.
+            const cp1 = { x: sx + offsetX, y: midY };
+            const cp2 = { x: tx + offsetX, y: midY };
+
+            const sign = Math.sign(dy);
+            const k = stub * 0.55;
+            const s1 = { x: sx, y: sy + sign * k };
+            const s2 = { x: sx, y: p0.y };
+            const e1 = { x: tx, y: ty - sign * k };
+            const e2 = { x: tx, y: ty };
+
+            return [
+              `M ${sx} ${sy}`,
+              // vertical exit
+              `C ${s1.x} ${s1.y} ${s2.x} ${s2.y} ${p0.x} ${p0.y}`,
+              // smooth sideways connector
+              `C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${p1.x} ${p1.y}`,
+              // vertical entry
+              `C ${e1.x} ${e1.y} ${e2.x} ${e2.y} ${tx} ${ty}`,
+            ].join(' ');
+          };
+
+          const roundedPathD = (pts) => {
+            if (!pts || pts.length < 2) return null;
+            if (pts.length === 2) {
+              return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
+            }
+
+            let d = `M ${pts[0].x} ${pts[0].y}`;
+            // Walk corners.
+            for (let i = 1; i < pts.length - 1; i++) {
+              const p0 = pts[i - 1];
+              const p1 = pts[i];
+              const p2 = pts[i + 1];
+
+              const vIn = unit(p1, p0);
+              const vOut = unit(p1, p2);
+              const dIn = len(p0, p1);
+              const dOut = len(p1, p2);
+              const r = Math.max(0, Math.min(R, dIn / 2, dOut / 2));
+
+              const pA = { x: p1.x + vIn.x * r, y: p1.y + vIn.y * r };
+              const pB = { x: p1.x + vOut.x * r, y: p1.y + vOut.y * r };
+
+              d += ` L ${pA.x} ${pA.y}`;
+              d += ` Q ${p1.x} ${p1.y} ${pB.x} ${pB.y}`;
+            }
+            const last = pts[pts.length - 1];
+            d += ` L ${last.x} ${last.y}`;
+            return d;
+          };
+
+          const replaceWithRoundedPath = (el, pts, offsetX, { edgeTargetId } = {}) => {
+            const ends = pickEndpoints(pts);
+            if (!ends) return;
+            // Force edges into the visual center of person cards.
+            if (edgeTargetId) {
+              const port = personTopCenterById.get(edgeTargetId);
+              if (port && Number.isFinite(port.x) && Number.isFinite(port.y)) {
+                ends.target = port;
+              }
+            }
+            const d = smoothVerticalConnectorD({ ...ends, offsetX: offsetX || 0 });
+            if (!d) return;
+
+            const path = document.createElementNS(ns, 'path');
+            path.setAttribute('d', d);
+
+            // Copy styling over. Prefer computed stroke/fill.
+            const cs = getComputedStyle(el);
+            const stroke = el.getAttribute('stroke') || cs.stroke || '#556277';
+            const sw = el.getAttribute('stroke-width') || cs.strokeWidth || '1.6';
+            const op = el.getAttribute('stroke-opacity') || cs.strokeOpacity || null;
+
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke', stroke);
+            path.setAttribute('stroke-width', sw);
+            if (op !== null && op !== undefined && String(op).length) path.setAttribute('stroke-opacity', String(op));
+
+            path.style.setProperty('stroke-linecap', 'round', 'important');
+            path.style.setProperty('stroke-linejoin', 'round', 'important');
+
+            // Keep any class names for debugging/styling.
+            if (el.getAttribute('class')) path.setAttribute('class', el.getAttribute('class'));
+
+            el.replaceWith(path);
+          };
+
+          let replaced = 0;
+          let parsedPaths = 0;
+
+          const extractEdgeKey = (g) => {
+            const title = g.querySelector('title')?.textContent?.trim() || '';
+            if (!title.includes('->')) return { source: title || 'edge', target: '' };
+            const [a, b] = title.split('->');
+            return { source: String(a || '').trim(), target: String(b || '').trim() };
+          };
+
+          const pickStrokeEl = (g) => {
+            // Prefer a stroke-only path/polyline/line (avoid arrowhead polygons).
+            const cand = g.querySelectorAll('path, polyline, line');
+            for (const el of cand) {
+              const tag = el.tagName?.toLowerCase?.();
+              if (tag !== 'path' && tag !== 'polyline' && tag !== 'line') continue;
+              const fill = (el.getAttribute('fill') || '').trim().toLowerCase();
+              const stroke = (el.getAttribute('stroke') || '').trim().toLowerCase();
+              if (fill && fill !== 'none') continue;
+              if (!stroke || stroke === 'none') continue;
+              return el;
+            }
+            return null;
+          };
+
+          const edgeInfos = [];
+          let edgePolylines = 0;
+          let edgePaths = 0;
+          let edgeLines = 0;
+
+          for (const g of edgeGroups) {
+            const el = pickStrokeEl(g);
+            if (!el) continue;
+            const tag = el.tagName.toLowerCase();
+            const { source, target } = extractEdgeKey(g);
+            let pts = null;
+            if (tag === 'polyline') {
+              edgePolylines += 1;
+              pts = parsePoints(el.getAttribute('points'));
+            } else if (tag === 'line') {
+              edgeLines += 1;
+              const x1 = Number(el.getAttribute('x1'));
+              const y1 = Number(el.getAttribute('y1'));
+              const x2 = Number(el.getAttribute('x2'));
+              const y2 = Number(el.getAttribute('y2'));
+              if ([x1, y1, x2, y2].every(Number.isFinite)) pts = [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+            } else if (tag === 'path') {
+              edgePaths += 1;
+              pts = parsePathPoints(el.getAttribute('d'));
+              if (pts) parsedPaths += 1;
+            }
+            if (!pts || pts.length < 2) continue;
+            edgeInfos.push({ g, el, pts, source, target });
+          }
+
+          const groupsBySource = new Map();
+          for (const e of edgeInfos) {
+            const key = e.source || 'edge';
+            const arr = groupsBySource.get(key) || [];
+            arr.push(e);
+            groupsBySource.set(key, arr);
+          }
+
+          let groupedEdges = 0;
+          for (const [, arr] of groupsBySource.entries()) {
+            if (arr.length >= 2) groupedEdges += arr.length;
+            arr.sort((a, b) => String(a.target).localeCompare(String(b.target)));
+            const mid = (arr.length - 1) / 2;
+            for (let idx = 0; idx < arr.length; idx++) {
+              const e = arr[idx];
+              // symmetric offsets: -k..0..+k
+              const offset = (idx - mid) * FAN_DELTA;
+              // Keep Graphviz endpoints, but allow a mild mid-bulge per sibling edge.
+              const adjusted = e.pts;
+              try {
+                replaceWithRoundedPath(e.el, adjusted, offset, { edgeTargetId: e.target });
+                replaced += 1;
+              } catch (_) {}
+            }
+          }
+
+          return {
+            replaced,
+            edgePolylines,
+            edgePaths,
+            edgeLines,
+            parsedPaths,
+            groupedEdges,
+          };
+        })();
+      }
+
+      // Basic click handling: update status when you click a node.
+      gvEl.querySelectorAll('g.node').forEach(g => {
+        g.style.cursor = 'pointer';
+        g.addEventListener('click', () => {
+          const title = g.querySelector('title')?.textContent?.trim();
+          const pid = normalizePersonIdFromGraphvizTitle(title);
+          if (!pid) return;
+
+          // Navigate like Gramps: click a person to re-center graph.
+          if (/^I\d+$/i.test(String(pid))) {
+            personIdEl.value = pid;
+            setStatus(`Centering on ${pid}...`);
+            loadGraph();
+            return;
+          }
+          setStatus(`Selected node: ${pid}`);
+        });
+      });
+
       // Add pan/zoom.
       gvPanZoom = enableSvgPanZoom(svg, { container: gvEl });
+
+      return {
+        edgeRoundStats,
+        edgeShapeCounts: {
+          paths: svg.querySelectorAll('g.edge path').length,
+          polylines: svg.querySelectorAll('g.edge polyline').length,
+          lines: svg.querySelectorAll('g.edge line').length,
+        },
+      };
     }
+
+    return {
+      edgeRoundStats: null,
+      edgeShapeCounts: { paths: 0, polylines: 0, lines: 0 },
+    };
+  }
 
   function postProcessGraphvizSvg(svg, { personMetaById } = {}) {
     const nodes = svg.querySelectorAll('g.node');
@@ -1474,25 +2080,6 @@
       setStatus(`Rendered Graphviz (styled ${processed} person nodes).`);
     }
   }
-    // Basic click handling: update status when you click a node.
-    gvEl.querySelectorAll('g.node').forEach(g => {
-      g.style.cursor = 'pointer';
-      g.addEventListener('click', () => {
-        const title = g.querySelector('title')?.textContent?.trim();
-        const pid = normalizePersonIdFromGraphvizTitle(title);
-        if (!pid) return;
-
-        // Navigate like Gramps: click a person to re-center graph.
-        if (/^I\d+$/i.test(String(pid))) {
-          personIdEl.value = pid;
-          setStatus(`Centering on ${pid}...`);
-          loadGraph();
-          return;
-        }
-        setStatus(`Selected node: ${pid}`);
-      });
-    });
-  }
 
   function runLayout(layout) {
     // Try to keep it Gramps-ish:
@@ -1552,17 +2139,39 @@
       }
       const payload = await resp.json();
 
+      // Performance safety: Cytoscape can get slow with bezier edges on large graphs.
+      // Use haystack curves when the graph is large.
+      const applyCytoscapePerfMode = () => {
+        const edgeCount = (payload?.edges?.length ?? 0);
+        const nodeCount = (payload?.nodes?.length ?? 0);
+        const curveStyle = (edgeCount > 1500 || nodeCount > 1200) ? 'haystack' : 'bezier';
+        try {
+          cy.style()
+            .selector('edge')
+            .style({ 'curve-style': curveStyle })
+            .update();
+        } catch (_) {
+          // best effort
+        }
+      };
+
       updateApiNoticeFromPayload(payload);
 
       if (uiLayout === 'graphviz') {
         showGraphviz();
         setStatus('Rendering Graphviz (dot) SVG...');
-        await renderGraphvizSvg(payload);
-        setStatus(`Loaded ${payload.nodes?.length ?? 0} nodes, ${payload.edges?.length ?? 0} edges (${uiLayout}).`);
+        const r = await renderGraphvizSvg(payload);
+        const s = r?.edgeShapeCounts;
+        const rs = r?.edgeRoundStats;
+        const shapes = s ? ` shapes p:${s.paths} pl:${s.polylines} l:${s.lines}` : '';
+        const rounded = (rs && typeof rs.replaced === 'number') ? ` rounded:${rs.replaced}` : '';
+        const parsed = (rs && typeof rs.parsedPaths === 'number') ? ` parsedPaths:${rs.parsedPaths}` : '';
+        setStatus(`Loaded ${payload.nodes?.length ?? 0} nodes, ${payload.edges?.length ?? 0} edges (${uiLayout}).${shapes}${rounded}${parsed}`);
         return;
       }
 
       showCytoscape();
+      applyCytoscapePerfMode();
       cy.elements().remove();
       cy.add(makeElements(payload));
       runLayout(uiLayout);
@@ -1607,7 +2216,7 @@
     a.click();
   });
 
-  for (const el of [optCouplePriorityEl, optShowIdsEl, optShowDistanceEl, optDateStyleEl]) {
+  for (const el of [optGvEdgeRoutingEl, optCouplePriorityEl, optShowIdsEl, optShowDistanceEl, optDateStyleEl]) {
     el.addEventListener('change', () => {
       syncSettingsFromUi();
       if (layoutEl.value === 'graphviz') {

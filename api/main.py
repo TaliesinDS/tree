@@ -18,6 +18,77 @@ except ImportError:  # pragma: no cover
 app = FastAPI(title="Genealogy API", version="0.0.1")
 
 
+_PRIVACY_BORN_ON_OR_AFTER = date(1946, 1, 1)
+_PRIVACY_AGE_CUTOFF_YEARS = 90
+
+
+def _add_years(d: date, years: int) -> date:
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        # Handle Feb 29 -> Feb 28 in non-leap years.
+        return d.replace(month=2, day=28, year=d.year + years)
+
+
+def _is_younger_than(birth: date, years: int, *, today: date | None = None) -> bool:
+    t = today or date.today()
+    return t < _add_years(birth, years)
+
+
+def _is_effectively_living(
+    *,
+    is_living_override: bool | None,
+    is_living: bool | None,
+    death_date: date | None,
+) -> bool | None:
+    if is_living_override is not None:
+        return bool(is_living_override)
+    if is_living is not None:
+        return bool(is_living)
+    if death_date is not None:
+        return False
+    return None
+
+
+def _is_effectively_private(
+    *,
+    is_private: bool | None,
+    is_living_override: bool | None,
+    is_living: bool | None,
+    birth_date: date | None,
+    death_date: date | None,
+) -> bool:
+    """Privacy policy:
+
+    - Explicitly private => private
+    - If (effectively) living:
+      - born >= 1946-01-01 => private
+      - else if age < 90 => private
+      - else public
+    - Unknown birth date: privacy-first => private (for living/unknown living)
+    """
+
+    if bool(is_private):
+        return True
+
+    living = _is_effectively_living(
+        is_living_override=is_living_override,
+        is_living=is_living,
+        death_date=death_date,
+    )
+    if living is False:
+        return False
+
+    # living is True or unknown
+    if birth_date is None:
+        return True
+    if birth_date >= _PRIVACY_BORN_ON_OR_AFTER:
+        return True
+    if _is_younger_than(birth_date, _PRIVACY_AGE_CUTOFF_YEARS):
+        return True
+    return False
+
+
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
@@ -74,7 +145,8 @@ def get_person(person_id: str) -> dict[str, Any]:
         row = conn.execute(
             """
             SELECT id, gramps_id, display_name, given_name, surname, gender,
-                   birth_text, death_text, is_living, is_private
+                   birth_text, death_text, birth_date, death_date,
+                   is_living, is_private, is_living_override
             FROM person
             WHERE id = %s
             """.strip(),
@@ -93,8 +165,11 @@ def get_person(person_id: str) -> dict[str, Any]:
         gender,
         birth_text,
         death_text,
+        birth_date,
+        death_date,
         is_living_flag,
         is_private_flag,
+        is_living_override,
     ) = tuple(row)
 
     person = {
@@ -110,8 +185,21 @@ def get_person(person_id: str) -> dict[str, Any]:
         "is_private": is_private_flag,
     }
 
+    should_redact = _is_effectively_private(
+        is_private=person.get("is_private"),
+        is_living_override=is_living_override,
+        is_living=person.get("is_living"),
+        birth_date=birth_date,
+        death_date=death_date,
+    )
+
     # Enforce privacy even if upstream export forgot.
-    if person.get("is_private") or person.get("is_living"):
+    if should_redact:
+        living_effective = _is_effectively_living(
+            is_living_override=is_living_override,
+            is_living=person.get("is_living"),
+            death_date=death_date,
+        )
         return {
             "id": person["id"],
             "gramps_id": person.get("gramps_id"),
@@ -121,7 +209,7 @@ def get_person(person_id: str) -> dict[str, Any]:
             "gender": None,
             "birth": None,
             "death": None,
-            "is_living": True if person.get("is_living") is None else bool(person.get("is_living")),
+            "is_living": True if living_effective is None else bool(living_effective),
             "is_private": True,
         }
 
@@ -145,7 +233,8 @@ def search_people(q: str = Query(min_length=1, max_length=200)) -> dict[str, Any
     with db_conn() as conn:
         rows = conn.execute(
             """
-            SELECT id, gramps_id, display_name, is_living, is_private
+            SELECT id, gramps_id, display_name,
+                   birth_date, death_date, is_living, is_private, is_living_override
             FROM person
             WHERE display_name ILIKE %s
             ORDER BY display_name
@@ -156,8 +245,25 @@ def search_people(q: str = Query(min_length=1, max_length=200)) -> dict[str, Any
 
     results: list[dict[str, Any]] = []
     for r in rows:
-        # Always redact living/private from search results.
-        if r[3] or r[4]:
+        (
+            pid,
+            gid,
+            display_name,
+            birth_date,
+            death_date,
+            is_living_flag,
+            is_private_flag,
+            is_living_override,
+        ) = tuple(r)
+
+        # Always redact per privacy policy.
+        if _is_effectively_private(
+            is_private=is_private_flag,
+            is_living_override=is_living_override,
+            is_living=is_living_flag,
+            birth_date=birth_date,
+            death_date=death_date,
+        ):
             results.append({"id": r[0], "gramps_id": r[1], "display_name": "Private"})
         else:
             results.append({"id": r[0], "gramps_id": r[1], "display_name": r[2]})
@@ -251,7 +357,11 @@ def _bfs_neighborhood_distances(
 
 
 def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = None) -> dict[str, Any]:
-    # r = (id, gramps_id, display_name, given_name, surname, gender, birth_text, death_text, is_living, is_private)
+    # r = (
+    #   id, gramps_id, display_name, given_name, surname, gender,
+    #   birth_text, death_text, birth_date, death_date,
+    #   is_living, is_private, is_living_override
+    # )
     (
         pid,
         gid,
@@ -261,10 +371,20 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
         gender,
         birth_text,
         death_text,
+        birth_date,
+        death_date,
         is_living_flag,
         is_private_flag,
+        is_living_override,
     ) = r
-    if is_living_flag or is_private_flag:
+
+    if _is_effectively_private(
+        is_private=is_private_flag,
+        is_living_override=is_living_override,
+        is_living=is_living_flag,
+        birth_date=birth_date,
+        death_date=death_date,
+    ):
         return {
             "id": pid,
             "gramps_id": gid,
@@ -336,7 +456,8 @@ def graph_neighborhood(
         person_rows = conn.execute(
             """
             SELECT id, gramps_id, display_name, given_name, surname, gender,
-                   birth_text, death_text, is_living, is_private
+                   birth_text, death_text, birth_date, death_date,
+                   is_living, is_private, is_living_override
             FROM person
             WHERE id = ANY(%s)
             """.strip(),
@@ -504,7 +625,8 @@ def relationship_path(
 
         rows = conn.execute(
             """
-            SELECT id, gramps_id, display_name, is_living, is_private
+            SELECT id, gramps_id, display_name,
+                   birth_date, death_date, is_living, is_private, is_living_override
             FROM person
             WHERE id = ANY(%s)
             """.strip(),
@@ -514,7 +636,17 @@ def relationship_path(
             r[0]: {
                 "id": r[0],
                 "gramps_id": r[1],
-                "display_name": ("Private" if (r[3] or r[4]) else r[2]),
+                "display_name": (
+                    "Private"
+                    if _is_effectively_private(
+                        is_private=r[6],
+                        is_living_override=r[7],
+                        is_living=r[5],
+                        birth_date=r[3],
+                        death_date=r[4],
+                    )
+                    else r[2]
+                ),
             }
             for r in rows
         }
@@ -538,7 +670,7 @@ def get_place(place_id: str) -> dict[str, Any]:
     }
 
 
-def is_living(birth: date | None, death: date | None, living_cutoff_years: int = 110) -> bool:
+def is_living(birth: date | None, death: date | None, living_cutoff_years: int = _PRIVACY_AGE_CUTOFF_YEARS) -> bool:
     """Conservative living heuristic for public views.
 
     - If death is known: not living.
