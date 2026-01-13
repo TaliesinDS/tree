@@ -1654,6 +1654,9 @@
   function enableSvgPanZoom(svg, {container} = {}) {
     // Minimal pan/zoom for inline SVG via viewBox.
     // Works in normal browsers + VS Code Simple Browser.
+    // Important: use the SVG element's own viewport rect for pixel<->viewBox math.
+    // Using the container rect can introduce a scale mismatch (padding/scrollbars),
+    // which shows up as non-1:1 dragging when zoomed.
     const ensureViewBox = () => {
       let vb = svg.viewBox?.baseVal;
       if (vb && Number.isFinite(vb.width) && vb.width > 0 && Number.isFinite(vb.height) && vb.height > 0) {
@@ -1683,11 +1686,31 @@
       svg.setAttribute('viewBox', `${state.x} ${state.y} ${state.w} ${state.h}`);
     };
 
+    const getViewportRect = () => svg.getBoundingClientRect();
+
+    const getViewMetrics = () => {
+      const rect = getViewportRect();
+      const rw = Math.max(1, rect.width);
+      const rh = Math.max(1, rect.height);
+
+      // With preserveAspectRatio="xMinYMin meet", the SVG content is uniformly scaled
+      // to fit. If the viewport is taller than the content aspect ratio, the extra
+      // space is letterboxed at the bottom, which would break Y panning if we use rh.
+      const scaleX = rw / state.w;
+      const scaleY = rh / state.h;
+      const scale = Math.min(scaleX, scaleY); // px per viewBox unit
+      const drawnW = state.w * scale;
+      const drawnH = state.h * scale;
+      return { rect, scale, drawnW, drawnH };
+    };
+
     const wheel = (e) => {
       e.preventDefault();
-      const rect = (container || svg).getBoundingClientRect();
-      const px = (e.clientX - rect.left) / rect.width;
-      const py = (e.clientY - rect.top) / rect.height;
+      const { rect, drawnW, drawnH } = getViewMetrics();
+      const pxRaw = (e.clientX - rect.left) / Math.max(1, drawnW);
+      const pyRaw = (e.clientY - rect.top) / Math.max(1, drawnH);
+      const px = Math.max(0, Math.min(1, pxRaw));
+      const py = Math.max(0, Math.min(1, pyRaw));
 
       const zoom = Math.exp((e.deltaY > 0 ? 1 : -1) * 0.12);
       const newW = state.w * zoom;
@@ -1720,16 +1743,18 @@
     const move = (e) => {
       if (!state.dragging) return;
       e.preventDefault();
-      const rect = (container || svg).getBoundingClientRect();
+      const { scale } = getViewMetrics();
 
       const dxPx = e.clientX - state.lastX;
       const dyPx = e.clientY - state.lastY;
       state.lastX = e.clientX;
       state.lastY = e.clientY;
 
-      // Convert pixels -> viewBox units so the perceived movement is exactly dxPx/dyPx.
-      state.x -= dxPx * (state.w / rect.width);
-      state.y -= dyPx * (state.h / rect.height);
+      // Convert pixels -> viewBox units using the *uniform* content scale.
+      // (Using rect.height here breaks Y when the SVG is letterboxed.)
+      const unitsPerPx = 1 / Math.max(1e-6, scale);
+      state.x -= dxPx * unitsPerPx;
+      state.y -= dyPx * unitsPerPx;
       apply();
     };
 
@@ -1864,6 +1889,36 @@
 
           // If we moved family hubs (⚭) in SVG post-processing, keep edges landing on them.
           const familyHubDyById = post?.familyHubDyById || new Map();
+
+          // Map hub node id -> rendered ellipse geometry, so we can snap edges to the
+          // boundary and avoid tiny overshoots (notably in very large families).
+          const hubGeomById = new Map();
+          try {
+            for (const node of svg.querySelectorAll('g.node')) {
+              const ellipse = node.querySelector('ellipse');
+              if (!ellipse) continue;
+              const id = node.querySelector('title')?.textContent?.trim();
+              if (!id) continue;
+
+              const labelText = (node.querySelector('text')?.textContent || '').trim();
+              const fill = (ellipse.getAttribute('fill') || '').trim().toLowerCase();
+              const isHub = (labelText === '⚭') || (fill === '#9d7bff');
+              if (!isHub) continue;
+
+              if (typeof ellipse.getBBox !== 'function') continue;
+              const bb = ellipse.getBBox();
+              if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
+              const rx = bb.width / 2;
+              const ry = bb.height / 2;
+              if (!Number.isFinite(rx) || !Number.isFinite(ry) || rx <= 0 || ry <= 0) continue;
+              hubGeomById.set(id, {
+                cx: bb.x + rx,
+                cy: bb.y + ry,
+                rx,
+                ry,
+              });
+            }
+          } catch (_) {}
 
           // Build a lookup for person card node ports so edges always enter cards
           // at the top-center (Graphviz's chosen intersection point drifts).
@@ -2091,8 +2146,8 @@
             }
 
             // Stub length controls how long the edge goes straight down before turning.
-            // Smaller stubs = less visible straight section at endpoints.
-            const stub = Math.min(60, Math.max(4, Math.abs(dy) * 0.06));
+            // Keep this small to avoid a visible shared vertical "stem" before edges split.
+            const stub = Math.min(2, Math.max(2, Math.abs(dy) * 0.02));
             const p0 = { x: sx, y: sy + Math.sign(dy) * stub };
             const p1 = { x: tx, y: ty - Math.sign(dy) * stub };
             const midY = (p0.y + p1.y) / 2;
@@ -2153,10 +2208,23 @@
             const ends = pickEndpoints(pts);
             if (!ends) return;
 
+            const snapToHubBoundary = (hubId, otherPoint) => {
+              const g = hubGeomById.get(hubId);
+              if (!g) return null;
+              const oy = Number(otherPoint?.y);
+              const sign = (Number.isFinite(oy) && oy >= g.cy) ? 1 : -1;
+              return { x: g.cx, y: g.cy + sign * g.ry };
+            };
+
             // Lower family hub endpoints (Gramps Web draws couple markers off-center).
-            if (edgeSourceId && familyHubDyById.has(edgeSourceId)) {
-              const dy = Number(familyHubDyById.get(edgeSourceId));
-              if (Number.isFinite(dy) && dy) ends.source = { x: ends.source.x, y: ends.source.y + dy };
+            if (edgeSourceId) {
+              const snap = snapToHubBoundary(edgeSourceId, ends.target);
+              if (snap) {
+                ends.source = snap;
+              } else if (familyHubDyById.has(edgeSourceId)) {
+                const dy = Number(familyHubDyById.get(edgeSourceId));
+                if (Number.isFinite(dy) && dy) ends.source = { x: ends.source.x, y: ends.source.y + dy };
+              }
             }
             // Force edges into the visual center of person cards.
             if (edgeTargetId) {
@@ -2166,9 +2234,14 @@
               }
             }
 
-            if (edgeTargetId && familyHubDyById.has(edgeTargetId)) {
-              const dy = Number(familyHubDyById.get(edgeTargetId));
-              if (Number.isFinite(dy) && dy) ends.target = { x: ends.target.x, y: ends.target.y + dy };
+            if (edgeTargetId) {
+              const snap = snapToHubBoundary(edgeTargetId, ends.source);
+              if (snap) {
+                ends.target = snap;
+              } else if (familyHubDyById.has(edgeTargetId)) {
+                const dy = Number(familyHubDyById.get(edgeTargetId));
+                if (Number.isFinite(dy) && dy) ends.target = { x: ends.target.x, y: ends.target.y + dy };
+              }
             }
             const d = smoothVerticalConnectorD({ ...ends, offsetX: offsetX || 0 });
             if (!d) return;
