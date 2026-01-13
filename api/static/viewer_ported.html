@@ -860,6 +860,7 @@
       lines.push('  pad=2;');
       // this controls the number of iterations = nslimit * no_nodes
       lines.push('  nslimit=2.0;');
+      // Keep same-rank spacing tight; we add targeted couple-block spacers instead.
       lines.push('  nodesep=0;');
     } else {
       // Slightly roomier defaults. Family separation is mainly handled by invisible
@@ -1301,6 +1302,11 @@
           continue;
         }
 
+        // Add an invisible spacer to enlarge the couple block, increasing separation
+        // between unrelated couples while keeping within-couple spacing unchanged.
+        const coupleSepId = `${fid}__couple_sep`;
+        lines.push(`  ${dotEscape(coupleSepId)} [shape=box, style=invis, width=0.60, height=0.02, fixedsize=true, margin=0, label=""];`);
+
         // Keep the whole couple (spouse + family hub + spouse) cohesive.
         // Using a cluster makes DOT treat this as a block and reduces the chance
         // of inserting unrelated couples between spouses.
@@ -1310,7 +1316,7 @@
         lines.push('    color=white;');
         lines.push('    label=".";');
         lines.push('    rank=same;');
-        lines.push(`    ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)};`);
+        lines.push(`    ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)}; ${dotEscape(coupleSepId)};`);
         lines.push('  }');
 
         // Hard ordering: spouse - family - spouse.
@@ -1318,6 +1324,7 @@
         // pull anything up/down, but it *will* give DOT a real ordering constraint.
         lines.push(`  ${dotEscape(left)} -> ${dotEscape(fid)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
         lines.push(`  ${dotEscape(fid)} -> ${dotEscape(right)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
+        lines.push(`  ${dotEscape(right)} -> ${dotEscape(coupleSepId)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
       }
     }
 
@@ -1400,7 +1407,9 @@
         // Add an invisible spacer node at the end of each sibling group.
         // This creates a visible gap between sibling groups from adjacent families.
         const sepId = `${fid}__sep`;
-        lines.push(`  ${dotEscape(sepId)} [shape=point, style=invis, width=0.80, height=0.02, fixedsize=true, label=""];`);
+        // Wider spacer => more separation between adjacent family/couple blocks on the same row.
+        // NOTE: Graphviz treats shape=point as a tiny dot regardless of width, so use a fixed-size box.
+        lines.push(`  ${dotEscape(sepId)} [shape=box, style=invis, width=1.60, height=0.02, fixedsize=true, margin=0, label=""];`);
 
         const attachments = spouseAttachmentByFamily.get(fid) || new Map();
         const blocks = children.map((cid) => {
