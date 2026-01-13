@@ -1818,6 +1818,17 @@
 
     const svg = gvEl.querySelector('svg');
     if (svg) {
+      const grampsIdByNodeId = new Map();
+      for (const n of payload?.nodes || []) {
+        const id = n?.id;
+        const gid = n?.gramps_id;
+        if (id && gid) {
+          grampsIdByNodeId.set(String(id), String(gid));
+          // Also allow lookup when Graphviz uses the Gramps ID as node id.
+          grampsIdByNodeId.set(String(gid), String(gid));
+        }
+      }
+
       // Ensure edges render beneath nodes.
       // SVG has no z-index; paint order is DOM order, so we reorder sibling groups.
       (function reorderGraphvizLayers() {
@@ -2376,7 +2387,8 @@
             loadGraph();
             return;
           }
-          setStatus(`Selected node: ${pid}`);
+          const gid = grampsIdByNodeId.get(String(pid));
+          setStatus(gid ? `Selected node: ${pid} (${gid})` : `Selected node: ${pid}`);
         });
       });
 
