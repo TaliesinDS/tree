@@ -1830,7 +1830,7 @@
         });
       }
 
-      postProcessGraphvizSvg(svg, { personMetaById });
+      const post = postProcessGraphvizSvg(svg, { personMetaById });
 
       // Force rounded joins/caps even when Graphviz emitted inline styles.
       (function enforceEdgeRounding() {
@@ -1861,6 +1861,9 @@
           };
 
           const ns = 'http://www.w3.org/2000/svg';
+
+          // If we moved family hubs (⚭) in SVG post-processing, keep edges landing on them.
+          const familyHubDyById = post?.familyHubDyById || new Map();
 
           // Build a lookup for person card node ports so edges always enter cards
           // at the top-center (Graphviz's chosen intersection point drifts).
@@ -2146,15 +2149,26 @@
             return d;
           };
 
-          const replaceWithRoundedPath = (el, pts, offsetX, { edgeTargetId } = {}) => {
+          const replaceWithRoundedPath = (el, pts, offsetX, { edgeSourceId, edgeTargetId } = {}) => {
             const ends = pickEndpoints(pts);
             if (!ends) return;
+
+            // Lower family hub endpoints (Gramps Web draws couple markers off-center).
+            if (edgeSourceId && familyHubDyById.has(edgeSourceId)) {
+              const dy = Number(familyHubDyById.get(edgeSourceId));
+              if (Number.isFinite(dy) && dy) ends.source = { x: ends.source.x, y: ends.source.y + dy };
+            }
             // Force edges into the visual center of person cards.
             if (edgeTargetId) {
               const port = personTopCenterById.get(edgeTargetId);
               if (port && Number.isFinite(port.x) && Number.isFinite(port.y)) {
                 ends.target = port;
               }
+            }
+
+            if (edgeTargetId && familyHubDyById.has(edgeTargetId)) {
+              const dy = Number(familyHubDyById.get(edgeTargetId));
+              if (Number.isFinite(dy) && dy) ends.target = { x: ends.target.x, y: ends.target.y + dy };
             }
             const d = smoothVerticalConnectorD({ ...ends, offsetX: offsetX || 0 });
             if (!d) return;
@@ -2257,7 +2271,7 @@
               // Keep Graphviz endpoints, but allow a mild mid-bulge per sibling edge.
               const adjusted = e.pts;
               try {
-                replaceWithRoundedPath(e.el, adjusted, offset, { edgeTargetId: e.target });
+                replaceWithRoundedPath(e.el, adjusted, offset, { edgeSourceId: e.source, edgeTargetId: e.target });
                 replaced += 1;
               } catch (_) {}
             }
@@ -2293,6 +2307,40 @@
         });
       });
 
+      // Spouse connectors (person -> family hub) become visually redundant once the
+      // hub icon is placed low enough to touch the spouse cards. Hide them.
+      // We target edges by their Graphviz-generated title like "<nodeA> -> <nodeB>".
+      // Note: Graphviz may use internal node IDs (e.g. "_f…") so we can't rely on I*/F*.
+      (function hideSpouseToFamilyEdges() {
+        const nodeTypeById = new Map(); // id -> 'person' | 'hub' | 'other'
+        for (const ng of gvEl.querySelectorAll('g.node')) {
+          const id = ng.querySelector('title')?.textContent?.trim();
+          if (!id) continue;
+
+          const ellipse = ng.querySelector('ellipse');
+          if (!ellipse) {
+            nodeTypeById.set(id, 'person');
+            continue;
+          }
+
+          const labelText = (ng.querySelector('text')?.textContent || '').trim();
+          const fill = (ellipse.getAttribute('fill') || '').trim().toLowerCase();
+          const isHub = (labelText === '⚭') || (fill === '#9d7bff');
+          nodeTypeById.set(id, isHub ? 'hub' : 'other');
+        }
+
+        for (const eg of gvEl.querySelectorAll('g.edge')) {
+          const t = eg.querySelector('title')?.textContent?.trim() || '';
+          const m = t.match(/^\s*([^\s]+)\s*->\s*([^\s]+)\s*$/);
+          if (!m) continue;
+          const a = m[1];
+          const b = m[2];
+          if (nodeTypeById.get(a) === 'person' && nodeTypeById.get(b) === 'hub') {
+            eg.style.setProperty('display', 'none', 'important');
+          }
+        }
+      })();
+
       // Add pan/zoom.
       gvPanZoom = enableSvgPanZoom(svg, { container: gvEl });
 
@@ -2315,6 +2363,69 @@
   function postProcessGraphvizSvg(svg, { personMetaById } = {}) {
     const nodes = svg.querySelectorAll('g.node');
     let processed = 0;
+
+    // --- Family hubs (⚭): lower the rendered icon within the couple row ---
+    // Gramps Web effectively positions the couple marker lower within the spouse row.
+    // We mimic that by shifting the hub node in SVG, then letting edge smoothing
+    // apply the same dy to endpoints that connect to the hub.
+    const familyHubDyById = new Map();
+    try {
+      // Estimate a typical person card height to derive a sensible dy.
+      const personHeights = [];
+      for (const node of nodes) {
+        if (node.querySelector('ellipse')) continue;
+        const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+        if (!shape || typeof shape.getBBox !== 'function') continue;
+        const bb = shape.getBBox();
+        if (bb && Number.isFinite(bb.height) && bb.height > 0) personHeights.push(bb.height);
+      }
+      personHeights.sort((a, b) => a - b);
+      const medianH = personHeights.length ? personHeights[Math.floor(personHeights.length / 2)] : 80;
+
+      // Move hub from centered (~0.5) to lower (~0.8) within the person-card height.
+      // That corresponds to about 0.3 * H downward from the centered default.
+      const dy = Math.round(Math.max(8, Math.min(34, medianH * 0.35)));
+
+      const parseTranslate = (t) => {
+        const m = String(t || '').match(/translate\(\s*([-\d.]+)[ ,]([-\d.]+)\s*\)/i);
+        if (!m) return null;
+        const x = Number(m[1]);
+        const y = Number(m[2]);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return { x, y, raw: m[0] };
+      };
+
+      for (const node of nodes) {
+        const ellipse = node.querySelector('ellipse');
+        if (!ellipse) continue;
+        const title = node.querySelector('title')?.textContent?.trim();
+        if (!title) continue;
+
+        // Identify family hubs by their label (⚭) or by their purple fill.
+        const labelText = (node.querySelector('text')?.textContent || '').trim();
+        const fill = (ellipse.getAttribute('fill') || '').trim().toLowerCase();
+        const isHub = (labelText === '⚭') || (fill === '#9d7bff');
+        if (!isHub) continue;
+
+        // Prefer shifting the whole node group via its translate() transform.
+        const tr = parseTranslate(node.getAttribute('transform'));
+        if (tr) {
+          node.setAttribute('transform', `translate(${tr.x} ${tr.y + dy})`);
+        } else {
+          // Fallback: shift elements directly.
+          const cy = Number(ellipse.getAttribute('cy'));
+          if (Number.isFinite(cy)) ellipse.setAttribute('cy', String(cy + dy));
+          const text = node.querySelector('text');
+          if (text) {
+            const y = Number(text.getAttribute('y'));
+            if (Number.isFinite(y)) text.setAttribute('y', String(y + dy));
+          }
+        }
+
+        familyHubDyById.set(title, dy);
+      }
+    } catch (_) {}
+
     for (const node of nodes) {
       // Skip non-person nodes (family hubs are circles/ellipses)
       if (node.querySelector('ellipse')) continue;
@@ -2441,6 +2552,8 @@
 
       processed += 1;
     }
+
+    return { processed, familyHubDyById };
 
     if (processed > 0) {
       // Small signal to confirm JS is running and SVG post-processing applied.
