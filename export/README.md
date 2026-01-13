@@ -13,7 +13,7 @@ Run the inspector and save a report:
 
 ```powershell
 # from repo root
-.\genealogy\export\inspect_gramps_sqlite.ps1 -DbPath "C:\path\to\your\gramps.sqlite" -OutDir .\genealogy\reports
+.\export\inspect_gramps_sqlite.ps1 -DbPath "C:\path\to\your\gramps.sqlite" -OutDir .\reports
 ```
 
 This writes a timestamped JSON report with:
@@ -35,9 +35,9 @@ Export from a `.gramps` file:
 # 1) Export from Gramps: File -> Export -> Gramps XML (.gramps)
 # 2) Run exporter
 $ts = Get-Date -Format "yyyyMMdd_HHmmss"
-$out = "genealogy/exports/run_$ts"
+$out = "exports/run_$ts"
 .
-\genealogy\export\export_gramps_package.ps1 -InPath "C:\path\to\export.gpkg" -OutDir $out
+\export\export_gramps_package.ps1 -InPath "C:\path\to\export.gpkg" -OutDir $out
 ```
 
 This writes `people.jsonl`, `person_parent.jsonl`, `events.jsonl`, `notes.jsonl`, `places.jsonl`, etc.

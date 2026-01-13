@@ -56,7 +56,8 @@ $env:DATABASE_URL = "postgresql://genealogy:genealogy@localhost:5432/genealogy"
 ## Demo UI (graph)
 
 The demo UI is served from the API:
-- `/demo/graph` (interactive)
+- `/demo/graph` (interactive; older)
+- `/demo/viewer` (newer Gramps-Web-like viewer shell)
 
 If you edit the static demo file, you usually only need a hard refresh (Ctrl+F5).
 
@@ -64,6 +65,8 @@ Graphviz-specific notes:
 - The Graphviz (DOT) view is the most readable for genealogy.
 - Multi-spouse people are rendered as a single person node with spouse–family–person blocks.
 - Malformed edges are ignored (e.g., a `child` edge that points to a family node) to prevent orphan family hubs.
+- The viewer supports map-like interaction: drag to pan, wheel to zoom around the cursor (including when zoomed way out).
+- Clicking a person node recenters the viewer on that person; the status bar shows the selected node id and (when available) the Gramps ID.
 
 Privacy:
 - The API will always return `display_name: "Private"` for `is_private` or `is_living` rows.

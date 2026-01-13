@@ -40,6 +40,10 @@ Required:
 - **D3:** `d3-zoom` is ideal (but not strictly required; you can write your own).
 - **Renderer:** SVG is fine for default mode; Strategic may need LOD.
 
+Current implementation note (demo):
+- The `/demo/viewer` prototype uses viewBox-based pan/zoom (pointer-drag + wheel zoom).
+- Because the SVG uses `preserveAspectRatio="xMinYMin meet"`, pan math must account for letterboxing so vertical dragging stays 1:1.
+
 Not required:
 - Graphviz does not handle interaction; it only helps with initial layout.
 

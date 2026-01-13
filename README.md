@@ -34,7 +34,8 @@ Files
 - `sql/schema.sql`: starter schema sketch
 
 Demo UI
-- `/demo/graph` renders a neighborhood graph; Graphviz (DOT) is the most readable layout.
+- `/demo/graph` renders a neighborhood graph (older demo UI).
+- `/demo/viewer` renders the newer Gramps-Web-like viewer shell (Graphviz + sidebar tabs).
 - Multi-spouse people are supported without duplicating person nodes.
 
 Export tooling

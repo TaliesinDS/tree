@@ -26,7 +26,7 @@ This avoids trying to “merge” two hosting providers on the same path.
 - The frontend never receives private data.
 
 ## Next implementation steps
-1) Create Cloud SQL + run `genealogy/sql/schema.sql`.
+1) Create Cloud SQL + run `sql/schema.sql`.
 2) Wire DB access in the API.
 3) Build a **Gramps → Postgres** importer (one-way sync).
 4) Add a minimal frontend UI (pick person A + B → show path; search notes; map view).

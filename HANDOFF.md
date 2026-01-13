@@ -86,6 +86,7 @@ API:
 - api/main.py — FastAPI endpoints; privacy filtering; neighborhood/path logic
 - api/db.py — DB connection helper (simple per-request connection)
 - api/static/graph_demo.html — interactive graph demo (Cytoscape + Graphviz)
+- api/static/viewer_ported.html — newer Gramps-Web-like viewer shell (Graphviz + sidebar tabs)
 - api/restart_api_8080.ps1 — start/restart uvicorn detached, logs to reports/
 
 Export pipeline:
@@ -113,6 +114,13 @@ Database schema:
 Graphviz layout stability:
 - Multi-spouse layout now supports spouse1–common–spouse2 patterns without duplicating people.
 - Added defensive filtering so malformed edges (e.g., family→family “child” edges) don’t create orphan family hubs.
+
+Viewer UX (Graphviz /demo/viewer):
+- Family hubs (⚭) are post-processed in SVG for a Gramps-Web-like look.
+- Redundant spouse→hub connector stubs are hidden when the hub touches spouse cards.
+- Edge endpoints that attach to the hub are snapped to the hub ellipse boundary to avoid tiny overshoots in very large families.
+- Pan/zoom is viewBox-based and tuned so drag feels 1:1 at any zoom.
+- Status text includes the Gramps ID when present in the payload.
 
 ## How to run locally (quick)
 
