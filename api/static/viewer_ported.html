@@ -985,7 +985,7 @@
     // Keep these only in the dedicated Gramps edge mode.
     if (wantsGrampsDefaults) {
       // Reduce vertical distance between generational ranks.
-      lines.push('  ranksep=1.4;');
+      lines.push('  ranksep=1.0;');
       lines.push('  pad=2;');
       // this controls the number of iterations = nslimit * no_nodes
       lines.push('  nslimit=2.0;');
@@ -2327,10 +2327,11 @@
 
         const meta = pid ? personMetaById?.get(String(pid)) : null;
         if (pid && meta && !node.querySelector('[data-rim="1"]')) {
-          let rim = '#7aa2ff';
-          if (meta.gender === 'F') rim = '#ff7ab6';
-          if (meta.gender === 'U') rim = '#b9c4dd';
-          if (meta.isPrivate) rim = '#ffb86c';
+          // Softer, pastel rims to complement the warm UI palette.
+          let rim = '#93A7BF';       // M: muted slate-blue
+          if (meta.gender === 'F') rim = '#C7A0AA'; // F: dusty rose
+          if (meta.gender === 'U') rim = '#B7B0A3'; // U: warm greige
+          if (meta.isPrivate) rim = '#D1B38B';      // private: soft sand
 
           const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
           if (shape && typeof shape.getBBox === 'function') {
