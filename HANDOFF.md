@@ -4,7 +4,7 @@ If you’re starting a new chat: **attach this file** (or paste it) and say:
 
 > We’re continuing the TaliesinDS.github.io genealogy project. Please read HANDOFF.md and continue from the “Current state / next tasks” section.
 
-This repo area is a **backend-first genealogy app** scaffold living inside the main website repo.
+This repo is a **backend-first genealogy app** scaffold with a working local demo UI.
 
 ## What we’re building (goals)
 
@@ -63,16 +63,15 @@ Privacy rule (conservative / privacy-first):
 - Decision: the demo UI includes a Graphviz DOT renderer (via wasm graphviz) because it produces the cleanest generational layout.
 - Why: force-directed layouts (Cytoscape cose) look cool but are not reliable for genealogy readability.
 
-### Spouse adjacency: copy Gramps Web’s “cluster per family” trick
-- Problem: spouses weren’t reliably adjacent in Graphviz layout for some graphs.
-- Explored idea (rejected): merge spouse nodes into one combined node (hurts clickability and identity semantics).
-- Adopted solution: mimic Gramps Web by using Graphviz **clusters** to keep spouses cohesive.
+### Multi-spouse handling (Graphviz)
+Problem:
+- A single person can have multiple spouses/families; naïve ordering can duplicate-looking nodes or produce floating family hubs.
 
-Implementation details (DOT strategy):
-- Represent parents as two distinct person nodes plus a small family hub node.
-- Add an invisible per-family `subgraph cluster_*` containing the couple, with `rank=same`.
-- Use strong invisible ordering edges (`style=invis`, high `weight`, `constraint=false`) as glue.
-- Also cluster sibling rows (`cluster_children_*`) to reduce interleaving between families in the same generation.
+Current approach:
+- Keep **one person node per person id**.
+- For multi-spouse people, create a dedicated **marriage row** (rank-same block) with spouse/family hubs ordered by **child count** (so “main” family tends to be prioritized).
+- Do not pull spouses into a birth-family sibling row if that person is a parent/spouse elsewhere (prevents “spouse next to siblings” artifacts).
+- Ignore malformed edges when building the DOT adjacency maps (e.g., skip any `child` edge whose target is not a person) to prevent family→family links and orphan hubs.
 
 ## Repository map (where things live)
 
@@ -111,9 +110,9 @@ Database schema:
 
 ## Recent work (Jan 2026)
 
-Spouse adjacency fix:
-- Updated the Graphviz DOT builder in `api/static/graph_demo.html` to add per-family couple clusters (`cluster_couple_*`) and `compound=true`.
-- Result: spouses stay adjacent more reliably, matching the Gramps Web approach.
+Graphviz layout stability:
+- Multi-spouse layout now supports spouse1–common–spouse2 patterns without duplicating people.
+- Added defensive filtering so malformed edges (e.g., family→family “child” edges) don’t create orphan family hubs.
 
 ## How to run locally (quick)
 

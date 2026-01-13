@@ -12,7 +12,7 @@ This is a deployment sketch for running the genealogy backend as a **real servic
 This avoids trying to “merge” two hosting providers on the same path.
 
 ## Components
-- Cloud Run service: container built from `genealogy/api/Dockerfile`
+- Cloud Run service: container built from `api/Dockerfile`
 - Cloud SQL Postgres instance (enable PostGIS)
 - Optional later:
   - Meilisearch/Typesense/OpenSearch if Postgres full-text becomes limiting

@@ -1,8 +1,8 @@
 # Genealogy app (backend-first)
 
-Quick resume doc (for future you / new chats): see `HANDOFF.md`.
+Quick resume doc (for future you / new chats): see HANDOFF.md.
 
-This folder is an **in-repo design + scaffold** for a future genealogy web app.
+This repo is a **backend-first genealogy web app scaffold** with a working local API + demo graph UI.
 
 Goals (what you asked for)
 - Pick any **two people** → show the **ancestry/relationship path** between them.
@@ -32,6 +32,10 @@ Next steps
 Files
 - `api/`: FastAPI stub (health + placeholder endpoints)
 - `sql/schema.sql`: starter schema sketch
+
+Demo UI
+- `/demo/graph` renders a neighborhood graph; Graphviz (DOT) is the most readable layout.
+- Multi-spouse people are supported without duplicating person nodes.
 
 Export tooling
 - `export/inspect_gramps_sqlite.py`: schema discovery for your Gramps SQLite

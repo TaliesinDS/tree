@@ -671,11 +671,17 @@
 
     for (const e of edges) {
       if (e.type === 'parent') {
+        // Expect: person -> family
+        if (!people.has(e.from)) continue;
+        if (!families.has(e.to)) continue;
         const arr = famParents.get(e.to) || [];
         const role = (e.role || '').toString().trim().toLowerCase();
         arr.push({ pid: e.from, role: role || null });
         famParents.set(e.to, arr);
       } else if (e.type === 'child') {
+        // Expect: family -> person
+        if (!families.has(e.from)) continue;
+        if (!people.has(e.to)) continue;
         const arr = famChildren.get(e.from) || [];
         arr.push(e.to);
         famChildren.set(e.from, arr);
