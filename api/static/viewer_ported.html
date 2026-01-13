@@ -15,9 +15,23 @@
       --danger: #ff6b6b;
       --border: rgba(255,255,255,0.08);
       --shadow: 0 12px 32px rgba(0,0,0,0.45);
+      --canvas-bg: rgba(3, 6, 10, 0.65);
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
       --sidebar-w: 340px;
+    }
+
+    html[data-theme="light"] {
+      /* Palette sampled from https://www.arthurkortekaas.nl/autism/ */
+      --bg: #f3f3f3;
+      --panel: rgba(255,255,255,0.92);
+      --panel2: rgba(255,255,255,0.88);
+      --text: #343434;
+      --muted: #706E66;
+      --accent: #afa58f;
+      --border: #e9dcbe;
+      --shadow: 0 6px 18px rgba(0,0,0,0.10);
+      --canvas-bg: #f4f2f3;
     }
 
     * { box-sizing: border-box; }
@@ -30,6 +44,10 @@
                   var(--bg);
       color: var(--text);
       font-family: var(--sans);
+    }
+
+    html[data-theme="light"] body {
+      background: var(--bg);
     }
 
     .shell {
@@ -50,9 +68,44 @@
       overflow: hidden;
     }
 
+    html[data-theme="light"] .sidebar {
+      background: var(--bg);
+      backdrop-filter: none;
+    }
+
     .sidebarBrand {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .sidebarBrandMain {
       display: grid;
       gap: 4px;
+    }
+
+    .themeToggle {
+      white-space: nowrap;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      user-select: none;
+    }
+
+    .themeToggle:hover { background: rgba(255,255,255,0.10); }
+
+    html[data-theme="light"] .themeToggle {
+      border-color: var(--border);
+      background: #ffffff;
+    }
+
+    html[data-theme="light"] .themeToggle:hover {
+      background: #e0e0e0;
     }
 
     .sidebarBrand .title {
@@ -94,6 +147,17 @@
       background: rgba(122,162,255,0.16);
     }
 
+    html[data-theme="light"] .tabbtn {
+      border-color: var(--border);
+      background: #ffffff;
+      color: var(--text);
+    }
+    html[data-theme="light"] .tabbtn:hover { background: #e0e0e0; }
+    html[data-theme="light"] .tabbtn.active {
+      border-color: var(--accent);
+      background: rgba(175, 165, 143, 0.22);
+    }
+
     .tabpanel { display: none; }
     .tabpanel.active { display: block; }
 
@@ -105,6 +169,10 @@
       box-shadow: var(--shadow);
       overflow: auto;
       min-height: 0;
+    }
+
+    html[data-theme="light"] .sidebarPanel {
+      background: rgba(255,255,255,0.78);
     }
 
     .sidebarPanel h2 {
@@ -128,6 +196,10 @@
       padding: 8px;
       background: rgba(0,0,0,0.20);
       margin-bottom: 10px;
+    }
+
+    html[data-theme="light"] .peopleGroup {
+      background: #f2f3f3;
     }
 
     .peopleGroup summary {
@@ -172,6 +244,11 @@
       z-index: 10;
     }
 
+    html[data-theme="light"] header {
+      background: var(--bg);
+      backdrop-filter: none;
+    }
+
     .row {
       display: flex;
       flex-wrap: wrap;
@@ -206,6 +283,10 @@
       box-shadow: var(--shadow);
     }
 
+    html[data-theme="light"] .panel {
+      background: rgba(255,255,255,0.78);
+    }
+
     .controls {
       display: flex;
       flex-wrap: wrap;
@@ -229,6 +310,12 @@
       padding: 8px 10px;
       min-width: 140px;
       outline: none;
+    }
+
+    html[data-theme="light"] input,
+    html[data-theme="light"] select {
+      background: rgba(255,255,255,0.90);
+      color: var(--text);
     }
 
     input[type="number"] { min-width: 90px; }
@@ -305,7 +392,7 @@
       width: 100%;
       border-radius: 14px;
       border: 1px solid var(--border);
-      background: rgba(3, 6, 10, 0.65);
+      background: var(--canvas-bg);
       box-shadow: var(--shadow);
       position: relative;
     }
@@ -351,8 +438,11 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="sidebarBrand">
-        <div class="title">Viewer</div>
-        <div class="sub">Graph UI copied 1:1 from the demo</div>
+        <div class="sidebarBrandMain">
+          <div class="title">Viewer</div>
+          <div class="sub">Graph UI copied 1:1 from the demo</div>
+        </div>
+        <button id="themeToggle" class="themeToggle" type="button" title="Toggle theme">Theme</button>
       </div>
 
       <div class="tabs">
@@ -493,6 +583,7 @@
   const depthEl = document.getElementById('depth');
   const maxNodesEl = document.getElementById('maxNodes');
   const layoutEl = document.getElementById('layout');
+  const themeToggleEl = document.getElementById('themeToggle');
 
   let gvPanZoom = null;
   let lastPayload = null;
@@ -706,12 +797,50 @@
   gvEl.style.width = '100%';
   gvEl.style.borderRadius = '14px';
   gvEl.style.border = '1px solid var(--border)';
-  gvEl.style.background = 'rgba(3, 6, 10, 0.65)';
+  gvEl.style.background = 'var(--canvas-bg)';
   gvEl.style.boxShadow = 'var(--shadow)';
   // Don't use scrollbars for navigation; panning/zooming happens via SVG viewBox.
   gvEl.style.overflow = 'hidden';
   gvEl.style.position = 'relative';
   gvEl.style.touchAction = 'none';
+
+  const THEME_KEY = 'genealogy_viewer_theme_v1';
+  const getTheme = () => {
+    try {
+      const t = String(localStorage.getItem(THEME_KEY) || '').trim().toLowerCase();
+      return (t === 'dark' || t === 'light') ? t : 'light';
+    } catch {
+      return 'light';
+    }
+  };
+  const setTheme = (theme) => {
+    const t = (theme === 'dark') ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+    // Keep the Graphviz canvas synced (some browsers may not resolve var() in JS-set styles).
+    try {
+      const canvasBg = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim();
+      if (canvasBg) {
+        gvEl.style.background = canvasBg;
+      } else {
+        gvEl.style.background = 'var(--canvas-bg)';
+      }
+    } catch (_) {
+      gvEl.style.background = 'var(--canvas-bg)';
+    }
+    if (themeToggleEl) {
+      themeToggleEl.textContent = (t === 'light') ? 'Light' : 'Dark';
+      themeToggleEl.title = (t === 'light') ? 'Switch to dark theme' : 'Switch to light theme';
+    }
+    try { localStorage.setItem(THEME_KEY, t); } catch {}
+  };
+
+  setTheme(getTheme());
+  if (themeToggleEl) {
+    themeToggleEl.addEventListener('click', () => {
+      const next = (document.documentElement.dataset.theme === 'light') ? 'dark' : 'light';
+      setTheme(next);
+    });
+  }
 
   function nodeLabel(n) {
     if (n.type === 'family') return '';
@@ -1647,7 +1776,10 @@
     const style = document.createElement('style');
     style.textContent = `
       svg { font-family: var(--sans); }
-      svg text { fill: #0b0f16; }
+      /* Theme-aware color binding */
+      svg text { fill: var(--text) !important; }
+      g.edge path, g.edge polyline, g.edge line { stroke: var(--text) !important; }
+      g.edge polygon { fill: var(--text) !important; stroke: var(--text) !important; }
       g.node:hover polygon, g.node:hover rect, g.node:hover ellipse {
         filter: drop-shadow(0 2px 8px rgba(122,162,255,0.20));
       }
