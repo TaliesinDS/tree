@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Genealogy Viewer</title>
+  <style>
+    :root {
+      --bg: #0b0f16;
+      --panel: #121a27;
+      --panel2: #0f1622;
+      --text: #e8eefc;
+      --muted: #a6b4d6;
+      --accent: #7aa2ff;
+      --danger: #ff6b6b;
+      --border: rgba(255,255,255,0.08);
+      --shadow: 0 12px 32px rgba(0,0,0,0.45);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      --sidebar-w: 340px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: radial-gradient(1200px 600px at 25% 10%, rgba(122,162,255,0.18), transparent 55%),
+                  radial-gradient(900px 500px at 80% 30%, rgba(255,107,107,0.10), transparent 50%),
+                  var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+    }
+
+    .app {
+      height: 100%;
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(18,26,39,0.95), rgba(18,26,39,0.65));
+      backdrop-filter: blur(6px);
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 10px;
+      padding: 12px;
+      overflow: hidden;
+    }
+
+    .brand {
+      display: grid;
+      gap: 4px;
+    }
+
+    .brand .title {
+      font-weight: 750;
+      letter-spacing: 0.2px;
+      font-size: 15px;
+    }
+
+    .brand .sub {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.25;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .tabbtn {
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 10px;
+      cursor: pointer;
+      font-size: 12px;
+      text-align: center;
+      transition: background 0.12s ease;
+      user-select: none;
+    }
+
+    .tabbtn:hover { background: rgba(255,255,255,0.10); }
+    .tabbtn.active {
+      border-color: rgba(122,162,255,0.55);
+      background: rgba(122,162,255,0.16);
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(15,22,34,0.60);
+      box-shadow: var(--shadow);
+      overflow: auto;
+      padding: 10px;
+    }
+
+    .panel h2 {
+      margin: 0 0 10px 0;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .field label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    input, select {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: rgba(9, 13, 20, 0.75);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 10px;
+      outline: none;
+      width: 100%;
+    }
+
+    input:focus, select:focus {
+      border-color: rgba(122,162,255,0.55);
+      box-shadow: 0 0 0 4px rgba(122,162,255,0.12);
+    }
+
+    button {
+      border: 1px solid rgba(122,162,255,0.45);
+      background: rgba(122,162,255,0.12);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 12px;
+      cursor: pointer;
+      transition: transform 0.06s ease, background 0.12s ease;
+    }
+
+    button:hover { background: rgba(122,162,255,0.18); }
+    button:active { transform: translateY(1px); }
+
+    .muted { color: var(--muted); font-size: 12px; line-height: 1.35; }
+
+    .main {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      padding: 12px;
+      gap: 10px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: end;
+      flex-wrap: wrap;
+    }
+
+    .toolbar .group {
+      display: grid;
+      gap: 6px;
+    }
+
+    .toolbar .group span {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .toolbar .group input, .toolbar .group select {
+      min-width: 140px;
+      width: auto;
+    }
+
+    .status {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.25);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .canvas {
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(3, 6, 10, 0.65);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+    }
+
+    #gv {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      position: relative;
+      touch-action: none;
+    }
+
+    .people-group {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px;
+      background: rgba(0,0,0,0.20);
+      margin-bottom: 10px;
+    }
+
+    .people-group summary {
+      cursor: pointer;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .people-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .people-item:last-child { border-bottom: none; }
+    .people-item:hover { background: rgba(122,162,255,0.10); border-radius: 8px; }
+
+    .people-item .name { font-size: 13px; }
+    .people-item .meta { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+    .tag {
+      font-size: 11px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,0.05);
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .tabpanel { display: none; }
+    .tabpanel.active { display: block; }
+  </style>
+
+  <script type="module">
+    import { Graphviz } from 'https://unpkg.com/@hpcc-js/wasm-graphviz@1.18.0/dist/index.js';
+
+    const $ = (id) => document.getElementById(id);
+
+    const tabButtons = Array.from(document.querySelectorAll('[data-tab]'));
+    const tabPanels = Array.from(document.querySelectorAll('[data-panel]'));
+
+    const state = {
+      payload: null,
+      selectedPersonId: null,
+      graphviz: null,
+      gvPanZoom: null,
+    };
+
+    function setStatus(msg, isError = false) {
+      const el = $('status');
+      el.textContent = msg;
+      el.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+    }
+
+    function setActiveTab(tabName) {
+      for (const b of tabButtons) b.classList.toggle('active', b.dataset.tab === tabName);
+      for (const p of tabPanels) p.classList.toggle('active', p.dataset.panel === tabName);
+    }
+
+    for (const b of tabButtons) {
+      b.addEventListener('click', () => setActiveTab(b.dataset.tab));
+    }
+
+    // Keyboard shortcuts: g/p/e/m
+    window.addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      const k = String(e.key || '').toLowerCase();
+      if (k === 'g') setActiveTab('graph');
+      if (k === 'p') setActiveTab('people');
+      if (k === 'e') setActiveTab('events');
+      if (k === 'm') setActiveTab('map');
+    });
+
+    async function getGraphviz() {
+      if (!state.graphviz) state.graphviz = await Graphviz.load();
+      return state.graphviz;
+    }
+
+    function dotEscape(id) {
+      return `"${String(id).replaceAll('\\\\', '\\\\\\\\').replaceAll('"', '\\"')}"`;
+    }
+
+    function buildDotSimple(payload) {
+      const nodes = payload?.nodes || [];
+      const edges = payload?.edges || [];
+
+      const lines = [];
+      lines.push('digraph G {');
+      lines.push('  rankdir=TB;');
+      lines.push('  bgcolor="transparent";');
+      lines.push('  splines=ortho;');
+      lines.push('  node [fontname="Inter, Segoe UI, Arial", fontsize=10, style="filled", margin="0.08,0.06", color="#2a3446"];');
+      lines.push('  edge [color="#556277", arrowsize=0.7, penwidth=1.6];');
+
+      for (const n of nodes) {
+        if (!n || !n.id) continue;
+        if (n.type === 'family') {
+          lines.push(`  ${dotEscape(n.id)} [shape=circle, width=0.24, height=0.24, fixedsize=true, fillcolor="#9d7bff", fontcolor="#0b0f16", label="⚭"];`);
+          continue;
+        }
+        const label = (n.display_name === 'Private') ? 'Private' : (n.display_name || n.gramps_id || n.id);
+        lines.push(`  ${dotEscape(n.id)} [shape=box, style="rounded,filled", fillcolor="#d0d5dd", fontcolor="#0b0f16", label="${String(label).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}" ];`);
+      }
+
+      for (const e of edges) {
+        if (!e?.from || !e?.to) continue;
+        // In family layout:
+        // - parent: person -> family
+        // - child: family -> person
+        // In direct layout, parent: parent -> child.
+        const a = dotEscape(e.from);
+        const b = dotEscape(e.to);
+        const style = (e.type === 'partner') ? ' [dir=none, style=dashed, color="#7ce38b"]' : ' [arrowhead=none]';
+        lines.push(`  ${a} -> ${b}${style};`);
+      }
+
+      lines.push('}');
+      return lines.join('\n');
+    }
+
+    function enableSvgPanZoom(svg, { container } = {}) {
+      const ensureViewBox = () => {
+        let vb = svg.viewBox?.baseVal;
+        if (vb && Number.isFinite(vb.width) && vb.width > 0 && Number.isFinite(vb.height) && vb.height > 0) return vb;
+        const w = Number(svg.getAttribute('width')) || 1000;
+        const h = Number(svg.getAttribute('height')) || 800;
+        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        return svg.viewBox.baseVal;
+      };
+
+      const vb0 = ensureViewBox();
+      const stateZoom = {
+        x: vb0.x,
+        y: vb0.y,
+        w: vb0.width,
+        h: vb0.height,
+        dragging: false,
+        lastX: 0,
+        lastY: 0,
+        orig: { x: vb0.x, y: vb0.y, w: vb0.width, h: vb0.height },
+      };
+
+      const apply = () => {
+        svg.setAttribute('viewBox', `${stateZoom.x} ${stateZoom.y} ${stateZoom.w} ${stateZoom.h}`);
+      };
+
+      const wheel = (e) => {
+        e.preventDefault();
+        const rect = (container || svg).getBoundingClientRect();
+        const px = (e.clientX - rect.left) / rect.width;
+        const py = (e.clientY - rect.top) / rect.height;
+        const zoom = Math.exp((e.deltaY > 0 ? 1 : -1) * 0.12);
+        const newW = stateZoom.w * zoom;
+        const newH = stateZoom.h * zoom;
+        stateZoom.x = stateZoom.x + (stateZoom.w - newW) * px;
+        stateZoom.y = stateZoom.y + (stateZoom.h - newH) * py;
+        stateZoom.w = newW;
+        stateZoom.h = newH;
+        apply();
+      };
+
+      const down = (e) => {
+        if (e.target && e.target.closest && e.target.closest('g.node')) return;
+        if (e.button !== 0) return;
+        e.preventDefault();
+        stateZoom.dragging = true;
+        stateZoom.lastX = e.clientX;
+        stateZoom.lastY = e.clientY;
+        (container || svg).style.cursor = 'grabbing';
+        try { (container || svg).setPointerCapture(e.pointerId); } catch (_) {}
+        document.body.style.userSelect = 'none';
+      };
+
+      const move = (e) => {
+        if (!stateZoom.dragging) return;
+        e.preventDefault();
+        const rect = (container || svg).getBoundingClientRect();
+        const dxPx = e.clientX - stateZoom.lastX;
+        const dyPx = e.clientY - stateZoom.lastY;
+        stateZoom.lastX = e.clientX;
+        stateZoom.lastY = e.clientY;
+        stateZoom.x -= dxPx * (stateZoom.w / rect.width);
+        stateZoom.y -= dyPx * (stateZoom.h / rect.height);
+        apply();
+      };
+
+      const up = (e) => {
+        if (!stateZoom.dragging) return;
+        e.preventDefault();
+        stateZoom.dragging = false;
+        (container || svg).style.cursor = 'grab';
+        document.body.style.userSelect = '';
+        try { (container || svg).releasePointerCapture(e.pointerId); } catch (_) {}
+      };
+
+      const target = container || svg;
+      target.style.cursor = 'grab';
+      target.addEventListener('wheel', wheel, { passive: false });
+      target.addEventListener('pointerdown', down);
+      target.addEventListener('pointermove', move);
+      target.addEventListener('pointerup', up);
+      target.addEventListener('pointercancel', up);
+
+      return {
+        reset: () => {
+          stateZoom.x = stateZoom.orig.x;
+          stateZoom.y = stateZoom.orig.y;
+          stateZoom.w = stateZoom.orig.w;
+          stateZoom.h = stateZoom.orig.h;
+          apply();
+        }
+      };
+    }
+
+    function clearSelectionStyles(svg) {
+      if (!svg) return;
+      for (const g of svg.querySelectorAll('g.node')) {
+        g.classList.remove('selected');
+        const shape = g.querySelector('polygon, rect, ellipse, path');
+        if (shape) {
+          shape.style.removeProperty('stroke');
+          shape.style.removeProperty('stroke-width');
+        }
+      }
+    }
+
+    function applySelectionStyle(svg, nodeId) {
+      if (!svg || !nodeId) return;
+      const nodes = Array.from(svg.querySelectorAll('g.node'));
+      for (const g of nodes) {
+        const title = g.querySelector('title')?.textContent?.trim();
+        if (title !== nodeId) continue;
+        const shape = g.querySelector('polygon, rect, ellipse, path');
+        if (shape) {
+          shape.style.stroke = 'rgba(122,162,255,0.95)';
+          shape.style.strokeWidth = '3';
+        }
+        break;
+      }
+    }
+
+    async function renderGraph(payload) {
+      const gv = await getGraphviz();
+      const dot = buildDotSimple(payload);
+      const svgText = (typeof gv.layout === 'function')
+        ? gv.layout(dot, 'svg', 'dot')
+        : gv.dot(dot);
+
+      const gvEl = $('gv');
+      gvEl.innerHTML = svgText;
+
+      const svg = gvEl.querySelector('svg');
+      if (!svg) return;
+
+      svg.style.display = 'block';
+      svg.style.maxWidth = 'none';
+      svg.style.height = '100%';
+      svg.style.width = '100%';
+      svg.setAttribute('preserveAspectRatio', 'xMinYMin meet');
+
+      state.gvPanZoom = enableSvgPanZoom(svg, { container: gvEl });
+
+      // Node click handling.
+      for (const g of gvEl.querySelectorAll('g.node')) {
+        g.style.cursor = 'pointer';
+        g.addEventListener('click', () => {
+          const id = g.querySelector('title')?.textContent?.trim();
+          if (!id) return;
+
+          const isPerson = payload?.nodes?.some(n => n?.id === id && n?.type === 'person');
+          if (!isPerson) return;
+
+          state.selectedPersonId = id;
+          clearSelectionStyles(svg);
+          applySelectionStyle(svg, id);
+          setStatus(`Selected: ${id}`);
+        });
+      }
+
+      // Reapply selection if available.
+      clearSelectionStyles(svg);
+      applySelectionStyle(svg, state.selectedPersonId);
+    }
+
+    function surnameKeyForPerson(p) {
+      const s = (p?.surname || '').trim();
+      if (s) return s;
+      const dn = (p?.display_name || '').trim();
+      if (!dn || dn === 'Private') return '#';
+      const parts = dn.split(/\s+/g);
+      return parts.length ? parts[parts.length - 1] : '#';
+    }
+
+    function givenKeyForPerson(p) {
+      const g = (p?.given_name || '').trim();
+      if (g) return g;
+      const dn = (p?.display_name || '').trim();
+      if (!dn || dn === 'Private') return 'Private';
+      return dn;
+    }
+
+    function renderPeopleIndex(payload) {
+      const root = $('peopleList');
+      root.innerHTML = '';
+
+      const people = (payload?.nodes || []).filter(n => n?.type === 'person');
+      if (!people.length) {
+        root.innerHTML = '<div class="muted">No people loaded yet. Load a graph first.</div>';
+        return;
+      }
+
+      const groups = new Map();
+      for (const p of people) {
+        const k = surnameKeyForPerson(p);
+        const arr = groups.get(k) || [];
+        arr.push(p);
+        groups.set(k, arr);
+      }
+
+      const surnames = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
+      for (const surname of surnames) {
+        const items = groups.get(surname) || [];
+        items.sort((a, b) => {
+          const ag = givenKeyForPerson(a);
+          const bg = givenKeyForPerson(b);
+          const c = ag.localeCompare(bg);
+          if (c !== 0) return c;
+          return String(a.id).localeCompare(String(b.id));
+        });
+
+        const details = document.createElement('details');
+        details.className = 'people-group';
+        details.open = surnames.length <= 12; // keep manageable by default
+
+        const summary = document.createElement('summary');
+        summary.textContent = `${surname} (${items.length})`;
+        details.appendChild(summary);
+
+        const list = document.createElement('div');
+        list.style.marginTop = '8px';
+
+        for (const p of items) {
+          const row = document.createElement('div');
+          row.className = 'people-item';
+          row.title = p.id;
+
+          const name = document.createElement('div');
+          name.className = 'name';
+          name.textContent = (p.display_name === 'Private') ? 'Private' : (p.display_name || p.gramps_id || p.id);
+
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.textContent = p.gramps_id || p.id;
+
+          row.appendChild(name);
+          row.appendChild(meta);
+
+          row.addEventListener('click', () => {
+            // Focus behavior: set as center and reload neighborhood.
+            $('personId').value = p.gramps_id || p.id;
+            setActiveTab('graph');
+            loadGraph();
+          });
+
+          list.appendChild(row);
+        }
+
+        details.appendChild(list);
+        root.appendChild(details);
+      }
+    }
+
+    async function loadGraph() {
+      const personId = $('personId').value.trim();
+      const depth = Number($('depth').value || '2');
+      const maxNodes = Number($('maxNodes').value || '1000');
+      const layout = $('layout').value;
+
+      if (!personId) {
+        setStatus('Missing Person ID', true);
+        return;
+      }
+
+      setStatus('Loading graph...');
+      const url = `/graph/neighborhood?id=${encodeURIComponent(personId)}&depth=${encodeURIComponent(String(depth))}&max_nodes=${encodeURIComponent(String(maxNodes))}&layout=${encodeURIComponent(layout)}`;
+
+      let payload;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        payload = await res.json();
+      } catch (e) {
+        setStatus(`Failed to load graph: ${e}`, true);
+        return;
+      }
+
+      state.payload = payload;
+      setStatus(`Loaded ${payload.nodes?.length || 0} nodes, ${payload.edges?.length || 0} edges (${layout}).`);
+
+      await renderGraph(payload);
+      renderPeopleIndex(payload);
+    }
+
+    $('loadBtn').addEventListener('click', loadGraph);
+    $('fitBtn').addEventListener('click', () => {
+      const svg = $('gv').querySelector('svg');
+      if (svg && state.gvPanZoom) state.gvPanZoom.reset();
+    });
+
+    // Start on Graph tab.
+    setActiveTab('graph');
+    setStatus('Ready.');
+  </script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="title">Genealogy Viewer</div>
+        <div class="sub">Graph + People + Events + Map (starter UI)</div>
+      </div>
+
+      <div class="tabs">
+        <div class="tabbtn active" data-tab="graph" title="Shortcut: g">Graph</div>
+        <div class="tabbtn" data-tab="people" title="Shortcut: p">People</div>
+        <div class="tabbtn" data-tab="events" title="Shortcut: e">Events</div>
+        <div class="tabbtn" data-tab="map" title="Shortcut: m">Map</div>
+      </div>
+
+      <div class="panel" style="overflow: hidden;">
+        <div class="tabpanel active" data-panel="graph">
+          <h2>Graph</h2>
+          <div class="muted">Use the toolbar to load a neighborhood. Node click selects. (Pin/path/features next.)</div>
+          <div style="height: 10px;"></div>
+          <div class="row">
+            <span class="tag">Default</span>
+            <span class="tag">Strategic (later)</span>
+          </div>
+        </div>
+
+        <div class="tabpanel" data-panel="people">
+          <h2>People</h2>
+          <div class="muted">People index is built from the currently loaded graph.</div>
+          <div style="height: 10px;"></div>
+          <div id="peopleList"></div>
+        </div>
+
+        <div class="tabpanel" data-panel="events">
+          <h2>Events</h2>
+          <div class="muted">Event search/filters are scaffolded; backend endpoint not wired yet.</div>
+          <div style="height: 10px;"></div>
+          <div class="field">
+            <label>Search</label>
+            <input disabled placeholder="e.g. occupation, place, note text" />
+          </div>
+          <div class="row">
+            <div class="field" style="flex: 1; min-width: 120px;">
+              <label>Year min</label>
+              <input disabled placeholder="1200" />
+            </div>
+            <div class="field" style="flex: 1; min-width: 120px;">
+              <label>Year max</label>
+              <input disabled placeholder="1400" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Type</label>
+            <select disabled>
+              <option>birth</option>
+              <option>death</option>
+              <option>marriage</option>
+              <option>residence</option>
+              <option>occupation</option>
+            </select>
+          </div>
+          <div class="muted">Next: wire `/events` and allow click-to-focus people/places.</div>
+        </div>
+
+        <div class="tabpanel" data-panel="map">
+          <h2>Map</h2>
+          <div class="muted">Map filters (surname/era/descendants) and marker selection will be wired once `/map/markers` exists.</div>
+          <div style="height: 10px;"></div>
+          <div class="field">
+            <label>Surname filter</label>
+            <input disabled placeholder="hofland" />
+          </div>
+          <div class="row">
+            <div class="field" style="flex: 1; min-width: 120px;">
+              <label>Era start</label>
+              <input disabled placeholder="800" />
+            </div>
+            <div class="field" style="flex: 1; min-width: 120px;">
+              <label>Era end</label>
+              <input disabled placeholder="1100" />
+            </div>
+          </div>
+          <div class="muted">Next: embed Leaflet and draw markers from `/map/markers`.</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="toolbar">
+        <div class="group">
+          <span>Person ID</span>
+          <input id="personId" value="I0001" placeholder="I0001 or _handle" />
+        </div>
+        <div class="group">
+          <span>Generations</span>
+          <input id="depth" type="number" min="0" max="12" value="2" />
+        </div>
+        <div class="group">
+          <span>Max nodes</span>
+          <input id="maxNodes" type="number" min="1" max="5000" value="1200" />
+        </div>
+        <div class="group">
+          <span>Layout</span>
+          <select id="layout">
+            <option value="family" selected>family hubs</option>
+            <option value="direct">direct edges</option>
+          </select>
+        </div>
+
+        <button id="loadBtn">Load</button>
+        <button id="fitBtn">Reset view</button>
+
+        <div style="flex: 1;"></div>
+        <div id="status" class="status">Ready.</div>
+      </div>
+
+      <div class="canvas">
+        <div id="gv"></div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

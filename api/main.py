@@ -110,6 +110,17 @@ def demo_graph() -> FileResponse:
     return FileResponse(path)
 
 
+@app.get("/demo/viewer")
+def demo_viewer() -> FileResponse:
+    """Starter Gramps-Web-like viewer shell (Graph + People + Events + Map tabs)."""
+
+    # Viewer that ports the graph demo layout (graph_demo.html is kept as reference).
+    path = _STATIC_DIR / "viewer_ported.html"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="viewer not found")
+    return FileResponse(path)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"ok": "true"}

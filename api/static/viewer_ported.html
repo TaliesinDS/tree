@@ -1,0 +1,2586 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Genealogy Viewer</title>
+  <style>
+    :root {
+      --bg: #0b0f16;
+      --panel: #121a27;
+      --panel2: #0f1622;
+      --text: #e8eefc;
+      --muted: #a6b4d6;
+      --accent: #7aa2ff;
+      --danger: #ff6b6b;
+      --border: rgba(255,255,255,0.08);
+      --shadow: 0 12px 32px rgba(0,0,0,0.45);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      --sidebar-w: 340px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: radial-gradient(1200px 600px at 25% 10%, rgba(122,162,255,0.18), transparent 55%),
+                  radial-gradient(900px 500px at 80% 30%, rgba(255,107,107,0.10), transparent 50%),
+                  var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+    }
+
+    .shell {
+      height: 100%;
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(18,26,39,0.95), rgba(18,26,39,0.70));
+      backdrop-filter: blur(6px);
+      padding: 12px;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 10px;
+      overflow: hidden;
+    }
+
+    .sidebarBrand {
+      display: grid;
+      gap: 4px;
+    }
+
+    .sidebarBrand .title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .sidebarBrand .sub {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.25;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .tabbtn {
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 10px;
+      cursor: pointer;
+      font-size: 12px;
+      text-align: center;
+      transition: background 0.12s ease;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .tabbtn:hover { background: rgba(255,255,255,0.10); }
+    .tabbtn.active {
+      border-color: rgba(122,162,255,0.55);
+      background: rgba(122,162,255,0.16);
+    }
+
+    .tabpanel { display: none; }
+    .tabpanel.active { display: block; }
+
+    .sidebarPanel {
+      background: rgba(15,22,34,0.75);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      box-shadow: var(--shadow);
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .sidebarPanel h2 {
+      margin: 0 0 10px 0;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .peopleGroup {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px;
+      background: rgba(0,0,0,0.20);
+      margin-bottom: 10px;
+    }
+
+    .peopleGroup summary {
+      cursor: pointer;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .peopleItem {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .peopleItem:last-child { border-bottom: none; }
+    .peopleItem:hover { background: rgba(122,162,255,0.10); border-radius: 8px; }
+
+    .peopleItem .name { font-size: 13px; }
+    .peopleItem .meta { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+    /* Keep the original demo layout/appearance for the graph section */
+    .app {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(18,26,39,0.95), rgba(18,26,39,0.70));
+      backdrop-filter: blur(6px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .brand {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      margin-right: 10px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .brand .sub {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .panel {
+      background: rgba(15,22,34,0.75);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      box-shadow: var(--shadow);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: end;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    input, select {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: rgba(9, 13, 20, 0.75);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 10px;
+      min-width: 140px;
+      outline: none;
+    }
+
+    input[type="number"] { min-width: 90px; }
+
+    input:focus, select:focus {
+      border-color: rgba(122,162,255,0.55);
+      box-shadow: 0 0 0 4px rgba(122,162,255,0.12);
+    }
+
+    button {
+      border: 1px solid rgba(122,162,255,0.45);
+      background: rgba(122,162,255,0.12);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 12px;
+      cursor: pointer;
+      transition: transform 0.06s ease, background 0.12s ease;
+    }
+
+    button:hover { background: rgba(122,162,255,0.18); }
+    button:active { transform: translateY(1px); }
+
+    button.secondary {
+      border-color: rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.06);
+    }
+
+    button.danger {
+      border-color: rgba(255,107,107,0.50);
+      background: rgba(255,107,107,0.12);
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .hint code {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 1px 6px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.35);
+      border-radius: 8px;
+      color: #cfe0ff;
+    }
+
+    .status {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.25);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    main {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 10px;
+      padding: 12px;
+      overflow: hidden;
+    }
+
+    #cy {
+      height: 100%;
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(3, 6, 10, 0.65);
+      box-shadow: var(--shadow);
+      position: relative;
+    }
+
+    .legend {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .chip {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.06);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--muted);
+      display: inline-block;
+    }
+
+    .dot.person { background: #7aa2ff; }
+    .dot.private { background: #ffb86c; }
+    .dot.family { background: #9d7bff; }
+    .dot.partner { background: #7ce38b; }
+  </style>
+
+  <script src="https://unpkg.com/cytoscape@3.27.0/dist/cytoscape.min.js"></script>
+  <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+  <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="sidebarBrand">
+        <div class="title">Viewer</div>
+        <div class="sub">Graph UI copied 1:1 from the demo</div>
+      </div>
+
+      <div class="tabs">
+        <div class="tabbtn active" data-tab="graph" title="Shortcut: g">Graph</div>
+        <div class="tabbtn" data-tab="people" title="Shortcut: p">People</div>
+        <div class="tabbtn" data-tab="events" title="Shortcut: e">Events</div>
+        <div class="tabbtn" data-tab="map" title="Shortcut: m">Map</div>
+      </div>
+
+      <div class="sidebarPanel">
+        <div class="tabpanel active" data-panel="graph">
+          <h2>Graph</h2>
+          <div class="muted">Use the toolbar on the right. People list updates after each load.</div>
+        </div>
+
+        <div class="tabpanel" data-panel="people">
+          <h2>People</h2>
+          <div id="peopleList" class="muted">Load a graph to populate.</div>
+        </div>
+
+        <div class="tabpanel" data-panel="events">
+          <h2>Events</h2>
+          <div class="muted">Scaffold only (API wiring next).</div>
+        </div>
+
+        <div class="tabpanel" data-panel="map">
+          <h2>Map</h2>
+          <div class="muted">Scaffold only (markers + filters next).</div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="app">
+      <header>
+        <div class="row">
+          <div class="brand">
+            <h1>Genealogy Graph</h1>
+            <div class="sub">reference layout from graph_demo.html</div>
+          </div>
+
+          <div class="panel" style="flex: 1; min-width: 300px;">
+            <div class="controls">
+              <label>
+                Person ID
+                <input id="personId" value="I0001" placeholder="I0001 or _handle" />
+              </label>
+              <label>
+                Generations
+                <input id="depth" type="number" min="0" max="12" value="2" />
+              </label>
+              <label>
+                Max nodes
+                <input id="maxNodes" type="number" min="1" max="5000" value="1000" />
+              </label>
+              <label>
+                Layout
+                <select id="layout" disabled>
+                  <option value="graphviz">graphviz (dot) — best layout</option>
+                </select>
+              </label>
+
+              <button id="loadBtn">Load</button>
+              <button class="secondary" id="fitBtn">Fit</button>
+              <button class="secondary" id="pngBtn">Export</button>
+            </div>
+            <details style="margin-top: 10px;">
+              <summary style="cursor: pointer; color: var(--muted); font-size: 12px;">Options</summary>
+              <div class="row" style="margin-top: 10px; gap: 14px; flex-wrap: wrap;">
+                <label>
+                  Graphviz edges
+                  <select id="optGvEdgeRouting" style="min-width: 210px;">
+                    <option value="gramps">Ortho + corner radius (Gramps-like)</option>
+                    <option value="spline">Spline (smooth everywhere)</option>
+                    <option value="ortho">Orthogonal (elbows)</option>
+                    <option value="polyline">Polyline (straight segments)</option>
+                    <option value="curved">Curved (slow; may hang on large graphs)</option>
+                  </select>
+                </label>
+                <label style="grid-auto-flow: column; align-items: center; gap: 8px;">
+                  <input id="optCouplePriority" type="checkbox" checked />
+                  Couple priority
+                </label>
+                <label style="grid-auto-flow: column; align-items: center; gap: 8px;">
+                  <input id="optShowIds" type="checkbox" />
+                  Show Gramps IDs (debug)
+                </label>
+                <label style="grid-auto-flow: column; align-items: center; gap: 8px;">
+                  <input id="optShowDistance" type="checkbox" />
+                  Show distance (BFS hops)
+                </label>
+                <label>
+                  Dates
+                  <select id="optDateStyle" style="min-width: 210px;">
+                    <option value="full">Full (stacked)</option>
+                    <option value="compact">Years (compact)</option>
+                  </select>
+                </label>
+                <div class="hint" style="max-width: 720px;">
+                  Birth/death (* / †) and marriage (⚭) are always shown when available.
+                </div>
+              </div>
+            </details>
+            <div class="row" style="margin-top: 8px; gap: 12px;">
+              <div class="hint">
+                API: <code>/graph/neighborhood</code> · Try <code>I0001</code>. Tip: <code>graphviz</code> layout uses the same DOT-style approach as Gramps Web.
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <div class="row" style="justify-content: flex-end;">
+          <div style="display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
+            <div id="apiNotice" class="status" style="display:none; border-color: rgba(255,184,108,0.35); color: #ffb86c;">API notice</div>
+            <div id="status" class="status">Ready.</div>
+          </div>
+        </div>
+
+        <div id="cy"></div>
+        <div id="gv" style="display:none;"></div>
+      </main>
+    </div>
+  </div>
+
+<script type="module">
+  // Register dagre layout plugin.
+  if (window.cytoscape && window.cytoscapeDagre) {
+    cytoscape.use(window.cytoscapeDagre);
+  }
+
+  import { Graphviz } from 'https://unpkg.com/@hpcc-js/wasm-graphviz@1.18.0/dist/index.js';
+
+  const statusEl = document.getElementById('status');
+  const apiNoticeEl = document.getElementById('apiNotice');
+  const gvEl = document.getElementById('gv');
+  const personIdEl = document.getElementById('personId');
+  const depthEl = document.getElementById('depth');
+  const maxNodesEl = document.getElementById('maxNodes');
+  const layoutEl = document.getElementById('layout');
+
+  let gvPanZoom = null;
+  let lastPayload = null;
+
+  const optShowIdsEl = document.getElementById('optShowIds');
+  const optShowDistanceEl = document.getElementById('optShowDistance');
+  const optCouplePriorityEl = document.getElementById('optCouplePriority');
+  const optDateStyleEl = document.getElementById('optDateStyle');
+  const optGvEdgeRoutingEl = document.getElementById('optGvEdgeRouting');
+
+  // v2: reset persisted settings so new defaults take effect
+  // (otherwise an older localStorage value like couplePriority=false makes layout look unchanged).
+  const SETTINGS_KEY = 'genealogy_graph_demo_settings_v2';
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+  function saveSettings(s) {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {}
+  }
+
+  const settings = {
+    // Defaults: Gramps-ish presentation.
+    // Graphviz edge routing: Gramps Web feels like mostly-straight edges with rounded corners.
+    // We achieve that feel by using polyline routing and rounding corners in SVG.
+    gvEdgeRouting: 'gramps',
+    couplePriority: true,
+    showIds: false,
+    showDistance: false,
+    dateStyle: 'full',
+    ...loadSettings(),
+  };
+
+  // Force always-on behaviors (these are not user-toggles anymore).
+  settings.showMarriage = true;
+  settings.showDates = true;
+
+  optCouplePriorityEl.checked = !!settings.couplePriority;
+  optShowIdsEl.checked = !!settings.showIds;
+  optShowDistanceEl.checked = !!settings.showDistance;
+  optDateStyleEl.value = (settings.dateStyle === 'compact') ? 'compact' : 'full';
+  optGvEdgeRoutingEl.value = (settings.gvEdgeRouting === 'curved' || settings.gvEdgeRouting === 'polyline' || settings.gvEdgeRouting === 'ortho' || settings.gvEdgeRouting === 'spline' || settings.gvEdgeRouting === 'gramps')
+    ? settings.gvEdgeRouting
+    : 'gramps';
+
+  function syncSettingsFromUi() {
+    settings.gvEdgeRouting = (optGvEdgeRoutingEl.value === 'curved' || optGvEdgeRoutingEl.value === 'polyline' || optGvEdgeRoutingEl.value === 'ortho' || optGvEdgeRoutingEl.value === 'spline' || optGvEdgeRoutingEl.value === 'gramps')
+      ? optGvEdgeRoutingEl.value
+      : 'gramps';
+    settings.couplePriority = !!optCouplePriorityEl.checked;
+    settings.showIds = !!optShowIdsEl.checked;
+    settings.showDistance = !!optShowDistanceEl.checked;
+    settings.dateStyle = (optDateStyleEl.value === 'compact') ? 'compact' : 'full';
+
+    // Keep always-on settings fixed.
+    settings.showMarriage = true;
+    settings.showDates = true;
+    saveSettings(settings);
+  }
+
+  function setStatus(msg, isError=false) {
+    statusEl.textContent = msg;
+    statusEl.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+  }
+
+  function setApiNotice(msg) {
+    if (!msg) {
+      apiNoticeEl.style.display = 'none';
+      apiNoticeEl.textContent = '';
+      return;
+    }
+    apiNoticeEl.style.display = 'block';
+    apiNoticeEl.textContent = msg;
+  }
+
+  function updateApiNoticeFromPayload(payload) {
+    const people = (payload?.nodes || []).filter(n => n?.type === 'person');
+    if (!people.length) {
+      setApiNotice(null);
+      return;
+    }
+
+    const hasDates = people.some(p => ('birth' in p) || ('death' in p));
+    const hasDistance = people.some(p => ('distance' in p));
+
+    if (!hasDates) {
+      setApiNotice('API not sending birth/death fields — restart the API to enable dates.');
+      return;
+    }
+    if (settings.showDistance && !hasDistance) {
+      setApiNotice('API not sending distance — restart the API to enable BFS hops.');
+      return;
+    }
+    setApiNotice(null);
+  }
+
+  function normalizePersonIdFromGraphvizTitle(title) {
+    if (!title) return null;
+    const t = String(title).trim();
+    // Support composite node ids (e.g. spouse port nodes).
+    // Format: <person_id>__spouse__<family_id>
+    const m = t.match(/^(?<pid>.+?)__spouse__.+$/);
+    if (m?.groups?.pid) return m.groups.pid;
+    return t;
+  }
+
+  const cyContainer = document.getElementById('cy');
+  const cy = cytoscape({
+    container: cyContainer,
+    elements: [],
+    style: [
+      {
+        selector: 'node',
+        style: {
+          'label': 'data(label)',
+          'font-size': 10,
+          'color': '#e8eefc',
+          'text-valign': 'center',
+          'text-halign': 'center',
+          'text-wrap': 'wrap',
+          'text-max-width': 110,
+          'background-color': '#7aa2ff',
+          'border-width': 1,
+          'border-color': 'rgba(255,255,255,0.18)',
+          'width': 120,
+          'height': 46,
+          'shape': 'round-rectangle',
+          'padding': 8,
+        }
+      },
+      {
+        selector: 'node[type = "family"]',
+        style: {
+          'shape': 'ellipse',
+          'width': 20,
+          'height': 20,
+          'background-color': '#9d7bff',
+          'label': '',
+          'border-color': 'rgba(255,255,255,0.28)'
+        }
+      },
+      {
+        selector: 'node[private = 1]',
+        style: {
+          'background-color': '#ffb86c',
+          'color': '#10131a'
+        }
+      },
+      {
+        selector: 'node[type = "person"][gender = "M"]',
+        style: {
+          'background-color': '#7aa2ff'
+        }
+      },
+      {
+        selector: 'node[type = "person"][gender = "F"]',
+        style: {
+          'background-color': '#ff7ab6'
+        }
+      },
+      {
+        selector: 'node[type = "person"][gender = "U"]',
+        style: {
+          'background-color': '#b9c4dd'
+        }
+      },
+      {
+        selector: 'edge',
+        style: {
+          'curve-style': 'bezier',
+          'line-color': 'rgba(255,255,255,0.28)',
+          'width': 2,
+          'target-arrow-shape': 'triangle',
+          'target-arrow-color': 'rgba(255,255,255,0.28)',
+          'arrow-scale': 0.7,
+        }
+      },
+      {
+        selector: 'edge[type = "partner"]',
+        style: {
+          'line-color': 'rgba(124,227,139,0.55)',
+          'target-arrow-shape': 'none',
+          'width': 1.5,
+          'line-style': 'dashed'
+        }
+      },
+      {
+        selector: 'edge[type = "parent"]',
+        style: {
+          'line-color': 'rgba(122,162,255,0.52)',
+          'target-arrow-color': 'rgba(122,162,255,0.52)'
+        }
+      },
+      {
+        selector: 'edge[type = "child"]',
+        style: {
+          'line-color': 'rgba(122,162,255,0.52)',
+          'target-arrow-color': 'rgba(122,162,255,0.52)'
+        }
+      }
+    ],
+    wheelSensitivity: 0.2,
+  });
+
+  // Graphviz SVG panel styling.
+  gvEl.style.height = '100%';
+  gvEl.style.width = '100%';
+  gvEl.style.borderRadius = '14px';
+  gvEl.style.border = '1px solid var(--border)';
+  gvEl.style.background = 'rgba(3, 6, 10, 0.65)';
+  gvEl.style.boxShadow = 'var(--shadow)';
+  // Don't use scrollbars for navigation; panning/zooming happens via SVG viewBox.
+  gvEl.style.overflow = 'hidden';
+  gvEl.style.position = 'relative';
+  gvEl.style.touchAction = 'none';
+
+  function nodeLabel(n) {
+    if (n.type === 'family') return '';
+    const name = n.display_name || '';
+    const gid = n.gramps_id ? ` (${n.gramps_id})` : '';
+    return `${name}${gid}`;
+  }
+
+  function normGender(g) {
+    if (!g) return 'U';
+    const s = String(g).trim();
+    if (s === 'M' || s.toLowerCase() === 'male') return 'M';
+    if (s === 'F' || s.toLowerCase() === 'female') return 'F';
+    if (s === 'U' || s.toLowerCase() === 'unknown') return 'U';
+    return 'U';
+  }
+
+  function makeElements(payload) {
+    const nodes = [];
+    const edges = [];
+
+    for (const n of payload.nodes || []) {
+      const isPrivate = (n.type === 'person' && n.display_name === 'Private');
+      nodes.push({
+        data: {
+          id: n.id,
+          type: n.type,
+          label: nodeLabel(n),
+          private: isPrivate ? 1 : 0,
+          gramps_id: n.gramps_id || null,
+          gender: (n.type === 'person') ? normGender(n.gender) : null,
+        }
+      });
+    }
+
+    let i = 0;
+    for (const e of payload.edges || []) {
+      edges.push({
+        data: {
+          id: `e${i++}`,
+          source: e.from,
+          target: e.to,
+          type: e.type,
+          role: e.role || null,
+        }
+      });
+    }
+
+    return nodes.concat(edges);
+  }
+
+  let _graphvizPromise = null;
+  function getGraphviz() {
+    if (!_graphvizPromise) {
+      _graphvizPromise = Graphviz.load();
+    }
+    return _graphvizPromise;
+  }
+
+  function dotEscape(id) {
+    // Always quote to keep Graphviz happy with underscores, etc.
+    return `"${String(id).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+  }
+
+  function buildDotForFamily(payload) {
+    const nodes = payload.nodes || [];
+    const edges = payload.edges || [];
+
+    // Graphviz can become extremely slow or even effectively hang on larger graphs
+    // when using curved splines. Keep it safe by default.
+    const gvSplineMode = (() => {
+      const n = (payload?.nodes?.length ?? 0);
+      const m = (payload?.edges?.length ?? 0);
+
+      const requested = (settings.gvEdgeRouting === 'curved' || settings.gvEdgeRouting === 'polyline' || settings.gvEdgeRouting === 'ortho' || settings.gvEdgeRouting === 'spline' || settings.gvEdgeRouting === 'gramps')
+        ? settings.gvEdgeRouting
+        : 'gramps';
+
+      // Safety cutoffs: Graphviz WASM runs on the main thread here.
+      // - 'curved' is the most likely to hang on larger graphs.
+      // - 'spline' is usually OK, but still avoid it when graphs get big.
+      if (requested === 'curved') {
+        if (n > 250 || m > 400) return 'polyline';
+        return 'curved';
+      }
+      if (requested === 'gramps') {
+        // Requested look: orthogonal routing + rounded corners.
+        // We round it in SVG so the radius is larger than the stroke width.
+        return 'ortho';
+      }
+      if (requested === 'spline') {
+        if (n > 650 || m > 1100) return 'polyline';
+        return 'spline';
+      }
+      return requested;
+    })();
+
+    const wantsGrampsDefaults = (settings.gvEdgeRouting === 'gramps');
+
+    const people = new Map();
+    const families = new Set();
+    const personDistance = new Map();
+    for (const n of nodes) {
+      if (n.type === 'person') {
+        people.set(n.id, n);
+        personDistance.set(n.id, (n.distance ?? null));
+      }
+      if (n.type === 'family') families.add(n.id);
+    }
+
+    const famParents = new Map();
+    const famChildren = new Map();
+
+    for (const e of edges) {
+      if (e.type === 'parent') {
+        // Expect: person -> family
+        if (!people.has(e.from)) continue;
+        if (!families.has(e.to)) continue;
+        const arr = famParents.get(e.to) || [];
+        const role = (e.role || '').toString().trim().toLowerCase();
+        arr.push({ pid: e.from, role: role || null });
+        famParents.set(e.to, arr);
+      } else if (e.type === 'child') {
+        // Expect: family -> person
+        if (!families.has(e.from)) continue;
+        if (!people.has(e.to)) continue;
+        const arr = famChildren.get(e.from) || [];
+        arr.push(e.to);
+        famChildren.set(e.from, arr);
+      }
+    }
+
+    const lines = [];
+    lines.push('digraph gramps_like {');
+    lines.push('  compound=true;');
+    lines.push('  rankdir=TB;');
+    lines.push(`  splines=${gvSplineMode};`);
+    // Help make splines feel balanced and symmetric.
+    // (Does nothing if splines is polyline/ortho.)
+    lines.push('  outputorder=edgesfirst;');
+    // Gramps Web defaults (helps edge aesthetics and general spacing).
+    // Keep these only in the dedicated Gramps edge mode.
+    if (wantsGrampsDefaults) {
+      // Reduce vertical distance between generational ranks.
+      lines.push('  ranksep=1.4;');
+      lines.push('  pad=2;');
+      // this controls the number of iterations = nslimit * no_nodes
+      lines.push('  nslimit=2.0;');
+      lines.push('  nodesep=0;');
+    } else {
+      // Slightly roomier defaults. Family separation is mainly handled by invisible
+      // spacers in sibling rows further below.
+      lines.push('  nodesep=0.32;');
+      lines.push('  ranksep=0.90;');
+      lines.push('  pad=0.2;');
+    }
+    lines.push('  bgcolor="transparent";');
+    lines.push('  node [fontname="Inter, Segoe UI, Arial", fontsize=10, style="filled", color="#2a3446", margin="0.08,0.06"];');
+    // Slightly thicker edges make corner-rounding actually visible.
+    lines.push('  edge [color="#556277", arrowsize=0.7, penwidth=1.6];');
+    lines.push('  ordering=out;');
+
+    const getCouple = (fid) => {
+      const parents = famParents.get(fid) || [];
+      const parentIds = [...new Set(parents.map(p => p.pid).filter(Boolean))];
+      const hasTwoParents = parentIds.length >= 2;
+
+      // Prefer explicit roles if present, otherwise take first two.
+      const father = parents.find(p => p.role === 'father' || p.role === 'husband')?.pid;
+      const mother = parents.find(p => p.role === 'mother' || p.role === 'wife')?.pid;
+      if (father && mother) return { father, mother, hasTwoParents: true };
+      if (hasTwoParents) return { father: parentIds[0], mother: parentIds[1], hasTwoParents: true };
+      return { father: null, mother: null, hasTwoParents: false };
+    };
+
+    const yearFromText = (t) => {
+      if (!t) return null;
+      const m = String(t).match(/\b(1[0-9]{3}|20[0-9]{2})\b/);
+      return m ? m[1] : null;
+    };
+
+    const birthSortKey = (pid) => {
+      const p = people.get(pid);
+      const t = p?.birth;
+      if (!t) return Number.POSITIVE_INFINITY;
+
+      // Prefer full ISO date for stable ordering.
+      const iso = String(t).match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+      if (iso) {
+        const y = Number(iso[1]);
+        const m = Number(iso[2]);
+        const d = Number(iso[3]);
+        if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)) {
+          return y * 10000 + m * 100 + d;
+        }
+      }
+
+      const y = yearFromText(t);
+      if (y && /^\d{4}$/.test(String(y))) return Number(y) * 10000;
+      return Number.POSITIVE_INFINITY;
+    };
+
+    // Map person -> list of in-view spouses (derived from 2-parent families).
+    const spouseOf = new Map();
+    const addSpousePair = (a, b) => {
+      if (!a || !b) return;
+      if (!people.has(a) || !people.has(b)) return;
+      spouseOf.set(a, [...(spouseOf.get(a) || []), b]);
+      spouseOf.set(b, [...(spouseOf.get(b) || []), a]);
+    };
+
+    const htmlEscape = (s) => {
+      if (s === null || s === undefined) return '';
+      return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+    };
+
+    const escLabelLine = (s) => String(s ?? '').replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+
+    const splitDisplayNameFallback = (displayName) => {
+      const raw = String(displayName || '').trim();
+      if (!raw) return { given: '', surname: '' };
+
+      const parts = raw.split(/\s+/g);
+      if (parts.length <= 1) return { given: raw, surname: '' };
+
+      // Try to keep Dutch/German surname particles with the surname.
+      const particleSet = new Set([
+        'van', 'von', 'de', 'den', 'der', 'ten', 'ter', 'te',
+        'v.d.', 'v/d', 'vd', 'v.d', 'v',
+        'zu', 'zum', 'zur',
+      ]);
+
+      const surnameTokens = [parts[parts.length - 1]];
+      for (let i = parts.length - 2; i >= 0; i--) {
+        const t = parts[i].toLowerCase();
+        if (particleSet.has(t)) {
+          surnameTokens.unshift(parts[i]);
+          continue;
+        }
+        break;
+      }
+
+      const given = parts.slice(0, parts.length - surnameTokens.length).join(' ');
+      const surname = surnameTokens.join(' ');
+      return { given, surname };
+    };
+
+    const deriveSurnameFromDisplayName = (displayName, givenName, fallbackSurname) => {
+      const dn = String(displayName || '').trim();
+      const gn = String(givenName || '').trim();
+      const fs = String(fallbackSurname || '').trim();
+      if (!dn) return fs;
+
+      // If we have given_name, prefer taking the remainder of display_name.
+      // This tends to preserve particles like "van" that are often not stored in surname.
+      if (gn) {
+        const dnNorm = dn.replace(/\s+/g, ' ').toLowerCase();
+        const gnNorm = gn.replace(/\s+/g, ' ').toLowerCase();
+        if (dnNorm.startsWith(gnNorm)) {
+          const remainder = dn.slice(gn.length).trim();
+          if (remainder) return remainder;
+        }
+      }
+
+      // Fall back to either stored surname or heuristic split.
+      if (fs) return fs;
+      const fb = splitDisplayNameFallback(dn);
+      return fb.surname;
+    };
+
+    const MONTHS_NL = {
+      1: 'januari',
+      2: 'februari',
+      3: 'maart',
+      4: 'april',
+      5: 'mei',
+      6: 'juni',
+      7: 'juli',
+      8: 'augustus',
+      9: 'september',
+      10: 'oktober',
+      11: 'november',
+      12: 'december',
+    };
+
+    const normalizeWs = (s) => String(s).trim().replace(/\s+/g, ' ');
+
+    const extractFullDateOrYear = (t) => {
+      if (!t) return null;
+      const s = normalizeWs(t);
+
+      // ISO yyyy-mm-dd (Gramps exports often look like this)
+      const iso = s.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+      if (iso) {
+        const year = iso[1];
+        const monthNum = Number(iso[2]);
+        const day = Number(iso[3]);
+        const month = MONTHS_NL[monthNum] || String(monthNum);
+        if (
+          Number.isFinite(day) && day >= 1 && day <= 31 &&
+          Number.isFinite(monthNum) && monthNum >= 1 && monthNum <= 12
+        ) {
+          return `${day} ${month} ${year}`;
+        }
+      }
+
+      // dd-mm-yyyy / dd/mm/yyyy / dd.mm.yyyy
+      const n = s.match(/\b(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{4})\b/);
+      if (n) {
+        const day = Number(n[1]);
+        const monthNum = Number(n[2]);
+        const year = n[3];
+        const month = MONTHS_NL[monthNum] || String(monthNum);
+        if (Number.isFinite(day) && day >= 1 && day <= 31 && Number.isFinite(monthNum) && monthNum >= 1 && monthNum <= 12) {
+          return `${day} ${month} ${year}`;
+        }
+      }
+
+      // dd Month yyyy (month word)
+      const w = s.match(/\b(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\s+(\d{4})\b/);
+      if (w) {
+        const day = Number(w[1]);
+        const monthWord = String(w[2]).toLowerCase();
+        const year = w[3];
+        if (Number.isFinite(day) && day >= 1 && day <= 31) {
+          return `${day} ${monthWord} ${year}`;
+        }
+      }
+
+      const y = yearFromText(s);
+      return y ? y : null;
+    };
+
+    const formatDateLine = (t, symbol) => {
+      const v = extractFullDateOrYear(t);
+      if (!v) return null;
+      return `${symbol} ${String(v).toLowerCase()}`;
+    };
+
+    const emitPersonCardNode = (nodeId, pid) => {
+      const p = people.get(pid);
+      if (!p) return;
+      const isPrivate = p.display_name === 'Private';
+
+      let given = '';
+      let surname = '';
+      if (!isPrivate) {
+        given = (p.given_name || '').trim();
+        surname = deriveSurnameFromDisplayName(p.display_name, given, p.surname);
+        if (!given) {
+          const fb = splitDisplayNameFallback(p.display_name);
+          given = fb.given;
+          if (!surname) surname = fb.surname;
+        }
+      }
+
+      const nameLine1 = isPrivate
+        ? 'Private'
+        : ((given || p.display_name || p.gramps_id || pid).trim());
+      const nameLine2 = (!isPrivate && surname) ? surname : '';
+
+      const birthLine = (!isPrivate && settings.dateStyle === 'compact')
+        ? (() => {
+            const by = yearFromText(p.birth);
+            return by ? `*${by}` : null;
+          })()
+        : (!isPrivate ? formatDateLine(p.birth, '*') : null);
+
+      const deathLine = (!isPrivate && settings.dateStyle === 'compact')
+        ? (() => {
+            const dy = yearFromText(p.death);
+            // Compact still uses dagger.
+            return dy ? `†${dy}` : null;
+          })()
+        : (!isPrivate ? formatDateLine(p.death, '+') : null);
+
+      const footerBits = [];
+      if (!isPrivate && settings.showDistance && (p.distance ?? null) !== null) {
+        footerBits.push(`d=${p.distance}`);
+      }
+      if (settings.showIds && !isPrivate && p.gramps_id) {
+        footerBits.push(p.gramps_id);
+      }
+      const footer = footerBits.length ? htmlEscape(footerBits.join(' · ')) : '';
+
+      // Flat fixed-size node.
+      // The top rim band is drawn in SVG post-processing to match Gramps Web.
+      const bodyBg = '#d0d5dd';
+      const labelLines = [nameLine1, nameLine2, birthLine || '', deathLine || '']
+        .filter(v => v && String(v).trim().length)
+        .map(escLabelLine);
+      const label = labelLines.join('\\l') + '\\l';
+
+      const fill = bodyBg;
+      lines.push(
+        `  ${dotEscape(nodeId)} [` +
+        `shape=box, style="rounded,filled", fixedsize=true, width=1.60, height=1.10, ` +
+        `fillcolor="${fill}", ` +
+        `color="${fill}", penwidth=1.0, ` +
+        `fontname="Inter, Segoe UI, Arial", fontsize=10, fontcolor="#0b0f16", ` +
+        `labeljust=l, labelloc=c, margin="0.10,0.08", ` +
+        `label="${label}"` +
+        `];`
+      );
+    };
+
+    // Nodes: one node per person, plus optional per-family spouse port nodes
+    // (invisible layout helpers for multi-spouse / duplicate-couple families).
+    for (const [pid] of people.entries()) {
+      emitPersonCardNode(pid, pid);
+    }
+    for (const fid of families) {
+      const m = '⚭';
+      lines.push(
+        `  ${dotEscape(fid)} [shape=circle, width=0.24, height=0.24, fixedsize=true, fillcolor="#9d7bff", fontcolor="#0b0f16", fontsize=12, penwidth=1.2, label="${m}"];`
+      );
+    }
+
+    // Collect all spouses (people in a 2-parent family).
+    const spouseSet = new Set();
+    for (const fid of families) {
+      const { father, mother, hasTwoParents } = getCouple(fid);
+      if (hasTwoParents && father && mother) {
+        spouseSet.add(father);
+        spouseSet.add(mother);
+        addSpousePair(father, mother);
+      }
+    }
+
+    // Identify multi-partner people (appear as parent in multiple 2-parent families)
+    // and duplicate-couple families (same spouse pair appears in multiple family IDs).
+    const coupleKeyOf = (a, b) => {
+      const x = String(a);
+      const y = String(b);
+      return x <= y ? `${x}|${y}` : `${y}|${x}`;
+    };
+    const parentFamiliesByPerson = new Map();
+    const coupleGroups = new Map(); // coupleKey -> { father, mother, fids: [] }
+    for (const fid of families) {
+      const { father, mother, hasTwoParents } = getCouple(fid);
+      if (!hasTwoParents || !father || !mother) continue;
+      parentFamiliesByPerson.set(father, [...(parentFamiliesByPerson.get(father) || []), fid]);
+      parentFamiliesByPerson.set(mother, [...(parentFamiliesByPerson.get(mother) || []), fid]);
+
+      const key = coupleKeyOf(father, mother);
+      const g = coupleGroups.get(key) || { father, mother, fids: [] };
+      g.fids.push(fid);
+      coupleGroups.set(key, g);
+    }
+    const multiPartnerPeople = new Set();
+    for (const [pid, fids] of parentFamiliesByPerson.entries()) {
+      const uniq = [...new Set(fids.filter(Boolean))];
+      if (uniq.length >= 2) multiPartnerPeople.add(pid);
+    }
+
+    // For prioritizing which spouse block should be "closest" to the shared person,
+    // keep per-person family+spouse info including child counts.
+    const spouseFamiliesByPerson = new Map(); // pid -> [{ fid, spouseId, childCount }]
+    for (const fid of families) {
+      const { father, mother, hasTwoParents } = getCouple(fid);
+      if (!hasTwoParents || !father || !mother) continue;
+      const childCount = (famChildren.get(fid) || []).length;
+      const a = spouseFamiliesByPerson.get(father) || [];
+      a.push({ fid, spouseId: mother, childCount });
+      spouseFamiliesByPerson.set(father, a);
+      const b = spouseFamiliesByPerson.get(mother) || [];
+      b.push({ fid, spouseId: father, childCount });
+      spouseFamiliesByPerson.set(mother, b);
+    }
+
+    // Build birth-family lookup (child -> families where they're a child).
+    const birthFamiliesByPerson = new Map();
+    for (const e of edges) {
+      if (e.type !== 'child') continue;
+      // e.from = family, e.to = child
+      const childId = e.to;
+      const famId = e.from;
+      if (!childId || !famId) continue;
+      const arr = birthFamiliesByPerson.get(childId) || [];
+      arr.push(famId);
+      birthFamiliesByPerson.set(childId, arr);
+    }
+
+    const distKey = (pid) => {
+      const d = personDistance.get(pid);
+      return (d === null || d === undefined) ? 1e9 : Number(d);
+    };
+
+    // Couple adjacency across the whole view:
+    // A spouse should appear adjacent to their partner in *one* sibling row.
+    // If we let the same person be forced into multiple sibling rows, DOT will split
+    // rows and produce strange interleavings.
+    //
+    // Strategy:
+    // - For each family sibling row, consider attaching in-view spouses next to children.
+    // - Choose exactly one attachment row per spouse (best/closest partner by BFS distance).
+    // - Remove the attached spouse from their own birth-family sibling row(s) in this view.
+    const spouseAttachmentTargetByPerson = new Map(); // person -> familyId where they are attached as spouse
+    const spouseAttachmentByFamily = new Map(); // familyId -> Map(childId -> spouseId)
+
+    const attachmentCandidatesBySpouse = new Map();
+    for (const fid of families) {
+      const rawChildren = famChildren.get(fid) || [];
+      const childSet = new Set(rawChildren);
+
+      for (const childId of rawChildren) {
+        // If a person is a parent (has their own family), don't drag their spouses into
+        // their birth-family sibling row. This is exactly what makes Wolter's spouses
+        // show up alongside his siblings.
+        if (parentFamiliesByPerson.has(childId)) continue;
+
+        const spouses = spouseOf.get(childId) || [];
+        for (const spouseId of spouses) {
+          if (!spouseId) continue;
+          if (!people.has(spouseId)) continue;
+          // Don't attach if the spouse is also a sibling in this same row.
+          if (childSet.has(spouseId)) continue;
+
+          const arr = attachmentCandidatesBySpouse.get(spouseId) || [];
+          arr.push({
+            spouseId,
+            familyId: fid,
+            partnerChildId: childId,
+            score: distKey(childId),
+          });
+          attachmentCandidatesBySpouse.set(spouseId, arr);
+        }
+      }
+    }
+
+    for (const [spouseId, candidates] of attachmentCandidatesBySpouse.entries()) {
+      if (!candidates.length) continue;
+      candidates.sort((a, b) => {
+        if (a.score !== b.score) return a.score - b.score;
+        if (a.familyId !== b.familyId) return String(a.familyId).localeCompare(String(b.familyId));
+        return String(a.partnerChildId).localeCompare(String(b.partnerChildId));
+      });
+
+      const best = candidates[0];
+      spouseAttachmentTargetByPerson.set(spouseId, best.familyId);
+
+      const perFam = spouseAttachmentByFamily.get(best.familyId) || new Map();
+      // One spouse per child for readability.
+      if (!perFam.has(best.partnerChildId)) perFam.set(best.partnerChildId, spouseId);
+      spouseAttachmentByFamily.set(best.familyId, perFam);
+    }
+
+    // Couple priority: keep spouses adjacent.
+    for (const fid of families) {
+      const { father, mother, hasTwoParents } = getCouple(fid);
+      if (hasTwoParents && father && mother) {
+        const isMultiSpouseFamily = multiPartnerPeople.has(father) || multiPartnerPeople.has(mother);
+        // Gramps Web style: use a per-family cluster to keep the couple cohesive.
+        // This is the single most effective nudge DOT has for spouse adjacency.
+        // We keep it invisible (no box) and only use it as a layout hint.
+        // Always use the real person nodes for the visible spouse↔family structure.
+        // Using per-family ports here can visually separate the spouse from the hub.
+        const fatherNode = father;
+        const motherNode = mother;
+
+        const gf = (people.get(father)?.gender || '').toString().trim().toUpperCase();
+        const gm = (people.get(mother)?.gender || '').toString().trim().toUpperCase();
+
+        // Hard glue: keep couples adjacent as much as DOT allows.
+        // Use a very high weight and minlen=0 to strongly discourage any node in-between.
+        // constraint=false so we don't fight the vertical generational ranking.
+        let left = fatherNode;
+        let right = motherNode;
+        if (gf === 'F' && gm === 'M') {
+          left = motherNode;
+          right = fatherNode;
+        }
+
+        // Always draw the visible connectors into the family node.
+        // constraint=false keeps the family node on the same rank when we add rank hints.
+        lines.push(`  ${dotEscape(fatherNode)} -> ${dotEscape(fid)} [arrowhead=none, constraint=false, weight=50, minlen=0];`);
+        lines.push(`  ${dotEscape(motherNode)} -> ${dotEscape(fid)} [arrowhead=none, constraint=false, weight=50, minlen=0];`);
+
+        // Multi-spouse families are ordered by the dedicated multi-spouse cluster.
+        // If we also create per-family couple clusters, Graphviz may "split" spouses
+        // into separate rows due to conflicting cluster membership.
+        if (isMultiSpouseFamily) {
+          continue;
+        }
+
+        // Keep the whole couple (spouse + family hub + spouse) cohesive.
+        // Using a cluster makes DOT treat this as a block and reduces the chance
+        // of inserting unrelated couples between spouses.
+        lines.push(`  subgraph ${dotEscape('cluster_couple_' + fid)} {`);
+        lines.push('    cluster=true;');
+        lines.push('    style=invis;');
+        lines.push('    color=white;');
+        lines.push('    label=".";');
+        lines.push('    rank=same;');
+        lines.push(`    ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)};`);
+        lines.push('  }');
+
+        // Hard ordering: spouse - family - spouse.
+        // Use constraint=true here: because all three nodes are rank=same, this won't
+        // pull anything up/down, but it *will* give DOT a real ordering constraint.
+        lines.push(`  ${dotEscape(left)} -> ${dotEscape(fid)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
+        lines.push(`  ${dotEscape(fid)} -> ${dotEscape(right)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
+      }
+    }
+
+    // Multi-spouse layout: prefer showing a single shared person centered between
+    // their spouse blocks in one dedicated row.
+    // Order spouse blocks by number of children in-view (descending), so "main" family
+    // (e.g., ancestor line with many children) is prioritized.
+    for (const pid of multiPartnerPeople) {
+      const famsRaw = spouseFamiliesByPerson.get(pid) || [];
+      const fams = [];
+      const seenF = new Set();
+      for (const x of famsRaw) {
+        if (!x?.fid || seenF.has(x.fid)) continue;
+        // Only include spouse blocks that are in-view.
+        if (!families.has(x.fid)) continue;
+        if (!people.has(x.spouseId)) continue;
+        seenF.add(x.fid);
+        fams.push(x);
+      }
+      if (fams.length < 2) continue;
+
+      fams.sort((a, b) => {
+        if (a.childCount !== b.childCount) return b.childCount - a.childCount;
+        // Prefer closer spouse blocks to the BFS root.
+        const da = distKey(a.spouseId);
+        const db = distKey(b.spouseId);
+        if (da !== db) return da - db;
+        return String(a.fid).localeCompare(String(b.fid));
+      });
+
+      // Build an ordering chain: spouse1, fid1, pid, fid2, spouse2, fid3, spouse3...
+      const row = [];
+      row.push(fams[0].spouseId);
+      row.push(fams[0].fid);
+      row.push(pid);
+      for (let i = 1; i < fams.length; i++) {
+        row.push(fams[i].fid);
+        row.push(fams[i].spouseId);
+      }
+
+      lines.push(`  subgraph ${dotEscape('cluster_multi_' + pid)} {`);
+      lines.push('    cluster=true;');
+      lines.push('    style=invis;');
+      lines.push('    label=".";');
+      lines.push('    rank=same;');
+      lines.push(`    ${row.map(dotEscape).join('; ')};`);
+      lines.push('  }');
+
+      for (let i = 0; i < row.length - 1; i++) {
+        lines.push(`  ${dotEscape(row[i])} -> ${dotEscape(row[i + 1])} [style=invis, weight=26000, minlen=0, constraint=true, dir=none];`);
+      }
+    }
+
+    // Helper: find an in-view two-parent family hub for a spouse pair (if any).
+    const familyHubForSpousePair = (a, b) => {
+      const g = coupleGroups.get(coupleKeyOf(a, b));
+      const fids = g?.fids || [];
+      return fids.length ? String(fids[0]) : null;
+    };
+
+    // Keep siblings on the same rank (row) beneath their family.
+    for (const fid of families) {
+      const rawChildren = famChildren.get(fid) || [];
+      // Sibling row ordering:
+      // - siblings sorted by birth
+      // - if a sibling has an in-view spouse, keep the couple adjacent
+      // - within a couple: man left, woman right (when gender is known)
+      // Also: if someone is being "pulled" into another row as an attached spouse,
+      // remove them from their own sibling row in this view to avoid contradictory
+      // rank constraints.
+      const children = rawChildren.filter(cid => {
+        // If someone is a parent (has their own family), don't pin them into a sibling row.
+        // Otherwise DOT tends to keep them with siblings while their marriages drift away.
+        if (parentFamiliesByPerson.has(cid)) return false;
+        const target = spouseAttachmentTargetByPerson.get(cid);
+        return !target || target === fid;
+      });
+
+      if (children.length >= 1) {
+        // Add an invisible spacer node at the end of each sibling group.
+        // This creates a visible gap between sibling groups from adjacent families.
+        const sepId = `${fid}__sep`;
+        lines.push(`  ${dotEscape(sepId)} [shape=point, style=invis, width=0.80, height=0.02, fixedsize=true, label=""];`);
+
+        const attachments = spouseAttachmentByFamily.get(fid) || new Map();
+        const blocks = children.map((cid) => {
+          const spouse = attachments.get(cid) || null;
+          return {
+            child: cid,
+            spouse,
+            isMarried: !!spouse,
+            key: birthSortKey(cid),
+          };
+        });
+
+        blocks.sort((a, b) => {
+          if (a.key !== b.key) return a.key - b.key;
+          return String(a.child).localeCompare(String(b.child));
+        });
+
+        const ordered = blocks;
+
+        const genderOf = (pid) => {
+          const g = (people.get(pid)?.gender || '').toString().trim().toUpperCase();
+          return (g === 'M' || g === 'F') ? g : 'U';
+        };
+
+        // Flatten into node order for this sibling row.
+        const rowNodes = [];
+        const coupleGlueEdges = [];
+        for (const b of ordered) {
+          if (!settings.couplePriority || !b.spouse) {
+            rowNodes.push(b.child);
+            continue;
+          }
+
+          // Place the couple as (M,F) when possible; otherwise keep child first.
+          const gChild = genderOf(b.child);
+          const gSpouse = genderOf(b.spouse);
+
+          if (gChild === 'F' && gSpouse === 'M') {
+            rowNodes.push(b.spouse);
+            rowNodes.push(b.child);
+            coupleGlueEdges.push([b.spouse, b.child]);
+          } else {
+            rowNodes.push(b.child);
+            rowNodes.push(b.spouse);
+            coupleGlueEdges.push([b.child, b.spouse]);
+          }
+        }
+
+        // Keep the sibling group and its spacer on the same row.
+        // Using a cluster (cluster_ prefix) nudges DOT to keep the group cohesive
+        // and reduces "interleaving" with other families in the same generation.
+        lines.push(`  subgraph ${dotEscape('cluster_children_' + fid)} {`);
+        lines.push('    style=invis;');
+        lines.push('    rank=same;');
+        lines.push(`    ${rowNodes.map(dotEscape).join('; ')}; ${dotEscape(sepId)};`);
+        lines.push('  }');
+
+        // Invisible ordering edges to keep the row stable (avoid interleaving).
+        // constraint=false so we don't change generations; high weight influences ordering.
+        if (rowNodes.length >= 2) {
+          for (let i = 0; i < rowNodes.length - 1; i++) {
+            lines.push(`  ${dotEscape(rowNodes[i])} -> ${dotEscape(rowNodes[i + 1])} [style=invis, weight=160, constraint=false, dir=none];`);
+          }
+        }
+
+        // Extra hard glue for couples inside this sibling row.
+        // If the pair has an in-view family hub, keep this glue weaker so the
+        // spouse–family–spouse ordering can still place the hub between them.
+        for (const [l, r] of coupleGlueEdges) {
+          const hasHub = !!familyHubForSpousePair(l, r);
+          const w = hasHub ? 2000 : 20000;
+          lines.push(`  ${dotEscape(l)} -> ${dotEscape(r)} [style=invis, weight=${w}, minlen=0, constraint=false, dir=none];`);
+        }
+        if (rowNodes.length >= 1) {
+          lines.push(`  ${dotEscape(rowNodes[rowNodes.length - 1])} -> ${dotEscape(sepId)} [style=invis, weight=160, constraint=false, dir=none];`);
+        }
+      }
+    }
+
+    // Edges
+    for (const e of edges) {
+      if (e.type === 'parent') {
+        const fid = e.to;
+        const pid = e.from;
+        const { hasTwoParents } = getCouple(fid);
+        // For 2-parent families we already added the strong parent->family edges above.
+        if (!hasTwoParents) {
+          lines.push(`  ${dotEscape(pid)} -> ${dotEscape(fid)} [arrowhead=none, constraint=true, weight=3, minlen=1];`);
+        }
+      } else if (e.type === 'child') {
+        // Family->child edges define the generation ranks.
+        // Higher weight keeps children closer to their own family hub, which helps
+        // prevent unrelated nodes from visually "splitting" a sibling row.
+        lines.push(`  ${dotEscape(e.from)} -> ${dotEscape(e.to)} [arrowhead=none, constraint=true, weight=12, minlen=2];`);
+      }
+    }
+
+    lines.push('}');
+    return lines.join('\n');
+  }
+
+  function showCytoscape() {
+    gvEl.style.display = 'none';
+    cyContainer.style.display = 'block';
+    cy.resize();
+  }
+
+  function showGraphviz() {
+    cyContainer.style.display = 'none';
+    gvEl.style.display = 'block';
+  }
+
+  function enableSvgPanZoom(svg, {container} = {}) {
+    // Minimal pan/zoom for inline SVG via viewBox.
+    // Works in normal browsers + VS Code Simple Browser.
+    const ensureViewBox = () => {
+      let vb = svg.viewBox?.baseVal;
+      if (vb && Number.isFinite(vb.width) && vb.width > 0 && Number.isFinite(vb.height) && vb.height > 0) {
+        return vb;
+      }
+      // Ensure a viewBox exists.
+      const w = Number(svg.getAttribute('width')) || 1000;
+      const h = Number(svg.getAttribute('height')) || 800;
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      return svg.viewBox.baseVal;
+    };
+
+    const vb0 = ensureViewBox();
+
+    const state = {
+      x: vb0.x,
+      y: vb0.y,
+      w: vb0.width,
+      h: vb0.height,
+      dragging: false,
+      lastX: 0,
+      lastY: 0,
+      orig: { x: vb0.x, y: vb0.y, w: vb0.width, h: vb0.height },
+    };
+
+    const apply = () => {
+      svg.setAttribute('viewBox', `${state.x} ${state.y} ${state.w} ${state.h}`);
+    };
+
+    const wheel = (e) => {
+      e.preventDefault();
+      const rect = (container || svg).getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width;
+      const py = (e.clientY - rect.top) / rect.height;
+
+      const zoom = Math.exp((e.deltaY > 0 ? 1 : -1) * 0.12);
+      const newW = state.w * zoom;
+      const newH = state.h * zoom;
+
+      // Zoom towards pointer.
+      state.x = state.x + (state.w - newW) * px;
+      state.y = state.y + (state.h - newH) * py;
+      state.w = newW;
+      state.h = newH;
+      apply();
+    };
+
+    // Pointer-captured panning so drag feels 1:1 (in screen pixels) regardless of zoom.
+    const down = (e) => {
+      // Don't start panning when clicking a node.
+      if (e.target && e.target.closest && e.target.closest('g.node')) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      state.dragging = true;
+      state.lastX = e.clientX;
+      state.lastY = e.clientY;
+      (container || svg).style.cursor = 'grabbing';
+      if (typeof (container || svg).setPointerCapture === 'function') {
+        try { (container || svg).setPointerCapture(e.pointerId); } catch (_) {}
+      }
+      document.body.style.userSelect = 'none';
+    };
+
+    const move = (e) => {
+      if (!state.dragging) return;
+      e.preventDefault();
+      const rect = (container || svg).getBoundingClientRect();
+
+      const dxPx = e.clientX - state.lastX;
+      const dyPx = e.clientY - state.lastY;
+      state.lastX = e.clientX;
+      state.lastY = e.clientY;
+
+      // Convert pixels -> viewBox units so the perceived movement is exactly dxPx/dyPx.
+      state.x -= dxPx * (state.w / rect.width);
+      state.y -= dyPx * (state.h / rect.height);
+      apply();
+    };
+
+    const up = (e) => {
+      if (!state.dragging) return;
+      e.preventDefault();
+      state.dragging = false;
+      (container || svg).style.cursor = 'grab';
+      document.body.style.userSelect = '';
+      if (typeof (container || svg).releasePointerCapture === 'function') {
+        try { (container || svg).releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+    };
+
+    const target = container || svg;
+    target.style.cursor = 'grab';
+    target.addEventListener('wheel', wheel, { passive: false });
+    target.addEventListener('pointerdown', down);
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+
+    return {
+      reset: () => {
+        state.x = state.orig.x;
+        state.y = state.orig.y;
+        state.w = state.orig.w;
+        state.h = state.orig.h;
+        apply();
+      }
+    };
+  }
+
+  async function renderGraphvizSvg(payload) {
+    const dot = buildDotForFamily(payload);
+    const gv = await getGraphviz();
+    const svgText = (typeof gv.layout === 'function')
+      ? gv.layout(dot, 'svg', 'dot')
+      : gv.dot(dot);
+
+    gvEl.innerHTML = svgText;
+
+    // Inject lightweight styling for nicer Gramps-like feel.
+    const style = document.createElement('style');
+    style.textContent = `
+      svg { font-family: var(--sans); }
+      svg text { fill: #0b0f16; }
+      g.node:hover polygon, g.node:hover rect, g.node:hover ellipse {
+        filter: drop-shadow(0 2px 8px rgba(122,162,255,0.20));
+      }
+      /* Graphviz often emits inline stroke-linecap/join; force rounded geometry. */
+      g.edge path, g.edge polyline, g.edge line {
+        stroke-linecap: round !important;
+        stroke-linejoin: round !important;
+      }
+    `;
+    gvEl.prepend(style);
+
+    const svg = gvEl.querySelector('svg');
+    if (svg) {
+      // Ensure edges render beneath nodes.
+      // SVG has no z-index; paint order is DOM order, so we reorder sibling groups.
+      (function reorderGraphvizLayers() {
+        const containers = Array.from(svg.querySelectorAll('g')).filter(g => {
+          const kids = Array.from(g.children);
+          return kids.some(k => k.classList?.contains('edge')) && kids.some(k => k.classList?.contains('node'));
+        });
+
+        for (const g of containers) {
+          const kids = Array.from(g.children);
+          const firstNode = kids.find(k => k.classList?.contains('node'));
+          if (!firstNode) continue;
+          for (const k of kids) {
+            if (k.classList?.contains('edge')) {
+              g.insertBefore(k, firstNode);
+            }
+          }
+        }
+      })();
+
+      // Make the SVG behave like a canvas inside the panel.
+      svg.style.display = 'block';
+      svg.style.maxWidth = 'none';
+      svg.style.height = '100%';
+      svg.style.width = '100%';
+      svg.setAttribute('preserveAspectRatio', 'xMinYMin meet');
+
+      const personMetaById = new Map();
+      for (const n of payload?.nodes || []) {
+        if (n?.type !== 'person') continue;
+        const isPrivate = (n.display_name === 'Private');
+        personMetaById.set(String(n.id), {
+          gender: normGender(n.gender),
+          isPrivate,
+        });
+      }
+
+      postProcessGraphvizSvg(svg, { personMetaById });
+
+      // Force rounded joins/caps even when Graphviz emitted inline styles.
+      (function enforceEdgeRounding() {
+        const edgeShapes = svg.querySelectorAll('g.edge path, g.edge polyline, g.edge line');
+        for (const el of edgeShapes) {
+          try {
+            // Use !important to beat inline presentation attributes.
+            el.style.setProperty('stroke-linecap', 'round', 'important');
+            el.style.setProperty('stroke-linejoin', 'round', 'important');
+          } catch (_) {}
+        }
+      })();
+
+      // Requested look: Graphviz uses orthogonal routing; we then:
+      // 1) apply a small per-edge "fan-out" offset so sibling edges don't stack
+      // 2) convert the resulting elbow polyline into a smooth compound bezier
+      let edgeRoundStats = null;
+      if (settings.gvEdgeRouting === 'gramps') {
+        edgeRoundStats = (function convertEdgeElbowsToRoundedPaths() {
+          const edgeGroups = Array.from(svg.querySelectorAll('g.edge'));
+          if (!edgeGroups.length) return {
+            replaced: 0,
+            edgePolylines: 0,
+            edgePaths: 0,
+            edgeLines: 0,
+            parsedPaths: 0,
+            groupedEdges: 0,
+          };
+
+          const ns = 'http://www.w3.org/2000/svg';
+
+          // Build a lookup for person card node ports so edges always enter cards
+          // at the top-center (Graphviz's chosen intersection point drifts).
+          const personTopCenterById = new Map();
+          for (const node of svg.querySelectorAll('g.node')) {
+            // Skip non-person nodes (family hubs are ellipses).
+            if (node.querySelector('ellipse')) continue;
+            const id = node.querySelector('title')?.textContent?.trim();
+            if (!id) continue;
+            const shape = node.querySelector('path:not([data-rim="1"]), polygon, rect');
+            if (!shape || typeof shape.getBBox !== 'function') continue;
+            try {
+              const bb = shape.getBBox();
+              if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
+              personTopCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y });
+            } catch (_) {}
+          }
+
+          const parsePoints = (s) => {
+            const pts = [];
+            const parts = String(s || '').trim().split(/\s+/g);
+            for (const part of parts) {
+              const [xStr, yStr] = part.split(',');
+              const x = Number(xStr);
+              const y = Number(yStr);
+              if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ x, y });
+            }
+            return pts;
+          };
+
+          const len = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+          const unit = (a, b) => {
+            const d = len(a, b);
+            if (!Number.isFinite(d) || d <= 0) return { x: 0, y: 0 };
+            return { x: (b.x - a.x) / d, y: (b.y - a.y) / d };
+          };
+
+          // How much to "spread" edges in a bundle (Graphviz coord space).
+          // This is ONLY to stop sibling edges stacking on the same run.
+          // Smaller = subtler. (You generally want this small.)
+          const FAN_DELTA = 0;
+
+          // Smoothing amount (0..1). Higher => curvier.
+          const TENSION = 1;
+
+          const parsePathPoints = (d) => {
+            // Parser for Graphviz edge paths. Graphviz frequently encodes straight
+            // segments using cubic Beziers (C) where control points are collinear.
+            // We treat any of M/L/H/V/C/S/Q/T as producing a polyline via endpoints.
+            // (We do not support relative commands or arcs.)
+            const s = String(d || '').trim();
+            if (!s) return null;
+            if (/[a]/i.test(s)) return null; // arc
+
+            const tok = s.match(/[a-zA-Z]|-?\d*\.?\d+(?:e[-+]?\d+)?/g);
+            if (!tok || tok.length < 3) return null;
+
+            const pts = [];
+            let i = 0;
+            let cmd = null;
+            let x = 0;
+            let y = 0;
+
+            const readNum = () => {
+              const v = Number(tok[i]);
+              if (!Number.isFinite(v)) return null;
+              i += 1;
+              return v;
+            };
+
+            const push = (nx, ny) => {
+              if (!Number.isFinite(nx) || !Number.isFinite(ny)) return false;
+              x = nx;
+              y = ny;
+              pts.push({ x, y });
+              return true;
+            };
+
+            const isCmd = (t) => /^[a-zA-Z]$/.test(t);
+
+            while (i < tok.length) {
+              const t = tok[i];
+              if (isCmd(t)) {
+                cmd = t;
+                i += 1;
+                continue;
+              }
+
+              if (!cmd) return null;
+              const c = cmd;
+
+              // reject relative variants
+              if (c === c.toLowerCase()) return null;
+
+              if (c === 'M') {
+                // first pair is move, remaining pairs are implicit L
+                const nx = readNum();
+                const ny = readNum();
+                if (nx === null || ny === null) return null;
+                if (!push(nx, ny)) return null;
+                cmd = 'L';
+                continue;
+              }
+
+              if (c === 'L') {
+                const nx = readNum();
+                const ny = readNum();
+                if (nx === null || ny === null) return null;
+                if (!push(nx, ny)) return null;
+                continue;
+              }
+
+              if (c === 'H') {
+                const nx = readNum();
+                if (nx === null) return null;
+                if (!push(nx, y)) return null;
+                continue;
+              }
+
+              if (c === 'V') {
+                const ny = readNum();
+                if (ny === null) return null;
+                if (!push(x, ny)) return null;
+                continue;
+              }
+
+              if (c === 'C') {
+                // x1 y1 x2 y2 x y
+                const x1 = readNum();
+                const y1 = readNum();
+                const x2 = readNum();
+                const y2 = readNum();
+                const nx = readNum();
+                const ny = readNum();
+                if ([x1, y1, x2, y2, nx, ny].some(v => v === null)) return null;
+                if (!push(nx, ny)) return null;
+                continue;
+              }
+
+              if (c === 'S' || c === 'Q') {
+                // S: x2 y2 x y, Q: x1 y1 x y (we only care about endpoint)
+                const a = readNum();
+                const b = readNum();
+                const nx = readNum();
+                const ny = readNum();
+                if ([a, b, nx, ny].some(v => v === null)) return null;
+                if (!push(nx, ny)) return null;
+                continue;
+              }
+
+              if (c === 'T') {
+                const nx = readNum();
+                const ny = readNum();
+                if (nx === null || ny === null) return null;
+                if (!push(nx, ny)) return null;
+                continue;
+              }
+
+              // Unsupported command
+              return null;
+            }
+
+            // De-duplicate consecutive identical points (can happen with arrow-end clips).
+            const compact = [];
+            for (const p of pts) {
+              const prev = compact[compact.length - 1];
+              if (!prev || prev.x !== p.x || prev.y !== p.y) compact.push(p);
+            }
+
+            return compact.length >= 2 ? compact : null;
+          };
+
+          const pickEndpoints = (pts) => {
+            if (!pts || pts.length < 2) return null;
+            const a = pts[0];
+            const b = pts[pts.length - 1];
+            if (!a || !b) return null;
+            if (![a.x, a.y, b.x, b.y].every(Number.isFinite)) return null;
+            return { source: a, target: b };
+          };
+
+          const shiftLongestAxisSegment = (pts, offset) => {
+            if (!pts || pts.length < 3) return pts;
+            // Don't move endpoints (to keep arrowheads and node ports aligned).
+            let best = null;
+            for (let i = 1; i < pts.length - 2; i++) {
+              const p1 = pts[i];
+              const p2 = pts[i + 1];
+              const dx = Math.abs(p2.x - p1.x);
+              const dy = Math.abs(p2.y - p1.y);
+              const isH = dy < 1e-6 && dx > 1e-6;
+              const isV = dx < 1e-6 && dy > 1e-6;
+              if (!isH && !isV) continue;
+              const score = Math.max(dx, dy);
+              if (!best || score > best.score) {
+                best = { i, isH, isV, score };
+              }
+            }
+            if (!best) return pts;
+
+            const out = pts.map(p => ({ x: p.x, y: p.y }));
+            const a = out[best.i];
+            const b = out[best.i + 1];
+            if (best.isH) {
+              a.y += offset;
+              b.y += offset;
+            } else if (best.isV) {
+              a.x += offset;
+              b.x += offset;
+            }
+            return out;
+          };
+
+          const smoothVerticalConnectorD = ({ source, target, offsetX = 0 }) => {
+            // Mirrors Gramps Web's approach:
+            // take ONLY the first+last points of the Graphviz edge and draw a smooth connector.
+            // This avoids loops/spirals from overfitting intermediate polyline points.
+            const sx = source.x;
+            const sy = source.y;
+            const tx = target.x;
+            const ty = target.y;
+            const dy = ty - sy;
+            if (!Number.isFinite(dy) || Math.abs(dy) < 0.01) {
+              return `M ${sx} ${sy} L ${tx} ${ty}`;
+            }
+
+            // Stub length controls how long the edge goes straight down before turning.
+            // Smaller stubs = less visible straight section at endpoints.
+            const stub = Math.min(60, Math.max(4, Math.abs(dy) * 0.06));
+            const p0 = { x: sx, y: sy + Math.sign(dy) * stub };
+            const p1 = { x: tx, y: ty - Math.sign(dy) * stub };
+            const midY = (p0.y + p1.y) / 2;
+
+            // Main curve: keep start/end mostly vertical, allow mid bulge via offsetX.
+            const cp1 = { x: sx + offsetX, y: midY };
+            const cp2 = { x: tx + offsetX, y: midY };
+
+            const sign = Math.sign(dy);
+            const k = stub * 0.55;
+            const s1 = { x: sx, y: sy + sign * k };
+            const s2 = { x: sx, y: p0.y };
+            const e1 = { x: tx, y: ty - sign * k };
+            const e2 = { x: tx, y: ty };
+
+            return [
+              `M ${sx} ${sy}`,
+              // vertical exit
+              `C ${s1.x} ${s1.y} ${s2.x} ${s2.y} ${p0.x} ${p0.y}`,
+              // smooth sideways connector
+              `C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${p1.x} ${p1.y}`,
+              // vertical entry
+              `C ${e1.x} ${e1.y} ${e2.x} ${e2.y} ${tx} ${ty}`,
+            ].join(' ');
+          };
+
+          const roundedPathD = (pts) => {
+            if (!pts || pts.length < 2) return null;
+            if (pts.length === 2) {
+              return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
+            }
+
+            let d = `M ${pts[0].x} ${pts[0].y}`;
+            // Walk corners.
+            for (let i = 1; i < pts.length - 1; i++) {
+              const p0 = pts[i - 1];
+              const p1 = pts[i];
+              const p2 = pts[i + 1];
+
+              const vIn = unit(p1, p0);
+              const vOut = unit(p1, p2);
+              const dIn = len(p0, p1);
+              const dOut = len(p1, p2);
+              const r = Math.max(0, Math.min(R, dIn / 2, dOut / 2));
+
+              const pA = { x: p1.x + vIn.x * r, y: p1.y + vIn.y * r };
+              const pB = { x: p1.x + vOut.x * r, y: p1.y + vOut.y * r };
+
+              d += ` L ${pA.x} ${pA.y}`;
+              d += ` Q ${p1.x} ${p1.y} ${pB.x} ${pB.y}`;
+            }
+            const last = pts[pts.length - 1];
+            d += ` L ${last.x} ${last.y}`;
+            return d;
+          };
+
+          const replaceWithRoundedPath = (el, pts, offsetX, { edgeTargetId } = {}) => {
+            const ends = pickEndpoints(pts);
+            if (!ends) return;
+            // Force edges into the visual center of person cards.
+            if (edgeTargetId) {
+              const port = personTopCenterById.get(edgeTargetId);
+              if (port && Number.isFinite(port.x) && Number.isFinite(port.y)) {
+                ends.target = port;
+              }
+            }
+            const d = smoothVerticalConnectorD({ ...ends, offsetX: offsetX || 0 });
+            if (!d) return;
+
+            const path = document.createElementNS(ns, 'path');
+            path.setAttribute('d', d);
+
+            // Copy styling over. Prefer computed stroke/fill.
+            const cs = getComputedStyle(el);
+            const stroke = el.getAttribute('stroke') || cs.stroke || '#556277';
+            const sw = el.getAttribute('stroke-width') || cs.strokeWidth || '1.6';
+            const op = el.getAttribute('stroke-opacity') || cs.strokeOpacity || null;
+
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke', stroke);
+            path.setAttribute('stroke-width', sw);
+            if (op !== null && op !== undefined && String(op).length) path.setAttribute('stroke-opacity', String(op));
+
+            path.style.setProperty('stroke-linecap', 'round', 'important');
+            path.style.setProperty('stroke-linejoin', 'round', 'important');
+
+            // Keep any class names for debugging/styling.
+            if (el.getAttribute('class')) path.setAttribute('class', el.getAttribute('class'));
+
+            el.replaceWith(path);
+          };
+
+          let replaced = 0;
+          let parsedPaths = 0;
+
+          const extractEdgeKey = (g) => {
+            const title = g.querySelector('title')?.textContent?.trim() || '';
+            if (!title.includes('->')) return { source: title || 'edge', target: '' };
+            const [a, b] = title.split('->');
+            return { source: String(a || '').trim(), target: String(b || '').trim() };
+          };
+
+          const pickStrokeEl = (g) => {
+            // Prefer a stroke-only path/polyline/line (avoid arrowhead polygons).
+            const cand = g.querySelectorAll('path, polyline, line');
+            for (const el of cand) {
+              const tag = el.tagName?.toLowerCase?.();
+              if (tag !== 'path' && tag !== 'polyline' && tag !== 'line') continue;
+              const fill = (el.getAttribute('fill') || '').trim().toLowerCase();
+              const stroke = (el.getAttribute('stroke') || '').trim().toLowerCase();
+              if (fill && fill !== 'none') continue;
+              if (!stroke || stroke === 'none') continue;
+              return el;
+            }
+            return null;
+          };
+
+          const edgeInfos = [];
+          let edgePolylines = 0;
+          let edgePaths = 0;
+          let edgeLines = 0;
+
+          for (const g of edgeGroups) {
+            const el = pickStrokeEl(g);
+            if (!el) continue;
+            const tag = el.tagName.toLowerCase();
+            const { source, target } = extractEdgeKey(g);
+            let pts = null;
+            if (tag === 'polyline') {
+              edgePolylines += 1;
+              pts = parsePoints(el.getAttribute('points'));
+            } else if (tag === 'line') {
+              edgeLines += 1;
+              const x1 = Number(el.getAttribute('x1'));
+              const y1 = Number(el.getAttribute('y1'));
+              const x2 = Number(el.getAttribute('x2'));
+              const y2 = Number(el.getAttribute('y2'));
+              if ([x1, y1, x2, y2].every(Number.isFinite)) pts = [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+            } else if (tag === 'path') {
+              edgePaths += 1;
+              pts = parsePathPoints(el.getAttribute('d'));
+              if (pts) parsedPaths += 1;
+            }
+            if (!pts || pts.length < 2) continue;
+            edgeInfos.push({ g, el, pts, source, target });
+          }
+
+          const groupsBySource = new Map();
+          for (const e of edgeInfos) {
+            const key = e.source || 'edge';
+            const arr = groupsBySource.get(key) || [];
+            arr.push(e);
+            groupsBySource.set(key, arr);
+          }
+
+          let groupedEdges = 0;
+          for (const [, arr] of groupsBySource.entries()) {
+            if (arr.length >= 2) groupedEdges += arr.length;
+            arr.sort((a, b) => String(a.target).localeCompare(String(b.target)));
+            const mid = (arr.length - 1) / 2;
+            for (let idx = 0; idx < arr.length; idx++) {
+              const e = arr[idx];
+              // symmetric offsets: -k..0..+k
+              const offset = (idx - mid) * FAN_DELTA;
+              // Keep Graphviz endpoints, but allow a mild mid-bulge per sibling edge.
+              const adjusted = e.pts;
+              try {
+                replaceWithRoundedPath(e.el, adjusted, offset, { edgeTargetId: e.target });
+                replaced += 1;
+              } catch (_) {}
+            }
+          }
+
+          return {
+            replaced,
+            edgePolylines,
+            edgePaths,
+            edgeLines,
+            parsedPaths,
+            groupedEdges,
+          };
+        })();
+      }
+
+      // Basic click handling: update status when you click a node.
+      gvEl.querySelectorAll('g.node').forEach(g => {
+        g.style.cursor = 'pointer';
+        g.addEventListener('click', () => {
+          const title = g.querySelector('title')?.textContent?.trim();
+          const pid = normalizePersonIdFromGraphvizTitle(title);
+          if (!pid) return;
+
+          // Navigate like Gramps: click a person to re-center graph.
+          if (/^I\d+$/i.test(String(pid))) {
+            personIdEl.value = pid;
+            setStatus(`Centering on ${pid}...`);
+            loadGraph();
+            return;
+          }
+          setStatus(`Selected node: ${pid}`);
+        });
+      });
+
+      // Add pan/zoom.
+      gvPanZoom = enableSvgPanZoom(svg, { container: gvEl });
+
+      return {
+        edgeRoundStats,
+        edgeShapeCounts: {
+          paths: svg.querySelectorAll('g.edge path').length,
+          polylines: svg.querySelectorAll('g.edge polyline').length,
+          lines: svg.querySelectorAll('g.edge line').length,
+        },
+      };
+    }
+
+    return {
+      edgeRoundStats: null,
+      edgeShapeCounts: { paths: 0, polylines: 0, lines: 0 },
+    };
+  }
+
+  function postProcessGraphvizSvg(svg, { personMetaById } = {}) {
+    const nodes = svg.querySelectorAll('g.node');
+    let processed = 0;
+    for (const node of nodes) {
+      // Skip non-person nodes (family hubs are circles/ellipses)
+      if (node.querySelector('ellipse')) continue;
+
+      // Add a thin, gender-colored rim at the top of each person card.
+      // We do this in SVG (not DOT) so the rim follows the rounded corners (Gramps-like).
+      try {
+        const title = node.querySelector('title')?.textContent?.trim();
+        const pid = normalizePersonIdFromGraphvizTitle(title);
+
+        const meta = pid ? personMetaById?.get(String(pid)) : null;
+        if (pid && meta && !node.querySelector('[data-rim="1"]')) {
+          let rim = '#7aa2ff';
+          if (meta.gender === 'F') rim = '#ff7ab6';
+          if (meta.gender === 'U') rim = '#b9c4dd';
+          if (meta.isPrivate) rim = '#ffb86c';
+
+          const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+          if (shape && typeof shape.getBBox === 'function') {
+            const ns = 'http://www.w3.org/2000/svg';
+
+            // Ensure the underlying card has no visible trim.
+            try {
+              shape.setAttribute('stroke', 'none');
+              shape.setAttribute('fill', 'none');
+            } catch (_) {}
+
+            const bb = shape.getBBox();
+            const x0 = bb.x;
+            const y0 = bb.y;
+            const w = bb.width;
+            const h = bb.height;
+            const x1 = x0 + w;
+
+            const corner = Math.max(4, Math.min(12, Math.min(w, h) * 0.12));
+            const cornerOuter = Math.min(corner * 2, Math.min(w, h) / 2);
+            // Rim thickness (thin and Gramps-like).
+            const rimH = Math.max(2, Math.min(4, h * 0.05));
+            // Make the boundary curve feel like an offset of the outer curve.
+            // This prevents the colored corner arc from “ending early”.
+            const cornerInner = Math.max(2, cornerOuter - rimH);
+
+            // Full rounded-rect path matching the card.
+            const roundedRectPath = (x, y, w0, h0, r) => {
+              const xA = x;
+              const yA = y;
+              const xB = x + w0;
+              const yB = y + h0;
+              const rr = Math.max(0, Math.min(r, Math.min(w0, h0) / 2));
+              return [
+                `M ${xA + rr} ${yA}`,
+                `H ${xB - rr}`,
+                `A ${rr} ${rr} 0 0 1 ${xB} ${yA + rr}`,
+                `V ${yB - rr}`,
+                `A ${rr} ${rr} 0 0 1 ${xB - rr} ${yB}`,
+                `H ${xA + rr}`,
+                `A ${rr} ${rr} 0 0 1 ${xA} ${yB - rr}`,
+                `V ${yA + rr}`,
+                `A ${rr} ${rr} 0 0 1 ${xA + rr} ${yA}`,
+                'Z'
+              ].join(' ');
+            };
+
+            // This trick matches the Gramps Web look:
+            // 1) paint a full rounded rect in the rim color
+            // 2) paint the same rounded rect in the body color, shifted down by rimH
+            // The boundary between colors is the *top edge* of the shifted rounded rect,
+            // which has the same radius as the outer edge, just offset.
+            const dFullInner = roundedRectPath(x0, y0, w, h, cornerInner);
+            const dFullOuter = roundedRectPath(x0, y0, w, h, cornerOuter);
+
+            // Base card overlay (grey) with the *outer* radius, so the larger rim radius
+            // doesn't reveal the original smaller-radius card corners underneath.
+            const baseCard = document.createElementNS(ns, 'path');
+            baseCard.setAttribute('d', dFullOuter);
+            baseCard.setAttribute('fill', '#d0d5dd');
+            baseCard.setAttribute('stroke', 'none');
+            baseCard.setAttribute('opacity', '1');
+            baseCard.setAttribute('data-rim', '1');
+            const rimFull = document.createElementNS(ns, 'path');
+            rimFull.setAttribute('d', dFullOuter);
+            rimFull.setAttribute('fill', rim);
+            rimFull.setAttribute('stroke', 'none');
+            rimFull.setAttribute('opacity', '1');
+            rimFull.setAttribute('data-rim', '1');
+
+            const rimCut = document.createElementNS(ns, 'path');
+            rimCut.setAttribute('d', dFullInner);
+            rimCut.setAttribute('fill', '#d0d5dd');
+            rimCut.setAttribute('stroke', 'none');
+            rimCut.setAttribute('opacity', '1');
+            rimCut.setAttribute('transform', `translate(0 ${rimH})`);
+            rimCut.setAttribute('data-rim', '1');
+
+            // Insert before the first text element so it doesn't cover labels.
+            const firstText = node.querySelector('text');
+            if (firstText) {
+              node.insertBefore(rimCut, firstText);
+              node.insertBefore(rimFull, rimCut);
+              node.insertBefore(baseCard, rimFull);
+            } else {
+              node.appendChild(baseCard);
+              node.appendChild(rimFull);
+              node.appendChild(rimCut);
+            }
+          }
+        }
+      } catch (_) {
+        // Best-effort only; keep the graph usable even if post-processing fails.
+      }
+
+      const texts = Array.from(node.querySelectorAll('text'));
+      if (!texts.length) continue;
+
+      // Sort by y so “first” matches the top line.
+      texts.sort((a, b) => (Number(a.getAttribute('y')) || 0) - (Number(b.getAttribute('y')) || 0));
+
+      // Bold the name (given + surname): first two lines.
+      for (let i = 0; i < Math.min(2, texts.length); i++) {
+        texts[i].style.fontWeight = '700';
+        texts[i].setAttribute('font-weight', '700');
+      }
+
+      processed += 1;
+    }
+
+    if (processed > 0) {
+      // Small signal to confirm JS is running and SVG post-processing applied.
+      // (Helps when the browser is serving a cached version of this page.)
+      setStatus(`Rendered Graphviz (styled ${processed} person nodes).`);
+    }
+  }
+
+  function runLayout(layout) {
+    // Try to keep it Gramps-ish:
+    // - family layout: breadthfirst tends to make nice generations when edges are directed
+    // - direct layout: cose is usually OK but can tangle partner edges; breadthfirst is still readable
+    const name = (layout === 'family') ? 'dagre' : 'cose';
+
+    const opts = (name === 'dagre')
+      ? {
+          name,
+          rankDir: 'TB',
+          nodeSep: 20,
+          edgeSep: 10,
+          rankSep: 60,
+          padding: 30,
+          animate: true,
+          fit: true,
+        }
+      : {
+          name,
+          animate: true,
+          fit: true,
+          padding: 30,
+          nodeRepulsion: 7000,
+          idealEdgeLength: 110,
+          edgeElasticity: 0.2,
+        };
+
+    cy.layout(opts).run();
+  }
+
+  function surnameKeyForPerson(p) {
+    const s = (p?.surname || '').trim();
+    if (s) return s;
+    const dn = (p?.display_name || '').trim();
+    if (!dn || dn === 'Private') return '#';
+    const parts = dn.split(/\s+/g);
+    return parts.length ? parts[parts.length - 1] : '#';
+  }
+
+  function givenKeyForPerson(p) {
+    const g = (p?.given_name || '').trim();
+    if (g) return g;
+    const dn = (p?.display_name || '').trim();
+    if (!dn || dn === 'Private') return 'Private';
+    return dn;
+  }
+
+  function renderPeopleIndex(payload) {
+    const root = document.getElementById('peopleList');
+    if (!root) return;
+
+    const people = (payload?.nodes || []).filter(n => n?.type === 'person');
+    if (!people.length) {
+      root.innerHTML = '<div class="muted">No people loaded yet.</div>';
+      return;
+    }
+
+    const groups = new Map();
+    for (const p of people) {
+      const k = surnameKeyForPerson(p);
+      const arr = groups.get(k) || [];
+      arr.push(p);
+      groups.set(k, arr);
+    }
+
+    const surnames = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
+    const fragments = document.createDocumentFragment();
+
+    for (const surname of surnames) {
+      const items = groups.get(surname) || [];
+      items.sort((a, b) => {
+        const ag = givenKeyForPerson(a);
+        const bg = givenKeyForPerson(b);
+        const c = ag.localeCompare(bg);
+        if (c !== 0) return c;
+        return String(a.id).localeCompare(String(b.id));
+      });
+
+      const details = document.createElement('details');
+      details.className = 'peopleGroup';
+      details.open = (surnames.length <= 10);
+
+      const summary = document.createElement('summary');
+      summary.textContent = `${surname} (${items.length})`;
+      details.appendChild(summary);
+
+      const list = document.createElement('div');
+      list.style.marginTop = '8px';
+
+      for (const p of items) {
+        const row = document.createElement('div');
+        row.className = 'peopleItem';
+        row.title = p.id;
+
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = (p.display_name === 'Private') ? 'Private' : (p.display_name || p.gramps_id || p.id);
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = p.gramps_id || p.id;
+
+        row.appendChild(name);
+        row.appendChild(meta);
+
+        row.addEventListener('click', () => {
+          const ref = p.gramps_id || p.id;
+          personIdEl.value = ref;
+          loadGraph();
+        });
+
+        list.appendChild(row);
+      }
+
+      details.appendChild(list);
+      fragments.appendChild(details);
+    }
+
+    root.innerHTML = '';
+    root.appendChild(fragments);
+  }
+
+  async function loadGraph() {
+    const personId = personIdEl.value.trim();
+    const depth = Number(depthEl.value);
+    const maxNodes = Number(maxNodesEl.value);
+    const uiLayout = layoutEl.value;
+    const apiLayout = (uiLayout === 'direct') ? 'direct' : 'family';
+
+    if (!personId) {
+      setStatus('Enter a person id like I0001.', true);
+      return;
+    }
+
+    const url = new URL('/graph/neighborhood', window.location.origin);
+    url.searchParams.set('id', personId);
+    url.searchParams.set('depth', String(depth));
+    url.searchParams.set('max_nodes', String(maxNodes));
+    url.searchParams.set('layout', apiLayout);
+
+    setStatus(`Loading ${url.pathname}?${url.searchParams.toString()}`);
+
+    try {
+      const resp = await fetch(url.toString());
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`HTTP ${resp.status}: ${text}`);
+      }
+      const payload = await resp.json();
+      lastPayload = payload;
+      renderPeopleIndex(payload);
+
+      // Performance safety: Cytoscape can get slow with bezier edges on large graphs.
+      // Use haystack curves when the graph is large.
+      const applyCytoscapePerfMode = () => {
+        const edgeCount = (payload?.edges?.length ?? 0);
+        const nodeCount = (payload?.nodes?.length ?? 0);
+        const curveStyle = (edgeCount > 1500 || nodeCount > 1200) ? 'haystack' : 'bezier';
+        try {
+          cy.style()
+            .selector('edge')
+            .style({ 'curve-style': curveStyle })
+            .update();
+        } catch (_) {
+          // best effort
+        }
+      };
+
+      updateApiNoticeFromPayload(payload);
+
+      if (uiLayout === 'graphviz') {
+        showGraphviz();
+        setStatus('Rendering Graphviz (dot) SVG...');
+        await renderGraphvizSvg(payload);
+        setStatus(`Loaded ${payload.nodes?.length ?? 0} nodes, ${payload.edges?.length ?? 0} edges (${uiLayout}).`);
+        return;
+      }
+
+      showCytoscape();
+      applyCytoscapePerfMode();
+      cy.elements().remove();
+      cy.add(makeElements(payload));
+      runLayout(uiLayout);
+      setStatus(`Loaded ${payload.nodes?.length ?? 0} nodes, ${payload.edges?.length ?? 0} edges (${uiLayout}).`);
+    } catch (err) {
+      console.error(err);
+      setStatus(String(err), true);
+    }
+  }
+
+  // Sidebar tabs
+  const tabButtons = Array.from(document.querySelectorAll('.tabbtn[data-tab]'));
+  const tabPanels = Array.from(document.querySelectorAll('.tabpanel[data-panel]'));
+
+  function setActiveTab(tabName) {
+    for (const b of tabButtons) b.classList.toggle('active', b.dataset.tab === tabName);
+    for (const p of tabPanels) p.classList.toggle('active', p.dataset.panel === tabName);
+  }
+
+  for (const b of tabButtons) {
+    b.addEventListener('click', () => setActiveTab(b.dataset.tab));
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+    const k = String(e.key || '').toLowerCase();
+    if (k === 'g') setActiveTab('graph');
+    if (k === 'p') setActiveTab('people');
+    if (k === 'e') setActiveTab('events');
+    if (k === 'm') setActiveTab('map');
+  });
+
+  document.getElementById('loadBtn').addEventListener('click', loadGraph);
+  document.getElementById('fitBtn').addEventListener('click', () => {
+    if (layoutEl.value === 'graphviz') {
+      gvPanZoom?.reset?.();
+      return;
+    }
+    cy.fit(undefined, 40);
+  });
+  // Graphviz-only: no family/direct toggle.
+  document.getElementById('pngBtn').addEventListener('click', () => {
+    if (layoutEl.value === 'graphviz') {
+      const svg = gvEl.querySelector('svg');
+      if (!svg) return;
+      const svgText = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `genealogy_graph_${layoutEl.value}_${personIdEl.value.trim() || 'id'}.svg`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return;
+    }
+    const png = cy.png({ scale: 2, full: true, bg: 'rgba(11,15,22,1)' });
+    const a = document.createElement('a');
+    a.href = png;
+    a.download = `genealogy_graph_${layoutEl.value}_${personIdEl.value.trim() || 'id'}.png`;
+    a.click();
+  });
+
+  for (const el of [optGvEdgeRoutingEl, optCouplePriorityEl, optShowIdsEl, optShowDistanceEl, optDateStyleEl]) {
+    el.addEventListener('change', () => {
+      syncSettingsFromUi();
+      if (layoutEl.value === 'graphviz') {
+        loadGraph();
+      }
+    });
+  }
+
+  function syncExportButtonLabel() {
+    const btn = document.getElementById('pngBtn');
+    btn.textContent = (layoutEl.value === 'graphviz') ? 'Export SVG' : 'Export PNG';
+  }
+
+  layoutEl.addEventListener('change', () => {
+    syncExportButtonLabel();
+    loadGraph();
+  });
+
+  syncExportButtonLabel();
+
+  cy.on('tap', 'node', (evt) => {
+    const n = evt.target.data();
+    const gid = n.gramps_id ? ` (${n.gramps_id})` : '';
+    setStatus(`Selected ${n.type}: ${n.id}${gid}`);
+  });
+
+  // Auto-load once.
+  // Default to the Gramps-style layout.
+  layoutEl.value = 'graphviz';
+  setActiveTab('graph');
+  loadGraph();
+</script>
+</body>
+</html>
