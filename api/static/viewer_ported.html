@@ -1393,8 +1393,10 @@
     }
     for (const fid of families) {
       const m = '⚭';
+      const { hasTwoParents } = getCouple(fid);
+      const hubClass = hasTwoParents ? 'hub hub-2p' : 'hub hub-1p';
       lines.push(
-        `  ${dotEscape(fid)} [shape=circle, width=0.24, height=0.24, fixedsize=true, fillcolor="#9d7bff", fontcolor="#0b0f16", fontsize=12, penwidth=1.2, label="${m}"];`
+        `  ${dotEscape(fid)} [shape=circle, width=0.24, height=0.24, fixedsize=true, fillcolor="#9d7bff", fontcolor="#0b0f16", fontsize=12, penwidth=1.2, label="${m}", class="${hubClass}"];`
       );
     }
 
@@ -2046,7 +2048,11 @@
           const ns = 'http://www.w3.org/2000/svg';
 
           // If we moved family hubs (⚭) in SVG post-processing, keep edges landing on them.
+          // NOTE: hubGeomById is computed from the *current* SVG geometry, so it already
+          // includes any hub shifts. The dx/dy maps are only fallbacks for when we
+          // cannot compute hub geometry.
           const familyHubDyById = post?.familyHubDyById || new Map();
+          const familyHubDxById = post?.familyHubDxById || new Map();
 
           // Map hub node id -> rendered ellipse geometry, so we can snap edges to the
           // boundary and avoid tiny overshoots (notably in very large families).
@@ -2121,6 +2127,9 @@
 
           // Smoothing amount (0..1). Higher => curvier.
           const TENSION = 1;
+
+          // Corner radius for polyline rounding fallback.
+          const R = 10;
 
           const parsePathPoints = (d) => {
             // Parser for Graphviz edge paths. Graphviz frequently encodes straight
@@ -2379,9 +2388,21 @@
               const snap = snapToHubBoundary(edgeSourceId, ends.target);
               if (snap) {
                 ends.source = snap;
-              } else if (familyHubDyById.has(edgeSourceId)) {
+              } else if (familyHubDyById.has(edgeSourceId) || familyHubDxById.has(edgeSourceId)) {
+                const dx = Number(familyHubDxById.get(edgeSourceId));
                 const dy = Number(familyHubDyById.get(edgeSourceId));
-                if (Number.isFinite(dy) && dy) ends.source = { x: ends.source.x, y: ends.source.y + dy };
+                ends.source = {
+                  x: ends.source.x + (Number.isFinite(dx) ? dx : 0),
+                  y: ends.source.y + (Number.isFinite(dy) ? dy : 0),
+                };
+              }
+            }
+
+            // Force edges into the visual top-center of person cards (source side too).
+            if (edgeSourceId) {
+              const port = personTopCenterById.get(edgeSourceId);
+              if (port && Number.isFinite(port.x) && Number.isFinite(port.y)) {
+                ends.source = port;
               }
             }
             // Force edges into the visual center of person cards.
@@ -2396,13 +2417,132 @@
               const snap = snapToHubBoundary(edgeTargetId, ends.source);
               if (snap) {
                 ends.target = snap;
-              } else if (familyHubDyById.has(edgeTargetId)) {
+              } else if (familyHubDyById.has(edgeTargetId) || familyHubDxById.has(edgeTargetId)) {
+                const dx = Number(familyHubDxById.get(edgeTargetId));
                 const dy = Number(familyHubDyById.get(edgeTargetId));
-                if (Number.isFinite(dy) && dy) ends.target = { x: ends.target.x, y: ends.target.y + dy };
+                ends.target = {
+                  x: ends.target.x + (Number.isFinite(dx) ? dx : 0),
+                  y: ends.target.y + (Number.isFinite(dy) ? dy : 0),
+                };
               }
             }
-            const d = smoothVerticalConnectorD({ ...ends, offsetX: offsetX || 0 });
+
+            // If this edge would visually run through an unrelated family hub, add a mild
+            // horizontal offset so the smoothed path bends around it.
+            // IMPORTANT: compute this AFTER snapping endpoints.
+            const avoidHubsOffsetX = (() => {
+              if (!edgeSourceId || !edgeTargetId) return 0;
+              const sx = ends.source.x;
+              const sy = ends.source.y;
+              const tx = ends.target.x;
+              const ty = ends.target.y;
+              if (![sx, sy, tx, ty].every(Number.isFinite)) return 0;
+
+              const y0 = Math.min(sy, ty);
+              const y1 = Math.max(sy, ty);
+              const dy = ty - sy;
+              if (!Number.isFinite(dy) || Math.abs(dy) < 0.001) return 0;
+
+              const CLEAR = 14;
+              const candidates = [0, -20, 20, -35, 35, -50, 50, -60, 60];
+
+              const scoreFor = (ox) => {
+                let hits = 0;
+                let worstPen = 0;
+
+                for (const [hid, g] of hubGeomById.entries()) {
+                  if (!g) continue;
+                  if (hid === edgeSourceId || hid === edgeTargetId) continue;
+
+                  const cy = g.cy;
+                  if (!Number.isFinite(cy) || cy < y0 + 2 || cy > y1 - 2) continue;
+
+                  const t = (cy - sy) / dy;
+                  if (!Number.isFinite(t) || t <= 0 || t >= 1) continue;
+
+                  // Approximate the mid-bulge: strongest at t=0.5.
+                  const bump = Math.sin(Math.PI * t);
+                  const xLinear = sx + (tx - sx) * t;
+                  const xAt = xLinear + ox * bump;
+
+                  const dx0 = xAt - g.cx;
+                  const thresh = (g.rx || 0) + CLEAR;
+                  if (!Number.isFinite(thresh) || thresh <= 0) continue;
+                  const pen = thresh - Math.abs(dx0);
+                  if (pen > 0) {
+                    hits += 1;
+                    if (pen > worstPen) worstPen = pen;
+                  }
+                }
+
+                return { hits, worstPen };
+              };
+
+              let best = { ox: 0, hits: 1e9, worstPen: 1e9, abs: 0 };
+              for (const ox of candidates) {
+                const s = scoreFor(ox);
+                const abs = Math.abs(ox);
+                if (
+                  (s.hits < best.hits) ||
+                  (s.hits === best.hits && s.worstPen < best.worstPen) ||
+                  (s.hits === best.hits && s.worstPen === best.worstPen && abs < best.abs)
+                ) {
+                  best = { ox, hits: s.hits, worstPen: s.worstPen, abs };
+                }
+              }
+
+              // If we can avoid everything, keep it straight.
+              if (!Number.isFinite(best.ox) || best.hits === 0) return 0;
+              return best.ox;
+            })();
+
+            // Prefer the Gramps-like smooth connector, but if it still intersects unrelated
+            // hubs, fall back to Graphviz's routed polyline (rounded corners) so we keep
+            // the obstacle-avoiding detours.
+            let d = smoothVerticalConnectorD({ ...ends, offsetX: (offsetX || 0) + avoidHubsOffsetX });
             if (!d) return;
+
+            const smoothStillHitsHub = (() => {
+              if (!edgeSourceId || !edgeTargetId) return false;
+              if (!Number.isFinite(avoidHubsOffsetX) || Math.abs(avoidHubsOffsetX) < 0.001) return false;
+              const sx = ends.source.x;
+              const sy = ends.source.y;
+              const tx = ends.target.x;
+              const ty = ends.target.y;
+              const dy = ty - sy;
+              if (![sx, sy, tx, ty, dy].every(Number.isFinite) || Math.abs(dy) < 0.001) return false;
+
+              const y0 = Math.min(sy, ty);
+              const y1 = Math.max(sy, ty);
+              const CLEAR = 14;
+
+              // Sample a few t values per hub at its center and near its top/bottom.
+              const tForY = (y) => (y - sy) / dy;
+              for (const [hid, g] of hubGeomById.entries()) {
+                if (!g) continue;
+                if (hid === edgeSourceId || hid === edgeTargetId) continue;
+                const ys = [g.cy, g.cy - (g.ry || 0) * 0.6, g.cy + (g.ry || 0) * 0.6];
+                for (const yy of ys) {
+                  if (!Number.isFinite(yy) || yy < y0 + 2 || yy > y1 - 2) continue;
+                  const t = tForY(yy);
+                  if (!Number.isFinite(t) || t <= 0 || t >= 1) continue;
+                  const bump = Math.sin(Math.PI * t);
+                  const xLinear = sx + (tx - sx) * t;
+                  const xAt = xLinear + avoidHubsOffsetX * bump;
+                  const thresh = (g.rx || 0) + CLEAR;
+                  if (Number.isFinite(thresh) && Math.abs(xAt - g.cx) < thresh) return true;
+                }
+              }
+              return false;
+            })();
+
+            if (smoothStillHitsHub && Array.isArray(pts) && pts.length >= 3) {
+              const adjustedPts = pts.map(p => ({ x: p.x, y: p.y }));
+              adjustedPts[0] = { x: ends.source.x, y: ends.source.y };
+              adjustedPts[adjustedPts.length - 1] = { x: ends.target.x, y: ends.target.y };
+              const d2 = roundedPathD(adjustedPts);
+              if (d2) d = d2;
+            }
 
             const path = document.createElementNS(ns, 'path');
             path.setAttribute('d', d);
@@ -2586,6 +2726,7 @@
     // We mimic that by shifting the hub node in SVG, then letting edge smoothing
     // apply the same dy to endpoints that connect to the hub.
     const familyHubDyById = new Map();
+    const familyHubDxById = new Map();
     try {
       // Estimate a typical person card height to derive a sensible dy.
       const personHeights = [];
@@ -2612,6 +2753,11 @@
         return { x, y, raw: m[0] };
       };
 
+      // Collect hubs so we can de-overlap them horizontally.
+      // Use actual ellipse geometry (bbox) rather than translate() to robustly
+      // bucket hubs into rows and measure spacing.
+      const hubs = [];
+
       for (const node of nodes) {
         const ellipse = node.querySelector('ellipse');
         if (!ellipse) continue;
@@ -2623,6 +2769,11 @@
         const fill = (ellipse.getAttribute('fill') || '').trim().toLowerCase();
         const isHub = (labelText === '⚭') || (fill === '#9d7bff');
         if (!isHub) continue;
+
+        // Never shift 2-parent couple hubs: those must remain centered between spouses.
+        // We mark them from DOT via class="hub hub-2p".
+        const cls = (node.getAttribute('class') || '').toString();
+        const isCoupleHub = /\bhub-2p\b/.test(cls);
 
         // Prefer shifting the whole node group via its translate() transform.
         const tr = parseTranslate(node.getAttribute('transform'));
@@ -2640,7 +2791,96 @@
         }
 
         familyHubDyById.set(title, dy);
+
+        // Capture current hub geometry after applying dy.
+        try {
+          if (typeof ellipse.getBBox === 'function') {
+            const bb = ellipse.getBBox();
+            if (bb && Number.isFinite(bb.x) && Number.isFinite(bb.y) && Number.isFinite(bb.width) && Number.isFinite(bb.height)) {
+              if (!isCoupleHub) {
+                hubs.push({ node, title, ellipse, bb, tr: parseTranslate(node.getAttribute('transform')) });
+              }
+            }
+          }
+        } catch (_) {}
       }
+
+      // De-overlap hubs that land in the same row and are close enough to touch.
+      // This is a purely visual fix for messy medieval data where multiple family hubs
+      // can end up adjacent in open space, which reads like a false relationship.
+      try {
+        const MIN_HUB_SPACING_PX = 22; // SVG user units (px-ish)
+        const ROW_EPS = 8;
+
+        // Bucket by Y row using ellipse centers.
+        const rows = [];
+        for (const h of hubs) {
+          const cx = h.bb.x + h.bb.width / 2;
+          const cy = h.bb.y + h.bb.height / 2;
+          h.cx = cx;
+          h.cy = cy;
+
+          let placed = false;
+          for (const r of rows) {
+            if (Math.abs(cy - r.cy) <= ROW_EPS) {
+              r.items.push(h);
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) rows.push({ cy, items: [h] });
+        }
+
+        for (const r of rows) {
+          const items = r.items;
+          if (items.length < 2) continue;
+          items.sort((a, b) => a.cx - b.cx);
+
+          // Only bother if any pair is too close.
+          let needs = false;
+          for (let i = 1; i < items.length; i++) {
+            if ((items[i].cx - items[i - 1].cx) < MIN_HUB_SPACING_PX) { needs = true; break; }
+          }
+          if (!needs) continue;
+
+          const origXs = items.map(it => it.cx);
+          const newXs = items.map(it => it.cx);
+          for (let i = 1; i < newXs.length; i++) {
+            newXs[i] = Math.max(newXs[i], newXs[i - 1] + MIN_HUB_SPACING_PX);
+          }
+
+          // Re-center the row so we don't drift the whole cluster right.
+          const shift = (newXs[newXs.length - 1] - origXs[origXs.length - 1]) / 2;
+          for (let i = 0; i < newXs.length; i++) newXs[i] -= shift;
+          // Ensure spacing after re-centering.
+          for (let i = 1; i < newXs.length; i++) {
+            if (newXs[i] < newXs[i - 1] + MIN_HUB_SPACING_PX) {
+              newXs[i] = newXs[i - 1] + MIN_HUB_SPACING_PX;
+            }
+          }
+
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            const dx = newXs[i] - it.cx;
+            if (!Number.isFinite(dx) || Math.abs(dx) < 0.01) continue;
+
+            // Apply dx by editing translate() if present; otherwise shift ellipse/text directly.
+            const tr = parseTranslate(it.node.getAttribute('transform'));
+            if (tr) {
+              it.node.setAttribute('transform', `translate(${tr.x + dx} ${tr.y})`);
+            } else {
+              const cx0 = Number(it.ellipse.getAttribute('cx'));
+              if (Number.isFinite(cx0)) it.ellipse.setAttribute('cx', String(cx0 + dx));
+              const text = it.node.querySelector('text');
+              if (text) {
+                const x0 = Number(text.getAttribute('x'));
+                if (Number.isFinite(x0)) text.setAttribute('x', String(x0 + dx));
+              }
+            }
+            familyHubDxById.set(it.title, dx);
+          }
+        }
+      } catch (_) {}
     } catch (_) {}
 
     for (const node of nodes) {
@@ -2857,7 +3097,7 @@
       processed += 1;
     }
 
-    return { processed, familyHubDyById };
+    return { processed, familyHubDyById, familyHubDxById };
 
     if (processed > 0) {
       // Small signal to confirm JS is running and SVG post-processing applied.
