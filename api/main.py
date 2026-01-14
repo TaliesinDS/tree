@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+import re
 from typing import Any, Literal
 
 import psycopg
@@ -20,6 +21,37 @@ app = FastAPI(title="Genealogy API", version="0.0.1")
 
 _PRIVACY_BORN_ON_OR_AFTER = date(1946, 1, 1)
 _PRIVACY_AGE_CUTOFF_YEARS = 90
+
+_PAREN_EPITHET_RE = re.compile(r"^\([^()]{1,80}\)$")
+
+
+def _normalize_public_name_fields(
+    *,
+    display_name: str | None,
+    given_name: str | None,
+    surname: str | None,
+) -> tuple[str | None, str | None]:
+    """Normalize name fields for public/UI use.
+
+    Gramps sometimes stores epithets like "(dragon)" inside the given name.
+    If they drift into the surname column (exports/imports can be messy), we treat
+    parenthetical-only surnames as an epithet and keep it in the given name.
+    """
+
+    s = (surname or "").strip()
+    if not s:
+        return given_name, surname
+
+    if _PAREN_EPITHET_RE.match(s):
+        dn = (display_name or "").strip()
+        g = (given_name or "").strip()
+        if dn:
+            return dn, None
+        if g:
+            return f"{g} {s}".strip(), None
+        return s, None
+
+    return given_name, surname
 
 
 def _add_years(d: date, years: int) -> date:
@@ -126,6 +158,93 @@ def health() -> dict[str, str]:
     return {"ok": "true"}
 
 
+@app.get("/people")
+def list_people(
+    limit: int = Query(default=5000, ge=1, le=50_000),
+    offset: int = Query(default=0, ge=0, le=5_000_000),
+    include_total: bool = False,
+) -> dict[str, Any]:
+    """List people in the database (privacy-redacted).
+
+    This endpoint is intended for building a global People index in the UI.
+    Use limit/offset pagination for large datasets.
+    """
+
+    with db_conn() as conn:
+        total = None
+        if include_total:
+            total = conn.execute("SELECT COUNT(*) FROM person").fetchone()[0]
+
+        rows = conn.execute(
+            """
+            SELECT id, gramps_id, display_name, given_name, surname,
+                   birth_date, death_date, is_living, is_private, is_living_override
+            FROM person
+            ORDER BY display_name NULLS LAST, id
+            LIMIT %s OFFSET %s
+            """.strip(),
+            (limit, offset),
+        ).fetchall()
+
+    results: list[dict[str, Any]] = []
+    for r in rows:
+        (
+            pid,
+            gid,
+            display_name,
+            given_name,
+            surname,
+            birth_date,
+            death_date,
+            is_living_flag,
+            is_private_flag,
+            is_living_override,
+        ) = tuple(r)
+
+        if _is_effectively_private(
+            is_private=is_private_flag,
+            is_living_override=is_living_override,
+            is_living=is_living_flag,
+            birth_date=birth_date,
+            death_date=death_date,
+        ):
+            results.append(
+                {
+                    "id": pid,
+                    "gramps_id": gid,
+                    "type": "person",
+                    "display_name": "Private",
+                    "given_name": None,
+                    "surname": None,
+                }
+            )
+        else:
+            given_name_out, surname_out = _normalize_public_name_fields(
+                display_name=display_name,
+                given_name=given_name,
+                surname=surname,
+            )
+            results.append(
+                {
+                    "id": pid,
+                    "gramps_id": gid,
+                    "type": "person",
+                    "display_name": display_name,
+                    "given_name": given_name_out,
+                    "surname": surname_out,
+                }
+            )
+
+    out: dict[str, Any] = {
+        "offset": offset,
+        "limit": limit,
+        "results": results,
+    }
+    if include_total:
+        out["total"] = int(total or 0)
+    return out
+
+
 def _resolve_person_id(person_ref: str) -> str:
     """Resolve either an internal handle (_abc...) or a Gramps ID (I0001) to the internal handle."""
 
@@ -224,12 +343,18 @@ def get_person(person_id: str) -> dict[str, Any]:
             "is_private": True,
         }
 
+    given_name_out, surname_out = _normalize_public_name_fields(
+        display_name=person.get("display_name"),
+        given_name=person.get("given_name"),
+        surname=person.get("surname"),
+    )
+
     return {
         "id": person["id"],
         "gramps_id": person.get("gramps_id"),
         "display_name": person.get("display_name"),
-        "given_name": person.get("given_name"),
-        "surname": person.get("surname"),
+        "given_name": given_name_out,
+        "surname": surname_out,
         "gender": person.get("gender"),
         "birth": person.get("birth_text"),
         "death": person.get("death_text"),
@@ -408,13 +533,19 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
             "death": None,
             "distance": distance,
         }
+    given_name_out, surname_out = _normalize_public_name_fields(
+        display_name=name,
+        given_name=given_name,
+        surname=surname,
+    )
+
     return {
         "id": pid,
         "gramps_id": gid,
         "type": "person",
         "display_name": name,
-        "given_name": given_name,
-        "surname": surname,
+        "given_name": given_name_out,
+        "surname": surname_out,
         "gender": gender,
         "birth": birth_text,
         "death": death_text,

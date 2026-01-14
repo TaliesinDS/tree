@@ -191,11 +191,8 @@
     }
 
     .peopleGroup {
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 8px;
+      padding: 1px;
       background: rgba(0,0,0,0.20);
-      margin-bottom: 10px;
     }
 
     html[data-theme="light"] .peopleGroup {
@@ -213,7 +210,7 @@
       display: flex;
       justify-content: space-between;
       gap: 10px;
-      padding: 6px 4px;
+      padding: 1px 4px;
       border-bottom: 1px solid rgba(255,255,255,0.06);
       cursor: pointer;
       user-select: none;
@@ -460,7 +457,7 @@
 
         <div class="tabpanel" data-panel="people">
           <h2>People</h2>
-          <div id="peopleList" class="muted">Load a graph to populate.</div>
+          <div id="peopleList" class="muted">Loading people…</div>
         </div>
 
         <div class="tabpanel" data-panel="events">
@@ -545,11 +542,7 @@
                 </div>
               </div>
             </details>
-            <div class="row" style="margin-top: 8px; gap: 12px;">
-              <div class="hint">
-                API: <code>/graph/neighborhood</code> · Try <code>I0001</code>. Tip: <code>graphviz</code> layout uses the same DOT-style approach as Gramps Web.
-              </div>
-            </div>
+            
           </div>
         </div>
       </header>
@@ -2916,11 +2909,9 @@
 
   function surnameKeyForPerson(p) {
     const s = (p?.surname || '').trim();
-    if (s) return s;
-    const dn = (p?.display_name || '').trim();
-    if (!dn || dn === 'Private') return '#';
-    const parts = dn.split(/\s+/g);
-    return parts.length ? parts[parts.length - 1] : '#';
+    // Never infer surname from given_name/display_name.
+    // If Gramps has no surname for this person, they belong in the "No surname" bucket.
+    return s || '__NO_SURNAME__';
   }
 
   function givenKeyForPerson(p) {
@@ -2931,25 +2922,32 @@
     return dn;
   }
 
-  function renderPeopleIndex(payload) {
+  let allPeopleIndex = null; // [{id, gramps_id, display_name, given_name, surname}]
+
+  function renderPeopleIndexFromPeople(people, { emptyMessage } = {}) {
     const root = document.getElementById('peopleList');
     if (!root) return;
 
-    const people = (payload?.nodes || []).filter(n => n?.type === 'person');
-    if (!people.length) {
-      root.innerHTML = '<div class="muted">No people loaded yet.</div>';
+    const list = Array.isArray(people) ? people : [];
+    if (!list.length) {
+      root.innerHTML = `<div class="muted">${emptyMessage || 'No people found.'}</div>`;
       return;
     }
 
     const groups = new Map();
-    for (const p of people) {
+    for (const p of list) {
       const k = surnameKeyForPerson(p);
       const arr = groups.get(k) || [];
       arr.push(p);
       groups.set(k, arr);
     }
 
-    const surnames = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
+    const NO_SURNAME_KEY = '__NO_SURNAME__';
+    const surnames = Array.from(groups.keys()).sort((a, b) => {
+      if (a === NO_SURNAME_KEY && b !== NO_SURNAME_KEY) return -1;
+      if (b === NO_SURNAME_KEY && a !== NO_SURNAME_KEY) return 1;
+      return a.localeCompare(b);
+    });
     const fragments = document.createDocumentFragment();
 
     for (const surname of surnames) {
@@ -2964,14 +2962,15 @@
 
       const details = document.createElement('details');
       details.className = 'peopleGroup';
-      details.open = (surnames.length <= 10);
+      details.open = (surname === NO_SURNAME_KEY) || (surnames.length <= 10);
 
       const summary = document.createElement('summary');
-      summary.textContent = `${surname} (${items.length})`;
+      const label = (surname === NO_SURNAME_KEY) ? 'No surname' : surname;
+      summary.textContent = `${label} (${items.length})`;
       details.appendChild(summary);
 
-      const list = document.createElement('div');
-      list.style.marginTop = '8px';
+      const listEl = document.createElement('div');
+      listEl.style.marginTop = '2px';
 
       for (const p of items) {
         const row = document.createElement('div');
@@ -2995,15 +2994,64 @@
           loadGraph();
         });
 
-        list.appendChild(row);
+        listEl.appendChild(row);
       }
 
-      details.appendChild(list);
+      details.appendChild(listEl);
       fragments.appendChild(details);
     }
 
     root.innerHTML = '';
     root.appendChild(fragments);
+  }
+
+  async function loadAllPeopleIndex() {
+    const root = document.getElementById('peopleList');
+    if (root) root.innerHTML = '<div class="muted">Loading people…</div>';
+
+    const limit = 5000;
+    let offset = 0;
+    const out = [];
+
+    try {
+      while (true) {
+        const url = new URL('/people', window.location.origin);
+        url.searchParams.set('limit', String(limit));
+        url.searchParams.set('offset', String(offset));
+
+        const resp = await fetch(url.toString());
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${text}`);
+        }
+
+        const payload = await resp.json();
+        const results = Array.isArray(payload?.results) ? payload.results : [];
+        out.push(...results);
+
+        if (root) root.innerHTML = `<div class="muted">Loaded ${out.length.toLocaleString()} people…</div>`;
+
+        if (results.length < limit) break;
+        offset += limit;
+      }
+
+      allPeopleIndex = out;
+      renderPeopleIndexFromPeople(allPeopleIndex, { emptyMessage: 'No people in database.' });
+    } catch (err) {
+      console.error(err);
+      if (root) root.innerHTML = `<div class="muted">Failed to load people list: ${String(err)}</div>`;
+    }
+  }
+
+  function renderPeopleIndex(payload) {
+    // Prefer the global full-DB People index when available.
+    if (Array.isArray(allPeopleIndex) && allPeopleIndex.length) {
+      renderPeopleIndexFromPeople(allPeopleIndex, { emptyMessage: 'No people in database.' });
+      return;
+    }
+
+    const people = (payload?.nodes || []).filter(n => n?.type === 'person');
+    renderPeopleIndexFromPeople(people, { emptyMessage: 'No people loaded yet.' });
   }
 
   async function loadGraph() {
@@ -3082,6 +3130,9 @@
     for (const b of tabButtons) b.classList.toggle('active', b.dataset.tab === tabName);
     for (const p of tabPanels) p.classList.toggle('active', p.dataset.panel === tabName);
   }
+
+  // Load the full People index (independent of the graph).
+  loadAllPeopleIndex();
 
   for (const b of tabButtons) {
     b.addEventListener('click', () => setActiveTab(b.dataset.tab));
