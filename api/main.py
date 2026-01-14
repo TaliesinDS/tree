@@ -430,6 +430,40 @@ def _fetch_neighbors(conn: psycopg.Connection, node_ids: list[str]) -> dict[str,
     return out
 
 
+def _fetch_spouses(conn: psycopg.Connection, node_ids: list[str]) -> dict[str, list[str]]:
+    """Return person->list(spouse/partner person_ids) for any family where they are a parent.
+
+    Note: We treat spouse links as "same generation" (depth cost 0) and we *do not*
+    expand further through spouse links during neighborhood BFS to avoid pulling in
+    large lateral marriage networks.
+    """
+
+    if not node_ids:
+        return {}
+
+    out: dict[str, list[str]] = {nid: [] for nid in node_ids}
+
+    # Spouses/partners are inferred via family rows with both parents set.
+    rows = conn.execute(
+        """
+        SELECT father_id, mother_id
+        FROM family
+        WHERE father_id IS NOT NULL
+          AND mother_id IS NOT NULL
+          AND (father_id = ANY(%s) OR mother_id = ANY(%s))
+        """.strip(),
+        (node_ids, node_ids),
+    ).fetchall()
+
+    for father_id, mother_id in rows:
+        if father_id in out:
+            out[father_id].append(mother_id)
+        if mother_id in out:
+            out[mother_id].append(father_id)
+
+    return out
+
+
 def _bfs_neighborhood(
     conn: psycopg.Connection,
     start: str,
@@ -470,6 +504,15 @@ def _bfs_neighborhood_distances(
     """Return node->distance for an undirected person neighborhood BFS."""
 
     distances: dict[str, int] = {start: 0}
+
+    # Attach spouses for the root immediately (same generation; do not expand via spouse links).
+    for sp in _fetch_spouses(conn, [start]).get(start, []):
+        if sp in distances:
+            continue
+        distances[sp] = 0
+        if len(distances) >= max_nodes:
+            return distances
+
     if depth <= 0:
         return distances
 
@@ -477,6 +520,8 @@ def _bfs_neighborhood_distances(
     for d in range(1, depth + 1):
         neigh = _fetch_neighbors(conn, frontier)
         next_frontier: list[str] = []
+
+        # Expand only through parent/child edges (generation distance).
         for node in frontier:
             for nb in neigh.get(node, []):
                 if nb in distances:
@@ -485,6 +530,18 @@ def _bfs_neighborhood_distances(
                 next_frontier.append(nb)
                 if len(distances) >= max_nodes:
                     return distances
+
+        # Attach spouses for newly discovered nodes at this generation.
+        if next_frontier:
+            sp_map = _fetch_spouses(conn, next_frontier)
+            for pid in next_frontier:
+                for sp in sp_map.get(pid, []):
+                    if sp in distances:
+                        continue
+                    distances[sp] = d
+                    if len(distances) >= max_nodes:
+                        return distances
+
         frontier = next_frontier
         if not frontier:
             break
@@ -571,29 +628,6 @@ def graph_neighborhood(
     with db_conn() as conn:
         distances = _bfs_neighborhood_distances(conn, root_id, depth=depth, max_nodes=max_nodes)
         person_ids = list(distances.keys())
-
-        # Include partners (spouses) via family membership so a "parents + children" view
-        # doesn't randomly omit the other parent.
-        person_id_set = set(person_ids)
-        spouse_pairs = conn.execute(
-            """
-            SELECT DISTINCT father_id, mother_id
-            FROM family
-            WHERE (father_id = ANY(%s) OR mother_id = ANY(%s))
-              AND father_id IS NOT NULL
-              AND mother_id IS NOT NULL
-            """.strip(),
-            (person_ids, person_ids),
-        ).fetchall()
-        for father_id, mother_id in spouse_pairs:
-            if father_id:
-                person_id_set.add(father_id)
-            if mother_id:
-                person_id_set.add(mother_id)
-            if len(person_id_set) >= max_nodes:
-                break
-
-        person_ids = list(person_id_set)
 
         person_rows = conn.execute(
             """

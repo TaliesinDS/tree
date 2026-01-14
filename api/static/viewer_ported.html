@@ -219,6 +219,11 @@
     .peopleItem:last-child { border-bottom: none; }
     .peopleItem:hover { background: rgba(122,162,255,0.10); border-radius: 8px; }
 
+    .peopleItem.selected {
+      background: rgba(122,162,255,0.16);
+      border-radius: 8px;
+    }
+
     .peopleItem .name { font-size: 13px; }
     .peopleItem .meta { font-size: 12px; color: var(--muted); font-family: var(--mono); }
 
@@ -1522,6 +1527,17 @@
       spouseAttachmentByFamily.set(best.familyId, perFam);
     }
 
+    // If someone is a parent in a single-parent family in-view, DOT often gets extra
+    // constraints (because only one spouse connects to that hub) which can cause
+    // the couple hub ordering to misbehave. We'll use a stronger rank hint only
+    // for those specific couples.
+    const parentInSingleParentFamily = new Set();
+    for (const fid of families) {
+      const parents = famParents.get(fid) || [];
+      const parentIds = [...new Set(parents.map(p => p.pid).filter(Boolean))];
+      if (parentIds.length === 1) parentInSingleParentFamily.add(parentIds[0]);
+    }
+
     // Couple priority: keep spouses adjacent.
     for (const fid of families) {
       const { father, mother, hasTwoParents } = getCouple(fid);
@@ -1535,23 +1551,18 @@
         const fatherNode = father;
         const motherNode = mother;
 
-        const gf = (people.get(father)?.gender || '').toString().trim().toUpperCase();
-        const gm = (people.get(mother)?.gender || '').toString().trim().toUpperCase();
+        // Deterministic ordering: father - family hub - mother.
+        // Avoid trying to infer/correct ordering from gender because gender/roles
+        // can be inconsistent in exported data and it makes ordering unpredictable.
+        const left = fatherNode;
+        const right = motherNode;
 
-        // Hard glue: keep couples adjacent as much as DOT allows.
-        // Use a very high weight and minlen=0 to strongly discourage any node in-between.
-        // constraint=false so we don't fight the vertical generational ranking.
-        let left = fatherNode;
-        let right = motherNode;
-        if (gf === 'F' && gm === 'M') {
-          left = motherNode;
-          right = fatherNode;
-        }
-
-        // Always draw the visible connectors into the family node.
+        // For 2-parent families, the spouse->hub connectors become visually redundant
+        // once the hub icon is positioned low enough to touch the spouse cards.
+        // Keep them for layout, but do not render them.
         // constraint=false keeps the family node on the same rank when we add rank hints.
-        lines.push(`  ${dotEscape(fatherNode)} -> ${dotEscape(fid)} [arrowhead=none, constraint=false, weight=50, minlen=0];`);
-        lines.push(`  ${dotEscape(motherNode)} -> ${dotEscape(fid)} [arrowhead=none, constraint=false, weight=50, minlen=0];`);
+        lines.push(`  ${dotEscape(fatherNode)} -> ${dotEscape(fid)} [style=invis, constraint=false, weight=50, minlen=0];`);
+        lines.push(`  ${dotEscape(motherNode)} -> ${dotEscape(fid)} [style=invis, constraint=false, weight=50, minlen=0];`);
 
         // Multi-spouse families are ordered by the dedicated multi-spouse cluster.
         // If we also create per-family couple clusters, Graphviz may "split" spouses
@@ -1577,12 +1588,19 @@
         lines.push(`    ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)}; ${dotEscape(coupleSepId)};`);
         lines.push('  }');
 
+        // DOT can ignore rank constraints inside clusters in some cases.
+        // Adding a non-cluster rank hint for *every* couple can collapse whole rows,
+        // so only apply it when we expect conflicting constraints.
+        if (parentInSingleParentFamily.has(father) || parentInSingleParentFamily.has(mother)) {
+          lines.push(`  { rank=same; ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)}; }`);
+        }
+
         // Hard ordering: spouse - family - spouse.
-        // Use constraint=true here: because all three nodes are rank=same, this won't
-        // pull anything up/down, but it *will* give DOT a real ordering constraint.
-        lines.push(`  ${dotEscape(left)} -> ${dotEscape(fid)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
-        lines.push(`  ${dotEscape(fid)} -> ${dotEscape(right)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
-        lines.push(`  ${dotEscape(right)} -> ${dotEscape(coupleSepId)} [style=invis, weight=20000, minlen=0, constraint=true, dir=none];`);
+        // Use constraint=true: because the nodes are already rank=same, this will not
+        // pull anything up/down, but it *will* keep the hub between spouses.
+        lines.push(`  ${dotEscape(left)} -> ${dotEscape(fid)} [style=invis, weight=26000, minlen=0, constraint=true, arrowhead=none];`);
+        lines.push(`  ${dotEscape(fid)} -> ${dotEscape(right)} [style=invis, weight=26000, minlen=0, constraint=true, arrowhead=none];`);
+        lines.push(`  ${dotEscape(right)} -> ${dotEscape(coupleSepId)} [style=invis, weight=26000, minlen=0, constraint=true, arrowhead=none];`);
       }
     }
 
@@ -2509,6 +2527,11 @@
           const pid = normalizePersonIdFromGraphvizTitle(title);
           if (!pid) return;
 
+          // Keep People list selection in sync with graph selection.
+          // Prefer Gramps ID when available for stable lookup.
+          const gidForList = grampsIdByNodeId.get(String(pid));
+          setSelectedPersonRef(gidForList || pid);
+
           // Navigate like Gramps: click a person to re-center graph.
           if (/^I\d+$/i.test(String(pid))) {
             personIdEl.value = pid;
@@ -2516,44 +2539,10 @@
             loadGraph();
             return;
           }
-          const gid = grampsIdByNodeId.get(String(pid));
+          const gid = gidForList;
           setStatus(gid ? `Selected node: ${pid} (${gid})` : `Selected node: ${pid}`);
         });
       });
-
-      // Spouse connectors (person -> family hub) become visually redundant once the
-      // hub icon is placed low enough to touch the spouse cards. Hide them.
-      // We target edges by their Graphviz-generated title like "<nodeA> -> <nodeB>".
-      // Note: Graphviz may use internal node IDs (e.g. "_f…") so we can't rely on I*/F*.
-      (function hideSpouseToFamilyEdges() {
-        const nodeTypeById = new Map(); // id -> 'person' | 'hub' | 'other'
-        for (const ng of gvEl.querySelectorAll('g.node')) {
-          const id = ng.querySelector('title')?.textContent?.trim();
-          if (!id) continue;
-
-          const ellipse = ng.querySelector('ellipse');
-          if (!ellipse) {
-            nodeTypeById.set(id, 'person');
-            continue;
-          }
-
-          const labelText = (ng.querySelector('text')?.textContent || '').trim();
-          const fill = (ellipse.getAttribute('fill') || '').trim().toLowerCase();
-          const isHub = (labelText === '⚭') || (fill === '#9d7bff');
-          nodeTypeById.set(id, isHub ? 'hub' : 'other');
-        }
-
-        for (const eg of gvEl.querySelectorAll('g.edge')) {
-          const t = eg.querySelector('title')?.textContent?.trim() || '';
-          const m = t.match(/^\s*([^\s]+)\s*->\s*([^\s]+)\s*$/);
-          if (!m) continue;
-          const a = m[1];
-          const b = m[2];
-          if (nodeTypeById.get(a) === 'person' && nodeTypeById.get(b) === 'hub') {
-            eg.style.setProperty('display', 'none', 'important');
-          }
-        }
-      })();
 
       // Add pan/zoom.
       gvPanZoom = enableSvgPanZoom(svg, { container: gvEl });
@@ -2922,6 +2911,74 @@
     return dn;
   }
 
+  const NO_SURNAME_KEY = '__NO_SURNAME__';
+
+  const peopleIndexUi = {
+    rendered: false,
+    rowById: new Map(),
+    rowByGrampsId: new Map(),
+    selectedRef: null,
+    selectedRow: null,
+  };
+
+  function isPeopleTabActive() {
+    const peoplePanel = document.querySelector('.tabpanel[data-panel="people"]');
+    return !!peoplePanel && peoplePanel.classList.contains('active');
+  }
+
+  function openSelectedPersonGroupPreservingOthers() {
+    if (!peopleIndexUi.rendered) return;
+    const row = findPeopleRowForRef(peopleIndexUi.selectedRef);
+    if (!row) return;
+    const details = row.closest('details');
+    if (details) details.open = true;
+    try { row.scrollIntoView({ block: 'nearest' }); } catch (_) {}
+  }
+
+  function setSelectedPersonRef(ref) {
+    const norm = String(ref || '').trim();
+    peopleIndexUi.selectedRef = norm || null;
+    updatePeopleSelectionHighlight();
+    if (isPeopleTabActive()) openSelectedPersonGroupPreservingOthers();
+  }
+
+  function findPeopleRowForRef(ref) {
+    const r = String(ref || '').trim();
+    if (!r) return null;
+    if (/^I\d+$/i.test(r)) return peopleIndexUi.rowByGrampsId.get(r.toUpperCase()) || null;
+    return peopleIndexUi.rowById.get(r) || null;
+  }
+
+  function updatePeopleSelectionHighlight() {
+    if (!peopleIndexUi.rendered) return;
+    if (peopleIndexUi.selectedRow) peopleIndexUi.selectedRow.classList.remove('selected');
+
+    const row = findPeopleRowForRef(peopleIndexUi.selectedRef);
+    peopleIndexUi.selectedRow = row;
+    if (row) row.classList.add('selected');
+  }
+
+  function closeAllPeopleGroups() {
+    document.querySelectorAll('details.peopleGroup').forEach(d => { d.open = false; });
+  }
+
+  function applyPeopleTabOpenState() {
+    if (!peopleIndexUi.rendered) return;
+    if (!isPeopleTabActive()) return;
+
+    // Requirement:
+    // - No selection => all groups closed
+    // - With selection => open only the selected person's group
+    closeAllPeopleGroups();
+    updatePeopleSelectionHighlight();
+
+    const row = peopleIndexUi.selectedRow;
+    if (!row) return;
+    const details = row.closest('details');
+    if (details) details.open = true;
+    try { row.scrollIntoView({ block: 'nearest' }); } catch (_) {}
+  }
+
   let allPeopleIndex = null; // [{id, gramps_id, display_name, given_name, surname}]
 
   function renderPeopleIndexFromPeople(people, { emptyMessage } = {}) {
@@ -2942,13 +2999,15 @@
       groups.set(k, arr);
     }
 
-    const NO_SURNAME_KEY = '__NO_SURNAME__';
     const surnames = Array.from(groups.keys()).sort((a, b) => {
       if (a === NO_SURNAME_KEY && b !== NO_SURNAME_KEY) return -1;
       if (b === NO_SURNAME_KEY && a !== NO_SURNAME_KEY) return 1;
       return a.localeCompare(b);
     });
     const fragments = document.createDocumentFragment();
+
+    peopleIndexUi.rowById = new Map();
+    peopleIndexUi.rowByGrampsId = new Map();
 
     for (const surname of surnames) {
       const items = groups.get(surname) || [];
@@ -2962,7 +3021,8 @@
 
       const details = document.createElement('details');
       details.className = 'peopleGroup';
-      details.open = (surname === NO_SURNAME_KEY) || (surnames.length <= 10);
+      // All groups start collapsed; opening is controlled when the People tab is activated.
+      details.open = false;
 
       const summary = document.createElement('summary');
       const label = (surname === NO_SURNAME_KEY) ? 'No surname' : surname;
@@ -2976,6 +3036,8 @@
         const row = document.createElement('div');
         row.className = 'peopleItem';
         row.title = p.id;
+        row.dataset.personId = String(p.id || '');
+        if (p.gramps_id) row.dataset.grampsId = String(p.gramps_id);
 
         const name = document.createElement('div');
         name.className = 'name';
@@ -2988,8 +3050,12 @@
         row.appendChild(name);
         row.appendChild(meta);
 
+        peopleIndexUi.rowById.set(String(p.id), row);
+        if (p.gramps_id) peopleIndexUi.rowByGrampsId.set(String(p.gramps_id).toUpperCase(), row);
+
         row.addEventListener('click', () => {
           const ref = p.gramps_id || p.id;
+          setSelectedPersonRef(ref);
           personIdEl.value = ref;
           loadGraph();
         });
@@ -3003,6 +3069,11 @@
 
     root.innerHTML = '';
     root.appendChild(fragments);
+
+    peopleIndexUi.rendered = true;
+    // Never auto-open any groups on render; only when the user activates the People tab.
+    updatePeopleSelectionHighlight();
+    applyPeopleTabOpenState();
   }
 
   async function loadAllPeopleIndex() {
@@ -3044,6 +3115,9 @@
   }
 
   function renderPeopleIndex(payload) {
+    // Once rendered, never rebuild the People list during graph reloads.
+    if (peopleIndexUi.rendered) return;
+
     // Prefer the global full-DB People index when available.
     if (Array.isArray(allPeopleIndex) && allPeopleIndex.length) {
       renderPeopleIndexFromPeople(allPeopleIndex, { emptyMessage: 'No people in database.' });
@@ -3065,6 +3139,9 @@
       setStatus('Enter a person id like I0001.', true);
       return;
     }
+
+    // Track current focus person for People tab highlighting.
+    setSelectedPersonRef(personId);
 
     const url = new URL('/graph/neighborhood', window.location.origin);
     url.searchParams.set('id', personId);
@@ -3129,6 +3206,10 @@
   function setActiveTab(tabName) {
     for (const b of tabButtons) b.classList.toggle('active', b.dataset.tab === tabName);
     for (const p of tabPanels) p.classList.toggle('active', p.dataset.panel === tabName);
+
+    if (tabName === 'people') {
+      applyPeopleTabOpenState();
+    }
   }
 
   // Load the full People index (independent of the graph).
@@ -3202,6 +3283,11 @@
     const n = evt.target.data();
     const gid = n.gramps_id ? ` (${n.gramps_id})` : '';
     setStatus(`Selected ${n.type}: ${n.id}${gid}`);
+
+    if (n.type === 'person') {
+      // Keep People list selection in sync with graph selection.
+      setSelectedPersonRef(n.gramps_id || n.id);
+    }
   });
 
   // Auto-load once.
