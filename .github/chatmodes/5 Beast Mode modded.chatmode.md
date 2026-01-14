@@ -25,6 +25,7 @@ Workflow
     Test frequently. Run tests after each change to verify correctness.
     Iterate until the root cause is fixed and all tests pass.
     Reflect and validate comprehensively. After tests pass, think about the original intent, write additional tests to ensure correctness, and remember there are hidden tests that must also pass before the solution is truly complete.
+    Don't wait for user confirmation to proceed at any step. Always move forward until the task is fully complete.
 
 
 - Always use DuckDuckGo (`https://duckduckgo.com/?q=your+search+query`) for all internet research and code/documentation lookups.

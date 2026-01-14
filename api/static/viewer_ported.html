@@ -1064,6 +1064,79 @@
 
     const escLabelLine = (s) => String(s ?? '').replaceAll('\\', '\\\\').replaceAll('"', '\\"');
 
+    const ellipsize = (s, maxChars) => {
+      const t = String(s ?? '').trim();
+      if (!t) return '';
+      if (t.length <= maxChars) return t;
+      const cut = Math.max(0, maxChars - 1);
+      return t.slice(0, cut).trimEnd() + '…';
+    };
+
+    const wrapToLines = (s, maxChars, maxLines) => {
+      const raw = String(s ?? '').trim();
+      if (!raw) return [''];
+
+      const words = raw.split(/\s+/g);
+      const linesOut = [];
+      let current = '';
+
+      const pushCurrent = () => {
+        if (current.length) linesOut.push(current);
+        current = '';
+      };
+
+      for (const w of words) {
+        if (!w) continue;
+        if (!current) {
+          if (w.length <= maxChars) {
+            current = w;
+          } else {
+            // Hard-break a single long token.
+            let rest = w;
+            while (rest.length) {
+              linesOut.push(rest.slice(0, maxChars));
+              rest = rest.slice(maxChars);
+              if (linesOut.length >= maxLines) break;
+            }
+            current = '';
+          }
+        } else {
+          const candidate = current + ' ' + w;
+          if (candidate.length <= maxChars) {
+            current = candidate;
+          } else {
+            pushCurrent();
+            if (linesOut.length >= maxLines) break;
+            if (w.length <= maxChars) {
+              current = w;
+            } else {
+              linesOut.push(w.slice(0, maxChars));
+              current = '';
+            }
+          }
+        }
+
+        if (linesOut.length >= maxLines) break;
+      }
+
+      if (linesOut.length < maxLines && current.length) {
+        linesOut.push(current);
+      }
+
+      // If there was overflow, ellipsize the last line.
+      if (linesOut.length > maxLines) {
+        linesOut.length = maxLines;
+      }
+      if (linesOut.length === maxLines) {
+        const rebuilt = linesOut.join(' ');
+        if (rebuilt.replace(/\s+/g, ' ').trim().length < raw.replace(/\s+/g, ' ').trim().length) {
+          linesOut[maxLines - 1] = ellipsize(linesOut[maxLines - 1], maxChars);
+        }
+      }
+
+      return linesOut;
+    };
+
     const splitDisplayNameFallback = (displayName) => {
       const raw = String(displayName || '').trim();
       if (!raw) return { given: '', surname: '' };
@@ -1190,6 +1263,12 @@
       if (!p) return;
       const isPrivate = p.display_name === 'Private';
 
+      // Card text inset controls:
+      // - `personCardMargin` affects DOT's node label margin (may have limited effect for HTML labels).
+      // - `personCardCellPadding` is the reliable left/right inset for our HTML TABLE label.
+      const personCardMargin = '0.10,0.08';
+      const personCardCellPadding = 0;
+
       let given = '';
       let surname = '';
       if (!isPrivate) {
@@ -1205,7 +1284,7 @@
       const nameLine1 = isPrivate
         ? 'Private'
         : ((given || p.display_name || p.gramps_id || pid).trim());
-      const nameLine2 = (!isPrivate && surname) ? surname : '';
+      const surnameLine = (!isPrivate && surname) ? surname : '';
 
       const birthLine = (!isPrivate && settings.dateStyle === 'compact')
         ? (() => {
@@ -1234,10 +1313,36 @@
       // Flat fixed-size node.
       // The top rim band is drawn in SVG post-processing to match Gramps Web.
       const bodyBg = '#d0d5dd';
-      const labelLines = [nameLine1, nameLine2, birthLine || '', deathLine || '']
-        .filter(v => v && String(v).trim().length)
-        .map(escLabelLine);
-      const label = labelLines.join('\\l') + '\\l';
+      // Improved layout: if given name does not wrap, place empty space after surname.
+      // Surname always bold, even if given wraps.
+      const maxNameChars = 18;
+      let givenLines = isPrivate ? [nameLine1] : wrapToLines(nameLine1, maxNameChars, 2);
+      let surnameBold = `<B>${htmlEscape(surnameLine)}</B>`;
+      let labelLines;
+      if (isPrivate) {
+        labelLines = [nameLine1];
+      } else if (givenLines.length === 1) {
+        // Single-line given name: [given, surname, '', birth, death]
+        labelLines = [givenLines[0], surnameBold, '', p.birth ? formatDateLine(p.birth, '*') : '', p.death ? formatDateLine(p.death, '+') : ''];
+      } else {
+        // Wrapped given name: [given1, given2, surname, birth, death]
+        labelLines = [givenLines[0], givenLines[1], surnameBold, p.birth ? formatDateLine(p.birth, '*') : '', p.death ? formatDateLine(p.death, '+') : ''];
+      }
+      // Fallback: if all labelLines are empty, show display_name or ID
+      if (!labelLines.some(line => line && String(line).trim().length)) {
+        labelLines = [p.display_name || p.gramps_id || pid];
+      }
+      // Build HTML label for DOT: wrap in <...> and use <B> for surname, force left alignment, font size, and fixed width
+      function safeCell(val) {
+        const v = (val && String(val).trim().length) ? val : "&nbsp;";
+        return `<FONT POINT-SIZE="10">${v}</FONT>`;
+      }
+      const htmlLabel = `<
+        <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="${personCardCellPadding}" ALIGN="LEFT">
+          <TR><TD ALIGN="LEFT">${safeCell(labelLines[0])}</TD></TR>
+          ${labelLines.slice(1).map(line => `<TR><TD ALIGN="LEFT">${safeCell(line)}</TD></TR>`).join('')}
+        </TABLE>
+      >`;
 
       const fill = bodyBg;
       lines.push(
@@ -1246,8 +1351,8 @@
         `fillcolor="${fill}", ` +
         `color="${fill}", penwidth=1.0, ` +
         `fontname="Inter, Segoe UI, Arial", fontsize=10, fontcolor="#0b0f16", ` +
-        `labeljust=l, labelloc=c, margin="0.10,0.08", ` +
-        `label="${label}"` +
+        `labeljust=l, labelloc=c, margin="${personCardMargin}", ` +
+        `label=${htmlLabel}` +
         `];`
       );
     };
@@ -2449,6 +2554,10 @@
     const nodes = svg.querySelectorAll('g.node');
     let processed = 0;
 
+    // Person-card label inset from the card's left edge (in SVG px).
+    // This anchors text to the *shape* bbox so it stays consistent across cards.
+    const PERSON_CARD_TEXT_INSET_PX = 12;
+
     // --- Family hubs (⚭): lower the rendered icon within the couple row ---
     // Gramps Web effectively positions the couple marker lower within the spouse row.
     // We mimic that by shifting the hub node in SVG, then letting edge smoothing
@@ -2625,6 +2734,28 @@
 
       const texts = Array.from(node.querySelectorAll('text'));
       if (!texts.length) continue;
+
+      // Force a consistent left inset by anchoring text to the card shape bbox.
+      // (Graphviz can emit slightly different x values per label depending on content.)
+      try {
+        const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+        if (shape && typeof shape.getBBox === 'function') {
+          const bb = shape.getBBox();
+          const targetX = (Number(bb?.x) || 0) + PERSON_CARD_TEXT_INSET_PX;
+          if (Number.isFinite(targetX)) {
+            for (const t of texts) {
+              t.setAttribute('x', String(targetX));
+              const tspans = Array.from(t.querySelectorAll('tspan'));
+              for (const sp of tspans) {
+                // Force each line to start at the same x.
+                sp.setAttribute('x', String(targetX));
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Best-effort only.
+      }
 
       // Sort by y so “first” matches the top line.
       texts.sort((a, b) => (Number(a.getAttribute('y')) || 0) - (Number(b.getAttribute('y')) || 0));
