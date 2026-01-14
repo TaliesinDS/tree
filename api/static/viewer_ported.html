@@ -1289,17 +1289,17 @@
       const birthLine = (!isPrivate && settings.dateStyle === 'compact')
         ? (() => {
             const by = yearFromText(p.birth);
-            return by ? `*${by}` : null;
+            return by ? `* ${by}` : null;
           })()
         : (!isPrivate ? formatDateLine(p.birth, '*') : null);
 
       const deathLine = (!isPrivate && settings.dateStyle === 'compact')
         ? (() => {
             const dy = yearFromText(p.death);
-            // Compact still uses dagger.
-            return dy ? `†${dy}` : null;
+            // Compact: use dagger (Gramps-like) and keep spacing consistent.
+            return dy ? `† ${dy}` : null;
           })()
-        : (!isPrivate ? formatDateLine(p.death, '+') : null);
+        : (!isPrivate ? formatDateLine(p.death, '†') : null);
 
       const footerBits = [];
       if (!isPrivate && settings.showDistance && (p.distance ?? null) !== null) {
@@ -1323,10 +1323,10 @@
         labelLines = [nameLine1];
       } else if (givenLines.length === 1) {
         // Single-line given name: [given, surname, '', birth, death]
-        labelLines = [givenLines[0], surnameBold, '', p.birth ? formatDateLine(p.birth, '*') : '', p.death ? formatDateLine(p.death, '+') : ''];
+        labelLines = [givenLines[0], surnameBold, '', p.birth ? formatDateLine(p.birth, '*') : '', p.death ? formatDateLine(p.death, '†') : ''];
       } else {
         // Wrapped given name: [given1, given2, surname, birth, death]
-        labelLines = [givenLines[0], givenLines[1], surnameBold, p.birth ? formatDateLine(p.birth, '*') : '', p.death ? formatDateLine(p.death, '+') : ''];
+        labelLines = [givenLines[0], givenLines[1], surnameBold, p.birth ? formatDateLine(p.birth, '*') : '', p.death ? formatDateLine(p.death, '†') : ''];
       }
       // Fallback: if all labelLines are empty, show display_name or ID
       if (!labelLines.some(line => line && String(line).trim().length)) {
@@ -1337,10 +1337,41 @@
         const v = (val && String(val).trim().length) ? val : "&nbsp;";
         return `<FONT POINT-SIZE="10">${v}</FONT>`;
       }
+
+      const isDateLine = (line) => /^\s*[*†✝+]\s*/.test(String(line ?? ''));
+
+      const splitDateSymbol = (line) => {
+        const s = String(line ?? '');
+        // Expected formats:
+        // - full: "* 25 december 1875", "† 19 januari 1917"
+        // - compact: "* 1875", "† 1917"
+        const m = s.match(/^\s*([*†✝+])\s*(.*)$/);
+        if (m) return { sym: m[1], text: m[2] };
+        return { sym: '', text: s };
+      };
+
       const htmlLabel = `<
         <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="${personCardCellPadding}" ALIGN="LEFT">
-          <TR><TD ALIGN="LEFT">${safeCell(labelLines[0])}</TD></TR>
-          ${labelLines.slice(1).map(line => `<TR><TD ALIGN="LEFT">${safeCell(line)}</TD></TR>`).join('')}
+          ${labelLines.map(line => {
+            if (isDateLine(line)) {
+              const { sym, text } = splitDateSymbol(line);
+              // Make date alignment consistent across cards:
+              // - fixed-width symbol column, right-aligned
+              // - date text column always starts with a NBSP
+              const symCell = sym ? sym : '&nbsp;';
+              const textCell = text ? `&nbsp;${text}` : '&nbsp;';
+              return (
+                `<TR>` +
+                  `<TD ALIGN="LEFT" WIDTH="10" FIXEDSIZE="TRUE">${safeCell(symCell)}</TD>` +
+                  `<TD ALIGN="LEFT">${safeCell(textCell)}</TD>` +
+                `</TR>`
+              );
+            }
+
+            // Name/blank spacer rows: span both columns so the date symbol column
+            // does NOT push the name block to the right.
+            return `<TR><TD ALIGN="LEFT" COLSPAN="2">${safeCell(line)}</TD></TR>`;
+          }).join('')}
         </TABLE>
       >`;
 
@@ -2558,6 +2589,16 @@
     // This anchors text to the *shape* bbox so it stays consistent across cards.
     const PERSON_CARD_TEXT_INSET_PX = 12;
 
+    // Date rows are rendered as 2 columns (symbol + text).
+    // Anchor them explicitly so symbol/date spacing is consistent regardless of glyph width.
+    const PERSON_CARD_DATE_SYMBOL_COL_PX = 6;
+    const PERSON_CARD_DATE_GAP_PX = 0;
+
+    // Person-card date line vertical nudge (in SVG px).
+    // Positive moves birth/death down; negative moves them up.
+    // Only affects the last two label lines, so name spacing stays unchanged.
+    const PERSON_CARD_DATE_DY_PX = 6;
+
     // --- Family hubs (⚭): lower the rendered icon within the couple row ---
     // Gramps Web effectively positions the couple marker lower within the spouse row.
     // We mimic that by shifting the hub node in SVG, then letting edge smoothing
@@ -2735,21 +2776,49 @@
       const texts = Array.from(node.querySelectorAll('text'));
       if (!texts.length) continue;
 
-      // Force a consistent left inset by anchoring text to the card shape bbox.
-      // (Graphviz can emit slightly different x values per label depending on content.)
+      // Force consistent left inset and consistent symbol/date spacing by anchoring
+      // x positions to the card's shape bbox.
       try {
         const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
         if (shape && typeof shape.getBBox === 'function') {
           const bb = shape.getBBox();
-          const targetX = (Number(bb?.x) || 0) + PERSON_CARD_TEXT_INSET_PX;
-          if (Number.isFinite(targetX)) {
-            for (const t of texts) {
-              t.setAttribute('x', String(targetX));
-              const tspans = Array.from(t.querySelectorAll('tspan'));
-              for (const sp of tspans) {
-                // Force each line to start at the same x.
-                sp.setAttribute('x', String(targetX));
-              }
+          const leftEdgeX = Number(bb?.x) || 0;
+          const baseX = leftEdgeX + PERSON_CARD_TEXT_INSET_PX;
+          const dateTextX = baseX + PERSON_CARD_DATE_SYMBOL_COL_PX + PERSON_CARD_DATE_GAP_PX;
+
+          // Group by row (shared y) so we can treat date rows specially.
+          const rows = [];
+          const eps = 0.5;
+          for (const t of texts) {
+            const y = Number(t.getAttribute('y'));
+            if (!Number.isFinite(y)) continue;
+            const last = rows.length ? rows[rows.length - 1] : null;
+            if (!last || Math.abs(y - last.y) > eps) {
+              rows.push({ y, texts: [t] });
+            } else {
+              last.texts.push(t);
+            }
+          }
+
+          const isDateSymbol = (txt) => (txt === '*' || txt === '†' || txt === '✝' || txt === '+');
+          const setX = (el, x) => {
+            el.setAttribute('x', String(x));
+            for (const sp of Array.from(el.querySelectorAll('tspan'))) {
+              sp.setAttribute('x', String(x));
+            }
+          };
+
+          for (const row of rows) {
+            const hasSymbol = row.texts.some(t => isDateSymbol(String(t.textContent || '').trim()));
+            if (!hasSymbol) {
+              for (const t of row.texts) setX(t, baseX);
+              continue;
+            }
+
+            for (const t of row.texts) {
+              const txt = String(t.textContent || '').trim();
+              if (isDateSymbol(txt)) setX(t, baseX);
+              else setX(t, dateTextX);
             }
           }
         }
@@ -2759,6 +2828,43 @@
 
       // Sort by y so “first” matches the top line.
       texts.sort((a, b) => (Number(a.getAttribute('y')) || 0) - (Number(b.getAttribute('y')) || 0));
+
+      // Move date rows down independently from name rows.
+      // With 2-column date rows, each date line is multiple <text> elements,
+      // so we shift whole *rows* (by y clustering).
+      if (Number.isFinite(PERSON_CARD_DATE_DY_PX) && PERSON_CARD_DATE_DY_PX !== 0 && texts.length) {
+        const shiftTextY = (el, dy) => {
+          const y = Number(el.getAttribute('y'));
+          if (Number.isFinite(y)) el.setAttribute('y', String(y + dy));
+          for (const sp of Array.from(el.querySelectorAll('tspan'))) {
+            const sy = Number(sp.getAttribute('y'));
+            if (Number.isFinite(sy)) sp.setAttribute('y', String(sy + dy));
+          }
+        };
+
+        const rows = [];
+        const eps = 0.5;
+        for (const t of texts) {
+          const y = Number(t.getAttribute('y'));
+          if (!Number.isFinite(y)) continue;
+          const last = rows.length ? rows[rows.length - 1] : null;
+          if (!last || Math.abs(y - last.y) > eps) {
+            rows.push({ y, texts: [t] });
+          } else {
+            last.texts.push(t);
+          }
+        }
+
+        const rowIsDate = (row) => row.texts.some(t => {
+          const txt = String(t.textContent || '').trim();
+          return txt === '*' || txt === '†' || txt === '✝' || txt === '+';
+        });
+
+        for (const row of rows) {
+          if (!rowIsDate(row)) continue;
+          for (const t of row.texts) shiftTextY(t, PERSON_CARD_DATE_DY_PX);
+        }
+      }
 
       // Bold the name (given + surname): first two lines.
       for (let i = 0; i < Math.min(2, texts.length); i++) {
