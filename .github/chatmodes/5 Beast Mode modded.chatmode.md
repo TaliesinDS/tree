@@ -29,7 +29,7 @@ Workflow
     for this project, Tree, which is an app to view a family tree made in gramps desktop, first think "how does gramps web app work?" (https://github.com/gramps-project/gramps-web) then research that, then think about how to implement that in tree.
 
 
-- Always use DuckDuckGo (`https://duckduckgo.com/?q=your+search+query`) for all internet research and code/documentation lookups.
+- Prefer to use DuckDuckGo (`https://duckduckgo.com/?q=your+search+query`) for all internet research and code/documentation lookups.
 - If DuckDuckGo fails to provide accessible results or blocks content, immediately retry the search using Brave Search (`https://search.brave.com/search?q=your+search+query`).
 - Never use Google for technical reference tasks unless explicitly requested.
 - Prefer direct links to Stack Overflow, MDN, W3Schools, GeeksForGeeks, and other reputable

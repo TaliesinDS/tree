@@ -1852,88 +1852,248 @@
       pos.set(String(id), { x: Number(n.x) || 0, y: Number(n.y) || 0, w: Number(n.width) || 0, h: Number(n.height) || 0 });
     }
 
-    // When we "snap" couples to Graphviz-like geometry we can override dagre's
-    // spacing and introduce overlaps. Track occupied couple-row intervals per
-    // rank band and shift new couples sideways to avoid collisions.
-    const coupleIntervalsByBand = new Map();
+    // Helpers for snapping + overlap resolution.
     const bandKeyForY = (y) => {
       const bandH = Math.max(1, Math.round(boxHeight + gapY * 0.6));
       return String(Math.round((Number(y) || 0) / bandH));
     };
-    const reserveCoupleInterval = (bandKey, minX, maxX) => {
-      const arr = coupleIntervalsByBand.get(bandKey) || [];
-      arr.push({ minX, maxX });
-      coupleIntervalsByBand.set(bandKey, arr);
+    const shiftIds = (ids, dx, dy = 0) => {
+      if (!dx && !dy) return;
+      for (const id of ids) {
+        const p = pos.get(id);
+        if (!p) continue;
+        p.x += dx;
+        p.y += dy;
+      }
     };
 
-    // Post-process: place hubs between spouses, and lower them within the spouse row.
+    const snappedFamilyIds = new Set();
+
+    // Build person->families mapping for parent edges.
+    const parentFamiliesByPerson = new Map();
+    for (const [fid, pset] of famParents.entries()) {
+      for (const pid of pset) {
+        const arr = parentFamiliesByPerson.get(pid) || [];
+        arr.push(fid);
+        parentFamiliesByPerson.set(pid, arr);
+      }
+    }
+
+    // 1) Shared-spouse (multi-family parent) chains: spouse/hub/person/hub/spouse.
+    // This prevents overlaps when a person participates in multiple 2-parent families.
+    const snapGroups = [];
+    const d = (hubRadius + boxWidth / 2);
+
+    for (const [pid, fams] of parentFamiliesByPerson.entries()) {
+      if (!Array.isArray(fams) || fams.length < 2) continue;
+      const centerP = peopleById.get(pid);
+      const centerPos = pos.get(pid);
+      if (!centerP || !centerPos) continue;
+
+      // Only chain 2-parent families where the other parent exists in-view.
+      const chain = [];
+      for (const fid of fams) {
+        const pset = famParents.get(fid);
+        if (!pset || pset.size !== 2) continue;
+        const otherPid = [...pset].find(x => String(x) !== String(pid));
+        if (!otherPid) continue;
+        if (!peopleById.has(otherPid) || !pos.get(otherPid) || !pos.get(fid)) continue;
+        chain.push({ fid, otherPid });
+      }
+      if (chain.length < 2) continue;
+
+      // Split into left/right based on original x ordering to preserve overall shape.
+      const left = [];
+      const right = [];
+      for (const item of chain) {
+        const op = pos.get(item.otherPid);
+        if (!op) continue;
+        ((op.x < centerPos.x) ? left : right).push(item);
+      }
+      left.sort((a, b) => (pos.get(b.otherPid).x - pos.get(a.otherPid).x));
+      right.sort((a, b) => (pos.get(a.otherPid).x - pos.get(b.otherPid).x));
+
+      // If everything ended up on one side, split for readability.
+      if (!left.length || !right.length) {
+        const all = (left.length ? left : right).slice();
+        left.length = 0;
+        right.length = 0;
+        for (let i = 0; i < all.length; i++) {
+          (i % 2 === 0 ? left : right).push(all[i]);
+        }
+      }
+
+      const spouseY = centerPos.y;
+      centerPos.y = spouseY;
+
+      const touchedIds = new Set([pid]);
+
+      // Place left side outward.
+      for (let i = 0; i < left.length; i++) {
+        const { fid, otherPid } = left[i];
+        const hubPos = pos.get(fid);
+        const otherPos = pos.get(otherPid);
+        if (!hubPos || !otherPos) continue;
+
+        hubPos.x = centerPos.x - d * (2 * i + 1);
+        hubPos.y = spouseY + hubDy;
+        otherPos.x = centerPos.x - d * (2 * i + 2);
+        otherPos.y = spouseY;
+
+        touchedIds.add(fid);
+        touchedIds.add(otherPid);
+        snappedFamilyIds.add(fid);
+      }
+
+      // Place right side outward.
+      for (let i = 0; i < right.length; i++) {
+        const { fid, otherPid } = right[i];
+        const hubPos = pos.get(fid);
+        const otherPos = pos.get(otherPid);
+        if (!hubPos || !otherPos) continue;
+
+        hubPos.x = centerPos.x + d * (2 * i + 1);
+        hubPos.y = spouseY + hubDy;
+        otherPos.x = centerPos.x + d * (2 * i + 2);
+        otherPos.y = spouseY;
+
+        touchedIds.add(fid);
+        touchedIds.add(otherPid);
+        snappedFamilyIds.add(fid);
+      }
+
+      // Group interval covers all spouses around the center.
+      const minCenter = centerPos.x - d * (2 * left.length);
+      const maxCenter = centerPos.x + d * (2 * right.length);
+      const minX = minCenter - boxWidth / 2;
+      const maxX = maxCenter + boxWidth / 2;
+      snapGroups.push({
+        bandKey: bandKeyForY(spouseY),
+        minX,
+        maxX,
+        ids: [...touchedIds],
+      });
+    }
+
+    // 2) Normal 2-parent families that weren't part of a chain: snap to touch hub.
     for (const [fid, fam] of familiesById.entries()) {
+      if (snappedFamilyIds.has(fid)) continue;
       const pset = famParents.get(fid);
-      if (!pset || pset.size === 0) continue;
-      const parents = [...pset].map(pid => ({ pid, p: peopleById.get(pid), pp: pos.get(pid) })).filter(x => x.p && x.pp);
-      if (!parents.length) continue;
+      if (!pset || pset.size < 2) continue;
+
+      const parents = [...pset].map(x => ({ pid: String(x), p: peopleById.get(String(x)), pp: pos.get(String(x)) }))
+        .filter(x => x.p && x.pp);
+      if (parents.length < 2) continue;
 
       const hub = pos.get(fid);
       if (!hub) continue;
 
-      // Prefer father+mother ordering when present.
       const father = parents.find(x => x.p?.gender === 'M');
       const mother = parents.find(x => x.p?.gender === 'F');
       const a = father || parents[0];
       const b = mother || parents.find(x => x.pid !== a.pid) || null;
+      if (!b) continue;
 
-      if (b) {
-        // Default hub placement: between spouses.
-        hub.x = (a.pp.x + b.pp.x) / 2;
-        hub.y = (a.pp.y + b.pp.y) / 2 + hubDy;
+      hub.x = (a.pp.x + b.pp.x) / 2;
+      const spouseY = (a.pp.y + b.pp.y) / 2;
+      hub.y = spouseY + hubDy;
 
-        // Always snap 2-parent couples to Graphviz-like geometry.
-        const spouseY = (a.pp.y + b.pp.y) / 2;
-        hub.y = spouseY + hubDy;
+      // Determine left/right by gender when possible.
+      const left = (a.p?.gender === 'M' && b.p?.gender === 'F') ? a
+        : (a.p?.gender === 'F' && b.p?.gender === 'M') ? b
+        : a;
+      const right = (left.pid === a.pid) ? b : a;
 
-        const spouseOffsetX = (hubRadius + boxWidth / 2);
-        // Determine left/right by gender when possible.
-        const left = (a.p?.gender === 'M' && b.p?.gender === 'F') ? a
-          : (a.p?.gender === 'F' && b.p?.gender === 'M') ? b
-          : a;
-        const right = (left.pid === a.pid) ? b : a;
+      left.pp.x = hub.x - d;
+      right.pp.x = hub.x + d;
+      left.pp.y = spouseY;
+      right.pp.y = spouseY;
 
-        left.pp.x = hub.x - spouseOffsetX;
-        right.pp.x = hub.x + spouseOffsetX;
-        left.pp.y = spouseY;
-        right.pp.y = spouseY;
+      const rowHalfWidth = hubRadius + boxWidth;
+      snapGroups.push({
+        bandKey: bandKeyForY(spouseY),
+        minX: hub.x - rowHalfWidth,
+        maxX: hub.x + rowHalfWidth,
+        ids: [fid, left.pid, right.pid],
+      });
+    }
 
-        // Collision avoidance (same-band couples): if this couple overlaps a
-        // previously placed couple row, shift this whole row to the right.
-        const rowHalfWidth = hubRadius + boxWidth; // from hub center to spouse outer edge
-        const padX = 20;
-        const bandKey = bandKeyForY(spouseY);
-        const intervals = coupleIntervalsByBand.get(bandKey) || [];
+    // 3) Resolve overlaps between snap groups in the same band by shifting groups to the right.
+    const padX = 24;
+    const idInAnyGroup = (() => {
+      const s = new Set();
+      for (const grp of snapGroups) {
+        for (const id of grp.ids) s.add(String(id));
+      }
+      return s;
+    })();
 
-        let intervalMinX = hub.x - rowHalfWidth;
-        let intervalMaxX = hub.x + rowHalfWidth;
+    const getIdWidth = (id) => {
+      const sid = String(id);
+      if (peopleById.has(sid)) return boxWidth;
+      if (familiesById.has(sid)) return (hubRadius * 2 + 6);
+      return boxWidth;
+    };
 
-        // Iterate until no overlaps in this band (bounded by number of intervals).
-        for (let guard = 0; guard < intervals.length + 3; guard++) {
-          let overlapShift = 0;
-          for (const it of intervals) {
-            const overlaps = !(intervalMaxX + padX <= it.minX || intervalMinX - padX >= it.maxX);
+    const computeIntervalForIds = (ids) => {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      for (const id of ids) {
+        const p = pos.get(String(id));
+        if (!p) continue;
+        const w = getIdWidth(id);
+        minX = Math.min(minX, p.x - w / 2);
+        maxX = Math.max(maxX, p.x + w / 2);
+      }
+      if (!Number.isFinite(minX)) return null;
+      return { minX, maxX };
+    };
+
+    const fixedIntervalsByBand = new Map();
+    for (const [pid] of peopleById.entries()) {
+      if (idInAnyGroup.has(pid)) continue;
+      const p = pos.get(pid);
+      if (!p) continue;
+      const bandKey = bandKeyForY(p.y);
+      const arr = fixedIntervalsByBand.get(bandKey) || [];
+      arr.push({ minX: p.x - boxWidth / 2, maxX: p.x + boxWidth / 2 });
+      fixedIntervalsByBand.set(bandKey, arr);
+    }
+
+    const groupsByBand = new Map();
+    for (const grp of snapGroups) {
+      const arr = groupsByBand.get(grp.bandKey) || [];
+      arr.push(grp);
+      groupsByBand.set(grp.bandKey, arr);
+    }
+
+    for (const [bandKey, groups] of groupsByBand.entries()) {
+      const occupied = (fixedIntervalsByBand.get(bandKey) || []).slice();
+      // Place from left to right.
+      groups.sort((a, b) => (a.minX - b.minX));
+
+      for (const grp of groups) {
+        const interval0 = computeIntervalForIds(grp.ids);
+        if (!interval0) continue;
+        let { minX, maxX } = interval0;
+        let dx = 0;
+
+        for (let guard = 0; guard < occupied.length + 12; guard++) {
+          let need = 0;
+          for (const it of occupied) {
+            const overlaps = !(maxX + padX <= it.minX || minX - padX >= it.maxX);
             if (overlaps) {
-              overlapShift = Math.max(overlapShift, (it.maxX + padX) - intervalMinX);
+              need = Math.max(need, (it.maxX + padX) - minX);
             }
           }
-          if (overlapShift <= 0) break;
-          hub.x += overlapShift;
-          left.pp.x += overlapShift;
-          right.pp.x += overlapShift;
-          intervalMinX += overlapShift;
-          intervalMaxX += overlapShift;
+          if (need <= 0) break;
+          dx += need;
+          minX += need;
+          maxX += need;
         }
 
-        reserveCoupleInterval(bandKey, intervalMinX, intervalMaxX);
-      } else {
-        hub.x = a.pp.x;
-        hub.y = a.pp.y + hubDy;
+        if (dx) shiftIds(grp.ids, dx, 0);
+        occupied.push({ minX, maxX });
       }
     }
 

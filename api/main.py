@@ -22,6 +22,10 @@ app = FastAPI(title="Genealogy API", version="0.0.1")
 _PRIVACY_BORN_ON_OR_AFTER = date(1946, 1, 1)
 _PRIVACY_AGE_CUTOFF_YEARS = 90
 
+# If someone is connected (parent/child) to a clearly-historic public person,
+# we can safely assume they are not living, even if their own dates are missing.
+_HISTORIC_YEAR_CUTOFF_YEARS_AGO = 150
+
 _PAREN_EPITHET_RE = re.compile(r"^\([^()]{1,80}\)$")
 
 
@@ -89,6 +93,8 @@ def _is_effectively_private(
     is_living: bool | None,
     birth_date: date | None,
     death_date: date | None,
+    birth_text: str | None = None,
+    death_text: str | None = None,
 ) -> bool:
     """Privacy policy:
 
@@ -103,20 +109,57 @@ def _is_effectively_private(
     if bool(is_private):
         return True
 
+    def _year_from_text(s: str | None) -> int | None:
+        if not s:
+            return None
+        # Heuristic: look for any 4-digit year.
+        # This intentionally keeps parsing simple and conservative.
+        m = re.search(r"\b(\d{4})\b", str(s))
+        if not m:
+            return None
+        try:
+            y = int(m.group(1))
+        except ValueError:
+            return None
+        # Avoid matching nonsense years.
+        if y < 1 or y > date.today().year + 5:
+            return None
+        return y
+
+    # If there's a credible death year in text, treat as not living.
+    death_year = _year_from_text(death_text)
+    death_date_hint = death_date
+    if death_date_hint is None and death_year is not None:
+        try:
+            death_date_hint = date(death_year, 1, 1)
+        except ValueError:
+            death_date_hint = None
+
     living = _is_effectively_living(
         is_living_override=is_living_override,
         is_living=is_living,
-        death_date=death_date,
+        death_date=death_date_hint,
     )
     if living is False:
         return False
 
     # living is True or unknown
-    if birth_date is None:
+    birth_date_hint = birth_date
+    if birth_date_hint is None:
+        birth_year = _year_from_text(birth_text)
+        if birth_year is not None:
+            try:
+                birth_date_hint = date(birth_year, 1, 1)
+            except ValueError:
+                birth_date_hint = None
+
+    # Unknown birth date: privacy-first.
+    if birth_date_hint is None:
         return True
-    if birth_date >= _PRIVACY_BORN_ON_OR_AFTER:
+
+    if birth_date_hint >= _PRIVACY_BORN_ON_OR_AFTER:
         return True
-    if _is_younger_than(birth_date, _PRIVACY_AGE_CUTOFF_YEARS):
+    if _is_younger_than(birth_date_hint, _PRIVACY_AGE_CUTOFF_YEARS):
         return True
     return False
 
@@ -577,6 +620,8 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
         is_living=is_living_flag,
         birth_date=birth_date,
         death_date=death_date,
+            birth_text=birth_text,
+            death_text=death_text,
     ):
         return {
             "id": pid,
@@ -610,6 +655,34 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
     }
 
 
+def _year_hint_from_fields(
+    *,
+    birth_date: date | None,
+    death_date: date | None,
+    birth_text: str | None,
+    death_text: str | None,
+) -> int | None:
+    """Return a best-effort year hint from structured and text dates."""
+
+    if birth_date is not None:
+        return birth_date.year
+    if death_date is not None:
+        return death_date.year
+    for s in (birth_text, death_text):
+        if not s:
+            continue
+        m = re.search(r"\b(\d{4})\b", str(s))
+        if not m:
+            continue
+        try:
+            y = int(m.group(1))
+        except ValueError:
+            continue
+        if 1 <= y <= date.today().year + 5:
+            return y
+    return None
+
+
 @app.get("/graph/neighborhood")
 def graph_neighborhood(
     id: str = Query(min_length=1, max_length=64),
@@ -639,9 +712,228 @@ def graph_neighborhood(
             """.strip(),
             (person_ids,),
         ).fetchall()
-        nodes: list[dict[str, Any]] = [
-            _person_node_row_to_public(tuple(r), distance=distances.get(r[0])) for r in person_rows
-        ]
+
+        # Privacy is primarily decided per-person, but for graph exploration we can
+        # safely unredact an undated person if they are directly connected
+        # (parent/child) to a clearly-historic *already-public* neighbor.
+        # This avoids false "Private" cards for medieval/early-modern people whose
+        # dates are missing (common in imported trees).
+        historic_year_cutoff = date.today().year - _HISTORIC_YEAR_CUTOFF_YEARS_AGO
+
+        base_private: dict[str, bool] = {}
+        year_hint_by_pid: dict[str, int | None] = {}
+        row_by_pid: dict[str, tuple[Any, ...]] = {}
+
+        for r_any in person_rows:
+          r = tuple(r_any)
+          (
+              pid,
+              gid,
+              name,
+              given_name,
+              surname,
+              gender,
+              birth_text,
+              death_text,
+              birth_date,
+              death_date,
+              is_living_flag,
+              is_private_flag,
+              is_living_override,
+          ) = r
+
+          row_by_pid[str(pid)] = r
+          year_hint_by_pid[str(pid)] = _year_hint_from_fields(
+              birth_date=birth_date,
+              death_date=death_date,
+              birth_text=birth_text,
+              death_text=death_text,
+          )
+          base_private[str(pid)] = _is_effectively_private(
+              is_private=is_private_flag,
+              is_living_override=is_living_override,
+              is_living=is_living_flag,
+              birth_date=birth_date,
+              death_date=death_date,
+              birth_text=birth_text,
+              death_text=death_text,
+          )
+
+        # Build parent/child adjacency among the in-view people.
+        # We include both person_parent (direct) and family/family_child (hub-based)
+        # relations, because some imports may have incomplete person_parent rows.
+        neighbor_pids: dict[str, set[str]] = {str(pid): set() for pid in row_by_pid.keys()}
+
+        def _add_neighbor(a: str | None, b: str | None) -> None:
+            if not a or not b:
+                return
+            if a not in neighbor_pids or b not in neighbor_pids:
+                return
+            neighbor_pids[a].add(b)
+            neighbor_pids[b].add(a)
+
+        # 1) Direct parent links
+        pc_rows = conn.execute(
+            """
+            SELECT parent_id, child_id
+            FROM person_parent
+            WHERE parent_id = ANY(%s) AND child_id = ANY(%s)
+            """.strip(),
+            (person_ids, person_ids),
+        ).fetchall()
+        for parent_id, child_id in pc_rows:
+            _add_neighbor(str(parent_id), str(child_id))
+
+        # 2) Family-based links (parents/children through family hubs)
+        fam_rows_priv = conn.execute(
+            """
+            SELECT DISTINCT f.id, f.father_id, f.mother_id
+            FROM family f
+            LEFT JOIN family_child fc ON fc.family_id = f.id
+            WHERE f.father_id = ANY(%s)
+               OR f.mother_id = ANY(%s)
+               OR fc.child_id = ANY(%s)
+            """.strip(),
+            (person_ids, person_ids, person_ids),
+        ).fetchall()
+
+        family_ids_in_view: list[str] = []
+        fam_parents: dict[str, list[str]] = {}
+        for fid, father_id, mother_id in fam_rows_priv:
+            fid_s = str(fid)
+            family_ids_in_view.append(fid_s)
+            ps: list[str] = []
+            if father_id:
+                ps.append(str(father_id))
+            if mother_id:
+                ps.append(str(mother_id))
+            fam_parents[fid_s] = ps
+
+        if family_ids_in_view:
+            fc_rows_priv = conn.execute(
+                """
+                SELECT family_id, child_id
+                FROM family_child
+                WHERE family_id = ANY(%s)
+                """.strip(),
+                (family_ids_in_view,),
+            ).fetchall()
+            for family_id, child_id in fc_rows_priv:
+                fid_s = str(family_id)
+                cid_s = str(child_id)
+                for pid_s in fam_parents.get(fid_s, []):
+                    _add_neighbor(pid_s, cid_s)
+
+        # Determine which nodes are public after base policy.
+        # Also cache explicit privacy/living flags for inference guards.
+        explicit_private: dict[str, bool] = {}
+        explicit_living: dict[str, bool] = {}
+
+        for pid, r in row_by_pid.items():
+            (
+                _pid,
+                _gid,
+                _name,
+                _given_name,
+                _surname,
+                _gender,
+                _birth_text,
+                _death_text,
+                _birth_date,
+                _death_date,
+                is_living_flag,
+                is_private_flag,
+                is_living_override,
+            ) = r
+            explicit_private[pid] = bool(is_private_flag)
+            explicit_living[pid] = bool(is_living_override is True or is_living_flag is True)
+
+        # Multi-source BFS from clearly-historic public anchors to infer "not living"
+        # for nearby undated nodes.
+        anchors: list[str] = []
+        for pid, is_priv in base_private.items():
+            if is_priv:
+                continue
+            y = year_hint_by_pid.get(pid)
+            if y is not None and y <= historic_year_cutoff:
+                anchors.append(pid)
+
+        # Bound inference so we don't accidentally unredact too far.
+        max_infer_hops = 3
+        dist_to_historic: dict[str, int] = {}
+        if anchors:
+            q: list[str] = []
+            for a in anchors:
+                dist_to_historic[a] = 0
+                q.append(a)
+
+            qi = 0
+            while qi < len(q):
+                cur = q[qi]
+                qi += 1
+                dcur = dist_to_historic[cur]
+                if dcur >= max_infer_hops:
+                    continue
+                for nb in neighbor_pids.get(cur, set()):
+                    if nb in dist_to_historic:
+                        continue
+                    dist_to_historic[nb] = dcur + 1
+                    q.append(nb)
+
+        final_private: dict[str, bool] = dict(base_private)
+
+        for pid, is_priv in base_private.items():
+            if not is_priv:
+                continue
+
+            # Never override explicitly private or explicitly living.
+            if explicit_private.get(pid, False) or explicit_living.get(pid, False):
+                continue
+
+            # Only attempt inference when this person has no usable year hints.
+            if year_hint_by_pid.get(pid) is not None:
+                continue
+
+            d = dist_to_historic.get(pid)
+            if d is not None and d <= max_infer_hops:
+                final_private[pid] = False
+
+        nodes: list[dict[str, Any]] = []
+        for pid, r in row_by_pid.items():
+            dist = distances.get(pid)
+            if final_private.get(pid, True):
+                (
+                    _pid,
+                    gid,
+                    _name,
+                    _given_name,
+                    _surname,
+                    _gender,
+                    _birth_text,
+                    _death_text,
+                    _birth_date,
+                    _death_date,
+                    _is_living_flag,
+                    _is_private_flag,
+                    _is_living_override,
+                ) = r
+                nodes.append(
+                    {
+                        "id": pid,
+                        "gramps_id": gid,
+                        "type": "person",
+                        "display_name": "Private",
+                        "given_name": None,
+                        "surname": None,
+                        "gender": None,
+                        "birth": None,
+                        "death": None,
+                        "distance": dist,
+                    }
+                )
+            else:
+                nodes.append(_person_node_row_to_public(r, distance=dist))
+
         node_ids = {n["id"] for n in nodes}
 
         edges: list[dict[str, Any]] = []
