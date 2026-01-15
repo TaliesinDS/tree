@@ -53,6 +53,16 @@ $env:DATABASE_URL = "postgresql://genealogy:genealogy@localhost:5432/genealogy"
 - `GET /people/search?q=Hofland`
 - `GET /relationship/path?from_id=<id>&to_id=<id>&max_hops=12`
 
+Graph endpoints (used by the demo viewer)
+- `GET /graph/neighborhood?id=I0001&depth=2&max_nodes=1000&layout=family`
+- Expand up (parents of a family hub):
+  - `GET /graph/family/parents?family_id=<family_id_or_gramps_id>&child_id=<child_person_id>`
+- Expand down (children of a family hub):
+  - `GET /graph/family/children?family_id=<family_id_or_gramps_id>&include_spouses=true`
+
+Notes:
+- Family nodes may include `parents_total` and `children_total` which the viewer uses to decide whether to show expand indicators.
+
 ## Demo UI (graph)
 
 The demo UI is served from the API:

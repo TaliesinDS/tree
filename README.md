@@ -30,13 +30,22 @@ Next steps
 3) Build import pipeline from Gramps (SQLite) → Postgres
 
 Files
-- `api/`: FastAPI stub (health + placeholder endpoints)
+- `api/`: FastAPI app + graph endpoints + demo UI
 - `sql/schema.sql`: starter schema sketch
 
 Demo UI
 - `/demo/graph` renders a neighborhood graph (older demo UI).
 - `/demo/viewer` renders the newer Gramps-Web-like viewer shell (Graphviz + sidebar tabs).
 - Multi-spouse people are supported without duplicating person nodes.
+
+Interactive “carve-a-path” expansion
+- The viewer supports incremental expand-in-place actions:
+   - **Expand up**: `GET /graph/family/parents?family_id=<family>&child_id=<child>`
+   - **Expand down**: `GET /graph/family/children?family_id=<family>&include_spouses=true`
+- Family nodes may include metadata used by indicator logic:
+   - `parents_total` (0/1/2)
+   - `children_total` (0+)
+   - `has_more_children` (legacy/hint; used only when totals aren’t present)
 
 Export tooling
 - `export/inspect_gramps_sqlite.py`: schema discovery for your Gramps SQLite

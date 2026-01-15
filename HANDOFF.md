@@ -105,6 +105,9 @@ Database schema:
   - person lookup
   - relationship path search
   - neighborhood graph endpoint (family hubs or direct)
+  - incremental expand-in-place endpoints used by the viewer:
+    - `GET /graph/family/parents?family_id=<family>&child_id=<child>`
+    - `GET /graph/family/children?family_id=<family>&include_spouses=true`
 - Demo UI can render:
   - Cytoscape view (dagre family layout / cose direct layout)
   - Graphviz view (DOT → SVG)
@@ -121,6 +124,11 @@ Viewer UX (Graphviz /demo/viewer):
 - Edge endpoints that attach to the hub are snapped to the hub ellipse boundary to avoid tiny overshoots in very large families.
 - Pan/zoom is viewBox-based and tuned so drag feels 1:1 at any zoom.
 - Status text includes the Gramps ID when present in the payload.
+
+Incremental expand stability (expand up/down):
+- Expand endpoints now return family node totals (`parents_total`, `children_total`) so indicators can reflect “known missing relatives” instead of guessing.
+- Up/down indicator computations only count *renderable* edges (endpoints exist as nodes), avoiding “indicators disappear / lines vanish then reappear” glitches.
+- Fixed a server-side crash in `GET /graph/family/parents` when a family had no parent ids (the response is now a valid empty expansion instead of a 500).
 
 ## How to run locally (quick)
 

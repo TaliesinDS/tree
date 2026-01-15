@@ -118,7 +118,10 @@ Behavior:
 - Expand only when the user clicks a dead-end/cul-de-sac.
 
 Required:
-- **Backend:** `POST /graph/expand` returning **only new nodes/edges**.
+- **Backend (proposed):** `POST /graph/expand` returning **only new nodes/edges**.
+- **Backend (current prototype):** targeted expand endpoints used by `/demo/viewer`:
+  - `GET /graph/family/parents?family_id=<family>&child_id=<child>` (expand up)
+  - `GET /graph/family/children?family_id=<family>&include_spouses=true` (expand down)
 - **Frontend:** merge incremental nodes/edges into the current dataset.
 
 Renderer requirements:
@@ -286,6 +289,10 @@ This makes map-like exploration feel stable across sessions.
 - `POST /graph/expand`
   - body: `{ seed_person_ids, seed_family_ids, already_have_person_ids, max_people_delta }`
   - returns: incremental nodes/edges only
+
+Concrete expand endpoints (implemented in the API and used by `/demo/viewer`):
+- `GET /graph/family/parents?family_id=<family>&child_id=<child>`
+- `GET /graph/family/children?family_id=<family>&include_spouses=true`
 
 - `GET /graph/path`
   - query: `from`, `to`, `mode=blood|any`

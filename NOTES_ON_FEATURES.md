@@ -260,6 +260,12 @@ Backend representation:
 - Need a way to know “this node has more neighbors not yet included.”
 - If you model families as hubs, the cul-de-sac can literally be a family-id node.
 
+Current implementation (viewer prototype):
+- The `/demo/viewer` UI uses two targeted expand endpoints instead of a generic `POST /graph/expand`:
+  - Expand up: `GET /graph/family/parents?family_id=<family>&child_id=<child>`
+  - Expand down: `GET /graph/family/children?family_id=<family>&include_spouses=true`
+- Family nodes can include `parents_total` and `children_total`; the viewer uses these counts to decide when to display expand indicators.
+
 API shapes (suggestion):
 - `POST /graph/expand` with body:
   - `{ seed_person_ids: [...], seed_family_ids: [...], already_have_person_ids: [...] }`
