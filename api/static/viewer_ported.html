@@ -1051,6 +1051,12 @@
       }
     }
 
+    const familyHasAnyParentEdge = new Set();
+    for (const [fid, arr] of famParents.entries()) {
+      if (Array.isArray(arr) && arr.length) familyHasAnyParentEdge.add(fid);
+    }
+    const isCutoffFamily = (fid) => families.has(fid) && !familyHasAnyParentEdge.has(fid);
+
     const lines = [];
     lines.push('digraph gramps_like {');
     lines.push('  compound=true;');
@@ -1475,9 +1481,16 @@
       const m = '⚭';
       const { hasTwoParents } = getCouple(fid);
       const hubClass = hasTwoParents ? 'hub hub-2p' : 'hub hub-1p';
-      lines.push(
-        `  ${dotEscape(fid)} [shape=circle, width=0.24, height=0.24, fixedsize=true, fillcolor="#9d7bff", fontcolor="#0b0f16", fontsize=12, penwidth=1.2, label="${m}", class="${hubClass}"];`
-      );
+      if (isCutoffFamily(String(fid))) {
+        // Layout-only hub for missing/cutoff parents: keep rank constraints, but do not render.
+        lines.push(
+          `  ${dotEscape(fid)} [shape=point, width=0.01, height=0.01, fixedsize=true, style=invis, label="", class="hub hub-cutoff"];`
+        );
+      } else {
+        lines.push(
+          `  ${dotEscape(fid)} [shape=circle, width=0.24, height=0.24, fixedsize=true, fillcolor="#9d7bff", fontcolor="#0b0f16", fontsize=12, penwidth=1.2, label="${m}", class="${hubClass}"];`
+        );
+      }
     }
 
     // Collect all spouses (people in a 2-parent family).
@@ -1861,7 +1874,8 @@
         // Family->child edges define the generation ranks.
         // Higher weight keeps children closer to their own family hub, which helps
         // prevent unrelated nodes from visually "splitting" a sibling row.
-        lines.push(`  ${dotEscape(e.from)} -> ${dotEscape(e.to)} [arrowhead=none, constraint=true, weight=12, minlen=2];`);
+        const style = isCutoffFamily(String(e.from)) ? 'invis' : 'solid';
+        lines.push(`  ${dotEscape(e.from)} -> ${dotEscape(e.to)} [arrowhead=none, constraint=true, weight=12, minlen=2, style=${style}];`);
       } else if (e.type === 'single_parent') {
         // Viewer-side rewrite: single-parent families become direct parent->child edges.
         // Treat these like a generation-defining edge (same as family->child).
@@ -2017,11 +2031,56 @@
         state.w = state.orig.w;
         state.h = state.orig.h;
         apply();
-      }
+      },
+      getViewBox: () => ({ x: state.x, y: state.y, w: state.w, h: state.h }),
+      setViewBox: (vb) => {
+        if (!vb) return;
+        const x = Number(vb.x);
+        const y = Number(vb.y);
+        const w = Number(vb.w);
+        const h = Number(vb.h);
+        if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return;
+        state.x = x;
+        state.y = y;
+        state.w = w;
+        state.h = h;
+        apply();
+      },
     };
   }
 
   async function renderGraphvizSvg(payload) {
+    const hiddenParentFamiliesByPersonId = (() => {
+      // A person has "hidden parents" when they are a child of a family hub that
+      // has no parent edges in the current payload (typically generation cutoff).
+      const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
+      const edges = Array.isArray(payload?.edges) ? payload.edges : [];
+
+      const familyIds = new Set(nodes.filter(n => n?.type === 'family').map(n => String(n.id)));
+      if (!familyIds.size) return new Set();
+
+      const hasAnyParentEdge = new Set();
+      for (const e of edges) {
+        if (e?.type !== 'parent') continue;
+        const fid = String(e.to || '');
+        if (fid && familyIds.has(fid)) hasAnyParentEdge.add(fid);
+      }
+
+      const out = new Map();
+      for (const e of edges) {
+        if (e?.type !== 'child') continue;
+        const fid = String(e.from || '');
+        const cid = String(e.to || '');
+        if (!fid || !cid) continue;
+        if (!familyIds.has(fid)) continue;
+        if (hasAnyParentEdge.has(fid)) continue;
+        const arr = out.get(cid) || [];
+        arr.push(fid);
+        out.set(cid, arr);
+      }
+      return out;
+    })();
+
     const dot = buildDotForFamily(payload);
     const gv = await getGraphviz();
     const svgText = (typeof gv.layout === 'function')
@@ -2093,9 +2152,12 @@
       for (const n of payload?.nodes || []) {
         if (n?.type !== 'person') continue;
         const isPrivate = (n.display_name === 'Private');
+        const hiddenFamilies = hiddenParentFamiliesByPersonId.get(String(n.id)) || [];
         personMetaById.set(String(n.id), {
           gender: normGender(n.gender),
           isPrivate,
+          hasHiddenParents: hiddenFamilies.length > 0,
+          hiddenParentFamilies: hiddenFamilies,
         });
       }
 
@@ -2746,7 +2808,13 @@
       // Basic click handling: update status when you click a node.
       gvEl.querySelectorAll('g.node').forEach(g => {
         g.style.cursor = 'pointer';
-        g.addEventListener('click', () => {
+        g.addEventListener('click', (ev) => {
+          // If the click was on a "hidden parents" indicator, let that handler win.
+          // (Otherwise the node becomes selected first, which feels like a 2-step action.)
+          try {
+            if (ev?.target?.closest && ev.target.closest('[data-hidden-parents-for]')) return;
+          } catch (_) {}
+
           const title = g.querySelector('title')?.textContent?.trim();
           const pid = normalizePersonIdFromGraphvizTitle(title);
           if (!pid) return;
@@ -2767,6 +2835,131 @@
           setStatus(gid ? `Selected node: ${pid} (${gid})` : `Selected node: ${pid}`);
         });
       });
+
+      const mergePayload = (base, delta) => {
+        const out = {
+          ...(base || {}),
+          nodes: [],
+          edges: [],
+        };
+
+        const nodesById = new Map();
+        for (const n of (base?.nodes || [])) {
+          if (n?.id) nodesById.set(String(n.id), n);
+        }
+        for (const n of (delta?.nodes || [])) {
+          if (n?.id) nodesById.set(String(n.id), n);
+        }
+        out.nodes = [...nodesById.values()];
+
+        const edgeKey = (e) => {
+          const from = String(e?.from || '');
+          const to = String(e?.to || '');
+          const type = String(e?.type || '');
+          const role = String(e?.role || '');
+          return `${from}|${to}|${type}|${role}`;
+        };
+        const edgesByKey = new Map();
+        for (const e of (base?.edges || [])) {
+          edgesByKey.set(edgeKey(e), e);
+        }
+        for (const e of (delta?.edges || [])) {
+          edgesByKey.set(edgeKey(e), e);
+        }
+        out.edges = [...edgesByKey.values()];
+
+        return out;
+      };
+
+      const getPersonNodeCenter = (svgEl, personNodeId) => {
+        try {
+          if (!svgEl || !personNodeId) return null;
+          for (const g of svgEl.querySelectorAll('g.node')) {
+            const title = g.querySelector('title')?.textContent?.trim();
+            const pid2 = normalizePersonIdFromGraphvizTitle(title);
+            if (!pid2 || String(pid2) !== String(personNodeId)) continue;
+
+            const shape = g.querySelector('path') || g.querySelector('polygon') || g.querySelector('rect') || g;
+            if (!shape || typeof shape.getBBox !== 'function') return null;
+            const bb = shape.getBBox();
+            if (!bb) return null;
+            const cx = bb.x + bb.width / 2;
+            const cy = bb.y + bb.height / 2;
+            if (![cx, cy].every(Number.isFinite)) return null;
+            return { x: cx, y: cy };
+          }
+        } catch (_) {}
+        return null;
+      };
+
+      // Clickable "hidden parents" indicators: expand parents in-place.
+      for (const el of svg.querySelectorAll('[data-hidden-parents-for]')) {
+        const pid = String(el.getAttribute('data-hidden-parents-for') || '').trim();
+        if (!pid) continue;
+        const gid = grampsIdByNodeId.get(String(pid)) || null;
+        const familyId = String(el.getAttribute('data-hidden-parents-family') || '').trim();
+
+        el.style.cursor = 'pointer';
+        el.style.pointerEvents = 'all';
+
+        // Stop the click before it can bubble to the underlying g.node handler.
+        // Use pointerdown as well so the node never becomes "active" first.
+        const stop = (ev) => {
+          try { ev.preventDefault(); } catch (_) {}
+          try { ev.stopPropagation(); } catch (_) {}
+        };
+        el.addEventListener('pointerdown', stop, { capture: true });
+
+        el.addEventListener('click', async (ev) => {
+          stop(ev);
+          const focusId = gid || pid;
+          if (!familyId) {
+            // Fallback: preserve current behavior if we don't know which family to expand.
+            if (!focusId) return;
+            personIdEl.value = focusId;
+            setStatus(`Centering on ${focusId}...`);
+            loadGraph();
+            return;
+          }
+
+          const vb = gvPanZoom?.getViewBox?.() || null;
+          const svgBefore = gvEl.querySelector('svg');
+          const anchorBefore = getPersonNodeCenter(svgBefore, pid);
+          try {
+            const url = new URL('/graph/family/parents', window.location.origin);
+            url.searchParams.set('family_id', familyId);
+            setStatus(`Expanding parents for ${familyId}...`);
+
+            const resp = await fetch(url.toString());
+            if (!resp.ok) {
+              const text = await resp.text();
+              throw new Error(`HTTP ${resp.status}: ${text}`);
+            }
+            const delta = await resp.json();
+            lastPayload = mergePayload(lastPayload, rewriteSingleParentFamilies(delta));
+
+            // Re-render but keep view stable (no pan/zoom change).
+            await renderGraphvizSvg(lastPayload);
+
+            // Preserve zoom, and compensate for relayout so the clicked card stays put.
+            if (vb) {
+              const svgAfter = gvEl.querySelector('svg');
+              const anchorAfter = getPersonNodeCenter(svgAfter, pid);
+              if (anchorBefore && anchorAfter) {
+                const dx = anchorAfter.x - anchorBefore.x;
+                const dy = anchorAfter.y - anchorBefore.y;
+                gvPanZoom?.setViewBox?.({ x: vb.x + dx, y: vb.y + dy, w: vb.w, h: vb.h });
+              } else {
+                gvPanZoom?.setViewBox?.(vb);
+              }
+            }
+            setStatus(`Expanded parents for ${familyId}.`);
+          } catch (err) {
+            console.error(err);
+            setStatus(String(err), true);
+          }
+        }, { capture: true });
+      }
 
       // Add pan/zoom.
       gvPanZoom = enableSvgPanZoom(svg, { container: gvEl });
@@ -3078,6 +3271,80 @@
       } catch (_) {
         // Best-effort only; keep the graph usable even if post-processing fails.
       }
+
+      // Add a small clickable indicator for "hidden parents" (generation cutoff).
+      // This avoids drawing floating family hubs while still signalling the graph continues.
+      try {
+        const title = node.querySelector('title')?.textContent?.trim();
+        const pid = normalizePersonIdFromGraphvizTitle(title);
+        const meta = pid ? personMetaById?.get(String(pid)) : null;
+        const familyId = (meta?.hiddenParentFamilies && meta.hiddenParentFamilies.length)
+          ? String(meta.hiddenParentFamilies[0])
+          : '';
+        if (pid && meta?.hasHiddenParents && !node.querySelector('[data-hidden-parents-for]')) {
+          const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+          if (shape && typeof shape.getBBox === 'function') {
+            const bb = shape.getBBox();
+            if (bb && Number.isFinite(bb.x) && Number.isFinite(bb.y) && Number.isFinite(bb.width) && Number.isFinite(bb.height)) {
+              const ns = 'http://www.w3.org/2000/svg';
+              const tab = document.createElementNS(ns, 'polygon');
+              const cx = bb.x + bb.width / 2;
+              const yTop = bb.y;
+
+              // Larger marker that changes the card silhouette (visible when zoomed out).
+              // Shape: a small centered tab with a pointed top.
+              const w = Math.max(18, Math.min(28, bb.width * 0.22));
+              const tipH = 10;
+              const rise = 8; // protrude above card
+              const half = w / 2;
+
+              // Points (clockwise): left on top edge -> right on top edge -> right shoulder -> tip -> left shoulder
+              const p1 = `${cx - half},${yTop + 0.5}`;
+              const p2 = `${cx + half},${yTop + 0.5}`;
+              const p3 = `${cx + half * 0.70},${yTop - rise}`;
+              const p4 = `${cx},${yTop - (rise + tipH)}`;
+              const p5 = `${cx - half * 0.70},${yTop - rise}`;
+
+              tab.setAttribute('points', `${p1} ${p2} ${p3} ${p4} ${p5}`);
+              tab.setAttribute('fill', 'var(--accent)');
+              tab.setAttribute('stroke', 'rgba(0,0,0,0.25)');
+              tab.setAttribute('stroke-width', '1');
+              tab.setAttribute('opacity', '0.90');
+              tab.setAttribute('data-hidden-parents-for', String(pid));
+              if (familyId) tab.setAttribute('data-hidden-parents-family', familyId);
+              tab.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,0.25))';
+
+              // Add a transparent hitbox that extends further upwards.
+              const hit = document.createElementNS(ns, 'polygon');
+              const hw = w * 1.25;
+              const hhalf = hw / 2;
+              const hp1 = `${cx - hhalf},${yTop + 3}`;
+              const hp2 = `${cx + hhalf},${yTop + 3}`;
+              const hp3 = `${cx + hhalf},${yTop - (rise + tipH + 10)}`;
+              const hp4 = `${cx - hhalf},${yTop - (rise + tipH + 10)}`;
+              hit.setAttribute('points', `${hp1} ${hp2} ${hp3} ${hp4}`);
+              hit.setAttribute('fill', 'rgba(0,0,0,0.001)');
+              hit.setAttribute('stroke', 'none');
+              hit.setAttribute('data-hidden-parents-for', String(pid));
+              if (familyId) hit.setAttribute('data-hidden-parents-family', familyId);
+
+              const t = document.createElementNS(ns, 'title');
+              t.textContent = 'Has hidden parents (click to center)';
+              tab.appendChild(t);
+
+              // Insert before label text so it doesn't cover the text.
+              const firstText = node.querySelector('text');
+              if (firstText) {
+                node.insertBefore(hit, firstText);
+                node.insertBefore(tab, firstText);
+              } else {
+                node.appendChild(hit);
+                node.appendChild(tab);
+              }
+            }
+          }
+        }
+      } catch (_) {}
 
       const texts = Array.from(node.querySelectorAll('text'));
       if (!texts.length) continue;

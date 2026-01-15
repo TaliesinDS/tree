@@ -729,6 +729,108 @@ def graph_neighborhood(
     }
 
 
+@app.get("/graph/family/parents")
+def graph_family_parents(
+    family_id: str = Query(min_length=1, max_length=64),
+) -> dict[str, Any]:
+    """Fetch just the parent couple for a family hub.
+
+    Intended for UI "expand" actions where the graph already contains the family hub
+    (via a child edge) but the parents are outside the current neighborhood cutoff.
+    """
+
+    with db_conn() as conn:
+        fam = conn.execute(
+            """
+            SELECT id, gramps_id, father_id, mother_id, is_private
+            FROM family
+            WHERE id = %s OR gramps_id = %s
+            LIMIT 1
+            """.strip(),
+            (family_id, family_id),
+        ).fetchone()
+
+        if not fam:
+            raise HTTPException(status_code=404, detail=f"family not found: {family_id}")
+
+        fid, fgid, father_id, mother_id, is_private_flag = tuple(fam)
+
+        parent_ids = [pid for pid in (father_id, mother_id) if pid]
+
+        nodes: list[dict[str, Any]] = [
+            {
+                "id": fid,
+                "gramps_id": fgid,
+                "type": "family",
+                "is_private": bool(is_private_flag),
+            }
+        ]
+
+        if parent_ids:
+            rows = conn.execute(
+                """
+                SELECT id, gramps_id, display_name, given_name, surname, gender,
+                       birth_text, death_text, birth_date, death_date,
+                       is_living, is_private, is_living_override
+                FROM person
+                WHERE id = ANY(%s)
+                """.strip(),
+                (parent_ids,),
+            ).fetchall()
+            for r in rows:
+                nodes.append(_person_node_row_to_public(tuple(r), distance=None))
+
+            # Also include each parent's own parent-family hub as a *stub* (family + child edge only).
+            # This allows the UI to show the same "hidden parents" indicator on newly added parents.
+            birth_links = conn.execute(
+                """
+                SELECT family_id, child_id
+                FROM family_child
+                WHERE child_id = ANY(%s)
+                """.strip(),
+                (parent_ids,),
+            ).fetchall()
+
+            birth_family_ids = sorted({fid for (fid, _cid) in birth_links if fid})
+            if birth_family_ids:
+                fam2_rows = conn.execute(
+                    """
+                    SELECT id, gramps_id, father_id, mother_id, is_private
+                    FROM family
+                    WHERE id = ANY(%s)
+                    """.strip(),
+                    (birth_family_ids,),
+                ).fetchall()
+
+                for bf_id, bf_gid, _bf_father_id, _bf_mother_id, bf_private in fam2_rows:
+                    nodes.append(
+                        {
+                            "id": bf_id,
+                            "gramps_id": bf_gid,
+                            "type": "family",
+                            "is_private": bool(bf_private),
+                        }
+                    )
+
+        edges: list[dict[str, Any]] = []
+        if father_id:
+            edges.append({"from": father_id, "to": fid, "type": "parent", "role": "father"})
+        if mother_id:
+            edges.append({"from": mother_id, "to": fid, "type": "parent", "role": "mother"})
+
+        # Stub edges for each parent's own birth family (family -> parent).
+        for bf_id, child_id in (birth_links or []):
+            if bf_id and child_id:
+                edges.append({"from": bf_id, "to": child_id, "type": "child"})
+
+    return {
+        "family_id": family_id,
+        "family": fid,
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
 def _bfs_path(
     conn: psycopg.Connection,
     start: str,
