@@ -1,4 +1,4 @@
-# Tech Spec: Interactive Graph Viewer (Graphviz + D3, view-only)
+# Tech Spec: Interactive Graph Viewer (D3 + Dagre, Graphviz optional, view-only)
 
 ## 0) Context / intent
 
@@ -257,9 +257,20 @@ Avoid D3 force-layout. Family trees are better handled by a deterministic layout
 
 ## 5) Layout strategy (Graphviz’s role)
 
-Graphviz is best treated as a **layout engine**:
+## 5) Layout strategy (D3 + Dagre first; Graphviz optional)
+
+Current direction (Jan 2026):
+
+- Prefer a deterministic in-browser layout using **Dagre** (a DAG layout engine).
+- Use D3 primarily for rendering and interaction wiring.
+
+Graphviz remains useful as a reference layout engine (and can still be used for
+offline comparisons/debugging), but the goal is to avoid relying on WASM Graphviz
+for routine browsing.
+
+Dagre is best treated as a **layout engine**:
 - input: nodes/edges
-- output: stable `(x,y)` coordinates for nodes + edge routes
+- output: stable-ish `(x,y)` coordinates for nodes (edge routing is simpler than DOT)
 
 ### Option A: Server-side layout (recommended first)
 
@@ -283,6 +294,17 @@ If Strategic becomes a core activity, consider storing a persistent layout:
 - persist `(x,y)` per person (and optionally per family hub)
 
 This makes map-like exploration feel stable across sessions.
+
+### Option C: In-browser layout (current implementation path)
+
+The current viewer includes an in-browser Dagre layout mode that:
+- keeps one node per person id (no ancestor duplication)
+- post-processes families to enforce “spouse ⚭ hub ⚭ spouse” geometry
+- supports shared-spouse chains (multi-family parents)
+
+Known tradeoffs vs Graphviz DOT:
+- Edge routing aesthetics: DOT splines typically look cleaner.
+- Rank semantics: DOT can encode stronger “generation row” constraints.
 
 ## 6) Backend API (proposed)
 

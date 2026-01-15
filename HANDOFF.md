@@ -59,9 +59,19 @@ Privacy rule (conservative / privacy-first):
   - `layout=direct`: person-only graph with parent and partner edges.
 - Why: family hubs are more readable for genealogy (it matches how Gramps/Graphviz tends to render lineage). Direct edges can be useful for generic graph layouts but tangle more easily.
 
-### Graph rendering: use Graphviz DOT for best layout
-- Decision: the demo UI includes a Graphviz DOT renderer (via wasm graphviz) because it produces the cleanest generational layout.
-- Why: force-directed layouts (Cytoscape cose) look cool but are not reliable for genealogy readability.
+### Graph rendering: moving from Graphviz DOT to D3 (Dagre)
+
+Historical decision:
+- The demo UI started with a Graphviz DOT renderer (via wasm graphviz) because DOT produces a clean generational layout.
+
+Current direction (Jan 2026):
+- Prefer the **D3 Dagre (connected)** renderer in the viewer.
+- Why:
+  - Graphviz WASM can be slow or unstable on some graphs (hangs / internal panics).
+  - DOT+SVG post-processing became increasingly complex and brittle for multi-spouse edge cases.
+  - Dagre gives a deterministic DAG layout while keeping unique person nodes (no “duplicate ancestors” artifacts).
+
+Graphviz remains valuable as a reference renderer and for debugging, but the goal is to reduce reliance on it for day-to-day exploration.
 
 ### Multi-spouse handling (Graphviz)
 Problem:
@@ -125,6 +135,21 @@ Viewer UX (Graphviz /demo/viewer):
 - Pan/zoom is viewBox-based and tuned so drag feels 1:1 at any zoom.
 - Status text includes the Gramps ID when present in the payload.
 
+Viewer UX (D3 Dagre /demo/viewer):
+- Added a new **connected** layout mode based on Dagre (DAG layout).
+- Fixed the “puzzle pieces don’t stick together” issue caused by D3 tree layouts duplicating shared ancestors.
+- Implemented “Graphviz-like couple geometry”:
+  - spouses touch the family hub (⚭) without gaps
+  - family hub is centered between spouses
+- Implemented shared-spouse chains (one person in multiple visible families):
+  - renders as `spouse ⚭ common-spouse ⚭ spouse` (and longer chains when needed)
+- Added collision avoidance so couple rows don’t overlap each other or unrelated cards.
+- Selection behavior matches the Graphviz view:
+  - clicking a person shows/pins their `Ixxxx`
+  - clicking a family hub shows/pins its internal `_f...` id.
+
+Note: because the viewer is a static HTML file, the demo URL uses a `?v=<n>` cache buster when iterating quickly.
+
 Incremental expand stability (expand up/down):
 - Expand endpoints now return family node totals (`parents_total`, `children_total`) so indicators can reflect “known missing relatives” instead of guessing.
 - Up/down indicator computations only count *renderable* edges (endpoints exist as nodes), avoiding “indicators disappear / lines vanish then reappear” glitches.
@@ -143,6 +168,27 @@ See DEV.md for the exact PowerShell commands and Docker option.
 - DB connection is per-request (no pooling) — fine for dev.
 - Full text search indexing exists for notes, but search endpoints/UI are still minimal.
 - Graphviz rendering is currently demo-UI-side (browser wasm), not server-side.
+
+## Graphviz parity: still outstanding
+
+The D3 Dagre renderer is now the preferred mode for connected layouts, but these
+Graphviz/DOT features are not yet fully matched:
+
+1) Edge routing fidelity
+- Graphviz produces nicer splines and avoids crossings more aggressively.
+- D3 Dagre currently draws simpler connectors; we don’t yet replicate DOT’s edge bundling and routing polish.
+
+2) Rank/row ordering semantics
+- DOT constraints (rank/same blocks and weighted invisible edges) give very stable spouse/hub ordering.
+- D3 Dagre relies on post-processing; the ordering is good but not yet as semantically stable as DOT.
+
+3) Large-graph robustness and performance
+- Graphviz can produce great layouts but may hang/panic in WASM for certain dense constraint sets.
+- D3 Dagre is more stable, but we still need Strategic-mode level-of-detail (LOD) work if node counts grow.
+
+4) Feature completeness around “DOT exports”
+- The Graphviz path has useful debug affordances (e.g., producing a minimal DOT reproduction for a problem family).
+- No equivalent “export minimal Dagre graph” debug mode exists yet.
 
 ## Next tasks (suggested order)
 
