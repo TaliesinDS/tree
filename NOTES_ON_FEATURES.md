@@ -201,6 +201,15 @@ Visuals:
 - Path highlight draws a thick/bright overlay on nodes+edges
 - Clear/unpin button
 
+Pins “notepad” shortcut (anti-getting-lost during deep exploration):
+- Provide a very fast way to drop temporary waypoints while exploring sprawling lines (e.g., long comital/noble lines with many forks).
+- UX:
+  - A quick action on a person card (e.g. right-click → **Pin**, or a small pin icon on the card)
+  - Adds that person to a small toolbar list of pins (think “notepad” / waypoints)
+  - Pin label auto-generated from the card: `Name + dates` (truncate safely)
+  - Clicking a pin jumps/recenters to that person without “filling in the hole behind you” (no collapsing/removal of already-loaded graph)
+  - One-click **Clear pins** to wipe the list, plus optional per-pin remove `×`
+
 Backend:
 - Uses `GET /graph/path` from section (1)
 - Consider caching paths (or caching adjacency map client-side)

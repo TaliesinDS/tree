@@ -83,6 +83,12 @@ Required:
   - for two-pin queries: `GET /graph/relationship?a=<id>&b=<id>&query=route|shared_ancestor|shared_descendant&mode=blood|any&max_results=10&max_depth=20`
 - **Frontend:** maintain `pinnedA`, `pinnedB`, `selected`, and `relationshipQuery` state; render highlight overlay for returned nodes/edges.
 
+UX add-on: “Pins notepad” (waypoints)
+- In addition to path-highlighting pins, support a lightweight waypoint list:
+  - a quick action on a node/card (context menu or pin icon) adds that person to a toolbar pin list
+  - click a pin to jump/recenter to that person without removing already-rendered graph content
+  - one-click clear-all pins
+
 Algorithm notes (backend):
 - `route`:
   - compute shortest path (or k-shortest paths if you want multiple routes) on the chosen edge set.
