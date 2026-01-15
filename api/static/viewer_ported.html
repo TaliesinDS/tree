@@ -2056,14 +2056,27 @@
       const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
       const edges = Array.isArray(payload?.edges) ? payload.edges : [];
 
-      const familyIds = new Set(nodes.filter(n => n?.type === 'family').map(n => String(n.id)));
+      const personIds = new Set(nodes.filter(n => n?.type === 'person').map(n => String(n.id)));
+
+      const familyNodes = nodes.filter(n => n?.type === 'family');
+      const familyIds = new Set(familyNodes.map(n => String(n.id)));
       if (!familyIds.size) return new Set();
+
+      const parentsTotalByFamily = new Map();
+      for (const n of familyNodes) {
+        const fid = String(n?.id || '');
+        if (!fid) continue;
+        const pt = Number(n?.parents_total);
+        if (Number.isFinite(pt) && pt >= 0) parentsTotalByFamily.set(fid, pt);
+      }
 
       const hasAnyParentEdge = new Set();
       for (const e of edges) {
         if (e?.type !== 'parent') continue;
         const fid = String(e.to || '');
-        if (fid && familyIds.has(fid)) hasAnyParentEdge.add(fid);
+        const pid = String(e.from || '');
+        // Only consider parent edges that are renderable (parent person exists in payload).
+        if (fid && familyIds.has(fid) && pid && personIds.has(pid)) hasAnyParentEdge.add(fid);
       }
 
       const out = new Map();
@@ -2073,6 +2086,13 @@
         const cid = String(e.to || '');
         if (!fid || !cid) continue;
         if (!familyIds.has(fid)) continue;
+        // Only consider child edges that are renderable (child person exists in payload).
+        if (!personIds.has(cid)) continue;
+
+        // If the family explicitly has no parents recorded, do not show an expand-up indicator.
+        const parentsTotal = parentsTotalByFamily.has(fid) ? parentsTotalByFamily.get(fid) : null;
+        if (parentsTotal !== null && Number.isFinite(parentsTotal) && parentsTotal <= 0) continue;
+
         if (hasAnyParentEdge.has(fid)) continue;
         const arr = out.get(cid) || [];
         arr.push(fid);
@@ -2088,6 +2108,8 @@
       // (c) (fallback) the family hub currently has no child edges in the payload.
       const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
       const edges = Array.isArray(payload?.edges) ? payload.edges : [];
+
+      const personIds = new Set(nodes.filter(n => n?.type === 'person').map(n => String(n.id)));
 
       const familyNodes = nodes.filter(n => n?.type === 'family');
       const familyIds = new Set(familyNodes.map(n => String(n.id)));
@@ -2106,7 +2128,10 @@
       for (const e of edges) {
         if (e?.type !== 'child') continue;
         const fid = String(e.from || '');
+        const cid = String(e.to || '');
         if (!fid || !familyIds.has(fid)) continue;
+        // Only count renderable child edges (child person exists in payload).
+        if (!cid || !personIds.has(cid)) continue;
         childEdgeCountByFamily.set(fid, (childEdgeCountByFamily.get(fid) || 0) + 1);
       }
 

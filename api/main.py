@@ -662,12 +662,14 @@ def graph_neighborhood(
             family_ids: list[str] = []
             for fid, fgid, father_id, mother_id, is_private_flag in fam_rows:
                 family_ids.append(fid)
+                parents_total = int(bool(father_id)) + int(bool(mother_id))
                 nodes.append(
                     {
                         "id": fid,
                         "gramps_id": fgid,
                         "type": "family",
                         "is_private": bool(is_private_flag),
+                        "parents_total": parents_total,
                     }
                 )
 
@@ -771,11 +773,14 @@ def graph_family_parents(
                 "gramps_id": fgid,
                 "type": "family",
                 "is_private": bool(is_private_flag),
+                "parents_total": int(bool(father_id)) + int(bool(mother_id)),
                 # If we only attach the single expanded child edge, indicate that more children exist.
                 "has_more_children": bool(child_id and total_children_int > 1),
                 "children_total": total_children_int,
             }
         ]
+
+        birth_links: list[tuple[str, str]] = []
 
         if parent_ids:
             rows = conn.execute(
@@ -824,13 +829,14 @@ def graph_family_parents(
                 ).fetchall()
                 children_total_by_family2 = {fid3: int(cnt or 0) for (fid3, cnt) in counts2}
 
-                for bf_id, bf_gid, _bf_father_id, _bf_mother_id, bf_private in fam2_rows:
+                for bf_id, bf_gid, bf_father_id, bf_mother_id, bf_private in fam2_rows:
                     nodes.append(
                         {
                             "id": bf_id,
                             "gramps_id": bf_gid,
                             "type": "family",
                             "is_private": bool(bf_private),
+                            "parents_total": int(bool(bf_father_id)) + int(bool(bf_mother_id)),
                             "children_total": int(children_total_by_family2.get(bf_id, 0)),
                             # These are returned as stubs (no parent edges), so any children imply expandable.
                             "has_more_children": bool(children_total_by_family2.get(bf_id, 0) > 0),
@@ -916,6 +922,7 @@ def graph_family_children(
                 "gramps_id": fgid,
                 "type": "family",
                 "is_private": bool(is_private_flag),
+                "parents_total": int(bool(father_id)) + int(bool(mother_id)),
                 "has_more_children": False,
                 "children_total": total_children_int,
             }
@@ -978,6 +985,7 @@ def graph_family_children(
                         "gramps_id": fgid2,
                         "type": "family",
                         "is_private": bool(priv2),
+                        "parents_total": int(bool(fa2)) + int(bool(mo2)),
                     }
                 )
                 if fa2:
