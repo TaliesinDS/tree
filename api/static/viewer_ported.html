@@ -1626,18 +1626,44 @@
     // constraints (because only one spouse connects to that hub) which can cause
     // the couple hub ordering to misbehave. We'll use a stronger rank hint only
     // for those specific couples.
+    // NOTE: Single-parent families are rewritten to direct parent->child edges with type='single_parent'.
+    // Detect these from the edges rather than from family nodes (which are filtered out).
     const parentInSingleParentFamily = new Set();
+    for (const e of edges) {
+      if (e.type === 'single_parent' && e.from) {
+        parentInSingleParentFamily.add(e.from);
+      }
+    }
+    // Also check for families with only 1 parent in view (but 2 in DB)
     for (const fid of families) {
       const parents = famParents.get(fid) || [];
-      const parentIds = [...new Set(parents.map(p => p.pid).filter(Boolean))];
-      if (parentIds.length === 1) parentInSingleParentFamily.add(parentIds[0]);
+      const inViewParentIds = [...new Set(parents.map(p => p.pid).filter(pid => pid && people.has(pid)))];
+      if (inViewParentIds.length === 1) parentInSingleParentFamily.add(inViewParentIds[0]);
     }
 
     // Couple priority: keep spouses adjacent.
     for (const fid of families) {
       const { father, mother, hasTwoParents } = getCouple(fid);
       if (hasTwoParents && father && mother) {
-        const isMultiSpouseFamily = multiPartnerPeople.has(father) || multiPartnerPeople.has(mother);
+        // Check if this is TRULY a multi-spouse family in the current view:
+        // A person must have 2+ families where BOTH spouses are in-view.
+        // If their other families have out-of-view spouses (generation cutoff),
+        // we should treat this family as a normal couple, not multi-spouse.
+        const countInViewFamilies = (pid) => {
+          const famsRaw = spouseFamiliesByPerson.get(pid) || [];
+          let count = 0;
+          for (const x of famsRaw) {
+            if (!x?.fid) continue;
+            if (!families.has(x.fid)) continue;
+            if (!people.has(x.spouseId)) continue;
+            count++;
+          }
+          return count;
+        };
+        const fatherCount = countInViewFamilies(father);
+        const motherCount = countInViewFamilies(mother);
+        const isMultiSpouseFamily = fatherCount >= 2 || motherCount >= 2;
+        
         // Gramps Web style: use a per-family cluster to keep the couple cohesive.
         // This is the single most effective nudge DOT has for spouse adjacency.
         // We keep it invisible (no box) and only use it as a layout hint.
@@ -1679,18 +1705,19 @@
           lines.push('    color=white;');
           lines.push('    label=".";');
           lines.push('    rank=same;');
+          // ordering=out tells DOT to respect edge order for node placement within this cluster.
+          lines.push('    ordering=out;');
           lines.push(`    ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)}; ${dotEscape(coupleSepId)};`);
           lines.push('  }');
         }
 
         // DOT can ignore rank constraints inside clusters in some cases.
-        // Adding a non-cluster rank hint for *every* couple can collapse whole rows,
-        // so only apply it when we expect conflicting constraints OR when the couple
-        // has no in-view children (which means DOT has fewer edges to anchor the hub).
+        // Only add rank=same when there are conflicting constraints.
         const childCount = (famChildren.get(fid) || []).length;
-        const needsRankHint = parentInSingleParentFamily.has(father) || 
-                             parentInSingleParentFamily.has(mother) ||
-                             childCount === 0;
+        const fatherInSingleParent = parentInSingleParentFamily.has(father);
+        const motherInSingleParent = parentInSingleParentFamily.has(mother);
+        const needsRankHint = fatherInSingleParent || motherInSingleParent || childCount === 0;
+        
         if (needsRankHint) {
           lines.push(`  { rank=same; ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)}; }`);
         }
@@ -1702,6 +1729,8 @@
         // arrowhead=none prevents visual artifacts if edges become visible.
         lines.push(`  ${dotEscape(left)} -> ${dotEscape(fid)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
         lines.push(`  ${dotEscape(fid)} -> ${dotEscape(right)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+        // Also add direct spouse-to-spouse edge to prevent other constraints from pulling them apart.
+        lines.push(`  ${dotEscape(left)} -> ${dotEscape(right)} [style=invis, weight=100000, minlen=0, constraint=false, arrowhead=none];`);
         if (coupleSepId) {
           // Spacer creates visual gap between unrelated couples.
           lines.push(`  ${dotEscape(right)} -> ${dotEscape(coupleSepId)} [style=invis, weight=26000, minlen=0, constraint=true, arrowhead=none];`);
