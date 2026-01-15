@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 import re
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Query
@@ -732,6 +732,7 @@ def graph_neighborhood(
 @app.get("/graph/family/parents")
 def graph_family_parents(
     family_id: str = Query(min_length=1, max_length=64),
+    child_id: Optional[str] = Query(default=None, max_length=64),
 ) -> dict[str, Any]:
     """Fetch just the parent couple for a family hub.
 
@@ -757,12 +758,22 @@ def graph_family_parents(
 
         parent_ids = [pid for pid in (father_id, mother_id) if pid]
 
+        # Determine whether this family has more children than we are returning.
+        total_children = conn.execute(
+            "SELECT COUNT(*) FROM family_child WHERE family_id = %s",
+            (fid,),
+        ).fetchone()[0]
+        total_children_int = int(total_children or 0)
+
         nodes: list[dict[str, Any]] = [
             {
                 "id": fid,
                 "gramps_id": fgid,
                 "type": "family",
                 "is_private": bool(is_private_flag),
+                # If we only attach the single expanded child edge, indicate that more children exist.
+                "has_more_children": bool(child_id and total_children_int > 1),
+                "children_total": total_children_int,
             }
         ]
 
@@ -802,6 +813,17 @@ def graph_family_parents(
                     (birth_family_ids,),
                 ).fetchall()
 
+                counts2 = conn.execute(
+                    """
+                    SELECT family_id, COUNT(*)
+                    FROM family_child
+                    WHERE family_id = ANY(%s)
+                    GROUP BY family_id
+                    """.strip(),
+                    (birth_family_ids,),
+                ).fetchall()
+                children_total_by_family2 = {fid3: int(cnt or 0) for (fid3, cnt) in counts2}
+
                 for bf_id, bf_gid, _bf_father_id, _bf_mother_id, bf_private in fam2_rows:
                     nodes.append(
                         {
@@ -809,6 +831,9 @@ def graph_family_parents(
                             "gramps_id": bf_gid,
                             "type": "family",
                             "is_private": bool(bf_private),
+                            "children_total": int(children_total_by_family2.get(bf_id, 0)),
+                            # These are returned as stubs (no parent edges), so any children imply expandable.
+                            "has_more_children": bool(children_total_by_family2.get(bf_id, 0) > 0),
                         }
                     )
 
@@ -818,10 +843,185 @@ def graph_family_parents(
         if mother_id:
             edges.append({"from": mother_id, "to": fid, "type": "parent", "role": "mother"})
 
+        # Include the family->child edges for this family as well.
+        # This makes the returned subgraph self-contained and avoids stranded nodes
+        # when the client performs single-parent-family rewrites.
+        # Return only the connecting family->child edge for the currently expanded child.
+        # If we return *all* siblings, we must also return their person nodes; otherwise
+        # Graphviz will invent unnamed oval nodes (confusing in the UI).
+        if child_id:
+            fc_rows = conn.execute(
+                """
+                SELECT family_id, child_id
+                FROM family_child
+                WHERE family_id = %s AND child_id = %s
+                """.strip(),
+                (fid, child_id),
+            ).fetchall()
+            for family_id2, child_id2 in fc_rows:
+                if family_id2 and child_id2:
+                    edges.append({"from": family_id2, "to": child_id2, "type": "child"})
+
         # Stub edges for each parent's own birth family (family -> parent).
         for bf_id, child_id in (birth_links or []):
             if bf_id and child_id:
                 edges.append({"from": bf_id, "to": child_id, "type": "child"})
+
+    return {
+        "family_id": family_id,
+        "family": fid,
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+@app.get("/graph/family/children")
+def graph_family_children(
+    family_id: str = Query(min_length=1, max_length=64),
+    include_spouses: bool = True,
+) -> dict[str, Any]:
+    """Fetch the children for a family hub, optionally including each child's spouse block.
+
+    Used for UI "expand down" actions.
+    - Always returns the family node and its family->child edges.
+    - Returns child person nodes.
+    - If include_spouses: also returns (child as parent) families + spouse nodes + parent edges,
+      but does not include grandchildren by default (keeps expansions controlled).
+    """
+
+    with db_conn() as conn:
+        fam = conn.execute(
+            """
+            SELECT id, gramps_id, father_id, mother_id, is_private
+            FROM family
+            WHERE id = %s OR gramps_id = %s
+            LIMIT 1
+            """.strip(),
+            (family_id, family_id),
+        ).fetchone()
+        if not fam:
+            raise HTTPException(status_code=404, detail=f"family not found: {family_id}")
+
+        fid, fgid, father_id, mother_id, is_private_flag = tuple(fam)
+
+        total_children = conn.execute(
+            "SELECT COUNT(*) FROM family_child WHERE family_id = %s",
+            (fid,),
+        ).fetchone()[0]
+        total_children_int = int(total_children or 0)
+
+        nodes: list[dict[str, Any]] = [
+            {
+                "id": fid,
+                "gramps_id": fgid,
+                "type": "family",
+                "is_private": bool(is_private_flag),
+                "has_more_children": False,
+                "children_total": total_children_int,
+            }
+        ]
+
+        edges: list[dict[str, Any]] = []
+        if father_id:
+            edges.append({"from": father_id, "to": fid, "type": "parent", "role": "father"})
+        if mother_id:
+            edges.append({"from": mother_id, "to": fid, "type": "parent", "role": "mother"})
+
+        fc_rows = conn.execute(
+            """
+            SELECT child_id
+            FROM family_child
+            WHERE family_id = %s
+            """.strip(),
+            (fid,),
+        ).fetchall()
+        child_ids = [r[0] for r in fc_rows if r and r[0]]
+
+        for cid in child_ids:
+            edges.append({"from": fid, "to": cid, "type": "child"})
+
+        if child_ids:
+            child_rows = conn.execute(
+                """
+                SELECT id, gramps_id, display_name, given_name, surname, gender,
+                       birth_text, death_text, birth_date, death_date,
+                       is_living, is_private, is_living_override
+                FROM person
+                WHERE id = ANY(%s)
+                """.strip(),
+                (child_ids,),
+            ).fetchall()
+            for r in child_rows:
+                nodes.append(_person_node_row_to_public(tuple(r), distance=None))
+
+        if include_spouses and child_ids:
+            # For each child, include their spouse block as parents of their own families.
+            # This adds spouse cards and marriage hubs, but avoids pulling in grandchildren.
+            fam_rows = conn.execute(
+                """
+                SELECT id, gramps_id, father_id, mother_id, is_private
+                FROM family
+                WHERE father_id IS NOT NULL
+                  AND mother_id IS NOT NULL
+                  AND (father_id = ANY(%s) OR mother_id = ANY(%s))
+                """.strip(),
+                (child_ids, child_ids),
+            ).fetchall()
+
+            spouse_person_ids: set[str] = set()
+            spouse_family_ids: set[str] = set()
+            for fid2, fgid2, fa2, mo2, priv2 in fam_rows:
+                spouse_family_ids.add(fid2)
+                nodes.append(
+                    {
+                        "id": fid2,
+                        "gramps_id": fgid2,
+                        "type": "family",
+                        "is_private": bool(priv2),
+                    }
+                )
+                if fa2:
+                    edges.append({"from": fa2, "to": fid2, "type": "parent", "role": "father"})
+                    spouse_person_ids.add(fa2)
+                if mo2:
+                    edges.append({"from": mo2, "to": fid2, "type": "parent", "role": "mother"})
+                    spouse_person_ids.add(mo2)
+
+            # Fetch missing spouse person nodes (includes the child too, harmless; merge will de-dupe).
+            if spouse_person_ids:
+                spouse_rows = conn.execute(
+                    """
+                    SELECT id, gramps_id, display_name, given_name, surname, gender,
+                           birth_text, death_text, birth_date, death_date,
+                           is_living, is_private, is_living_override
+                    FROM person
+                    WHERE id = ANY(%s)
+                    """.strip(),
+                    (list(spouse_person_ids),),
+                ).fetchall()
+                for r in spouse_rows:
+                    nodes.append(_person_node_row_to_public(tuple(r), distance=None))
+
+            # Mark spouse-block families as expandable-down if they actually have children.
+            if spouse_family_ids:
+                counts = conn.execute(
+                    """
+                    SELECT family_id, COUNT(*)
+                    FROM family_child
+                    WHERE family_id = ANY(%s)
+                    GROUP BY family_id
+                    """.strip(),
+                    (list(spouse_family_ids),),
+                ).fetchall()
+                counts_by_family = {fid3: int(cnt or 0) for (fid3, cnt) in counts}
+                # Update any matching family nodes we already appended.
+                for n in nodes:
+                    if n.get("type") != "family":
+                        continue
+                    fid3 = n.get("id")
+                    if fid3 in spouse_family_ids:
+                        n["children_total"] = int(counts_by_family.get(fid3, 0))
+                        n["has_more_children"] = bool(counts_by_family.get(fid3, 0) > 0)
 
     return {
         "family_id": family_id,

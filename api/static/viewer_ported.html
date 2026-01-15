@@ -2081,6 +2081,63 @@
       return out;
     })();
 
+    const hiddenChildFamiliesByPersonId = (() => {
+      // A person has "hidden children" if they are a parent of a family hub where
+      // (a) children_total is known and exceeds the number of currently present child edges, OR
+      // (b) (fallback) the payload indicates more children exist (has_more_children), OR
+      // (c) (fallback) the family hub currently has no child edges in the payload.
+      const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
+      const edges = Array.isArray(payload?.edges) ? payload.edges : [];
+
+      const familyNodes = nodes.filter(n => n?.type === 'family');
+      const familyIds = new Set(familyNodes.map(n => String(n.id)));
+      if (!familyIds.size) return new Map();
+
+      const familyHasMoreChildren = new Set(familyNodes.filter(n => !!n?.has_more_children).map(n => String(n.id)));
+      const childrenTotalByFamily = new Map();
+      for (const n of familyNodes) {
+        const fid = String(n?.id || '');
+        if (!fid) continue;
+        const ct = Number(n?.children_total);
+        if (Number.isFinite(ct) && ct >= 0) childrenTotalByFamily.set(fid, ct);
+      }
+
+      const childEdgeCountByFamily = new Map();
+      for (const e of edges) {
+        if (e?.type !== 'child') continue;
+        const fid = String(e.from || '');
+        if (!fid || !familyIds.has(fid)) continue;
+        childEdgeCountByFamily.set(fid, (childEdgeCountByFamily.get(fid) || 0) + 1);
+      }
+
+      const out = new Map();
+      for (const e of edges) {
+        if (e?.type !== 'parent') continue;
+        const pid = String(e.from || '');
+        const fid = String(e.to || '');
+        if (!pid || !fid) continue;
+        if (!familyIds.has(fid)) continue;
+
+        const childEdgeCount = childEdgeCountByFamily.get(fid) || 0;
+        const childrenTotal = childrenTotalByFamily.has(fid) ? childrenTotalByFamily.get(fid) : null;
+
+        // Prefer the numeric rule when possible.
+        let needsExpand = false;
+        if (childrenTotal !== null && Number.isFinite(childrenTotal)) {
+          needsExpand = (childrenTotal > childEdgeCount);
+        } else {
+          // Fallback for older payloads.
+          needsExpand = familyHasMoreChildren.has(fid) || childEdgeCount === 0;
+        }
+        if (!needsExpand) continue;
+
+        const arr = out.get(pid) || [];
+        arr.push(fid);
+        out.set(pid, arr);
+      }
+      return out;
+    })();
+
     const dot = buildDotForFamily(payload);
     const gv = await getGraphviz();
     const svgText = (typeof gv.layout === 'function')
@@ -2153,11 +2210,14 @@
         if (n?.type !== 'person') continue;
         const isPrivate = (n.display_name === 'Private');
         const hiddenFamilies = hiddenParentFamiliesByPersonId.get(String(n.id)) || [];
+        const hiddenChildFamilies = hiddenChildFamiliesByPersonId.get(String(n.id)) || [];
         personMetaById.set(String(n.id), {
           gender: normGender(n.gender),
           isPrivate,
           hasHiddenParents: hiddenFamilies.length > 0,
           hiddenParentFamilies: hiddenFamilies,
+          hasHiddenChildren: hiddenChildFamilies.length > 0,
+          hiddenChildFamilies: hiddenChildFamilies,
         });
       }
 
@@ -2812,7 +2872,7 @@
           // If the click was on a "hidden parents" indicator, let that handler win.
           // (Otherwise the node becomes selected first, which feels like a 2-step action.)
           try {
-            if (ev?.target?.closest && ev.target.closest('[data-hidden-parents-for]')) return;
+            if (ev?.target?.closest && (ev.target.closest('[data-hidden-parents-for]') || ev.target.closest('[data-hidden-children-for]'))) return;
           } catch (_) {}
 
           const title = g.querySelector('title')?.textContent?.trim();
@@ -2928,6 +2988,7 @@
           try {
             const url = new URL('/graph/family/parents', window.location.origin);
             url.searchParams.set('family_id', familyId);
+            url.searchParams.set('child_id', String(pid));
             setStatus(`Expanding parents for ${familyId}...`);
 
             const resp = await fetch(url.toString());
@@ -2935,8 +2996,11 @@
               const text = await resp.text();
               throw new Error(`HTTP ${resp.status}: ${text}`);
             }
-            const delta = await resp.json();
-            lastPayload = mergePayload(lastPayload, rewriteSingleParentFamilies(delta));
+            const deltaRaw = await resp.json();
+            // Merge first, then rewrite using the full context (base payload already has
+            // other edges like family->child). This matters for single-parent families.
+            const merged = mergePayload(lastPayload, deltaRaw);
+            lastPayload = rewriteSingleParentFamilies(merged);
 
             // Re-render but keep view stable (no pan/zoom change).
             await renderGraphvizSvg(lastPayload);
@@ -2954,6 +3018,65 @@
               }
             }
             setStatus(`Expanded parents for ${familyId}.`);
+          } catch (err) {
+            console.error(err);
+            setStatus(String(err), true);
+          }
+        }, { capture: true });
+      }
+
+      // Clickable "hidden children" indicators: expand children (and spouse blocks) in-place.
+      for (const el of svg.querySelectorAll('[data-hidden-children-for]')) {
+        const pid = String(el.getAttribute('data-hidden-children-for') || '').trim();
+        if (!pid) continue;
+        const familyId = String(el.getAttribute('data-hidden-children-family') || '').trim();
+        if (!familyId) continue;
+
+        el.style.cursor = 'pointer';
+        el.style.pointerEvents = 'all';
+
+        const stop = (ev) => {
+          try { ev.preventDefault(); } catch (_) {}
+          try { ev.stopPropagation(); } catch (_) {}
+        };
+        el.addEventListener('pointerdown', stop, { capture: true });
+
+        el.addEventListener('click', async (ev) => {
+          stop(ev);
+          const vb = gvPanZoom?.getViewBox?.() || null;
+          const svgBefore = gvEl.querySelector('svg');
+          const anchorBefore = getPersonNodeCenter(svgBefore, pid);
+
+          try {
+            const url = new URL('/graph/family/children', window.location.origin);
+            url.searchParams.set('family_id', familyId);
+            url.searchParams.set('include_spouses', 'true');
+            setStatus(`Expanding children for ${familyId}...`);
+
+            const resp = await fetch(url.toString());
+            if (!resp.ok) {
+              const text = await resp.text();
+              throw new Error(`HTTP ${resp.status}: ${text}`);
+            }
+            const deltaRaw = await resp.json();
+            const merged = mergePayload(lastPayload, deltaRaw);
+            lastPayload = rewriteSingleParentFamilies(merged);
+
+            await renderGraphvizSvg(lastPayload);
+
+            if (vb) {
+              const svgAfter = gvEl.querySelector('svg');
+              const anchorAfter = getPersonNodeCenter(svgAfter, pid);
+              if (anchorBefore && anchorAfter) {
+                const dx = anchorAfter.x - anchorBefore.x;
+                const dy = anchorAfter.y - anchorBefore.y;
+                gvPanZoom?.setViewBox?.({ x: vb.x + dx, y: vb.y + dy, w: vb.w, h: vb.h });
+              } else {
+                gvPanZoom?.setViewBox?.(vb);
+              }
+            }
+
+            setStatus(`Expanded children for ${familyId}.`);
           } catch (err) {
             console.error(err);
             setStatus(String(err), true);
@@ -3333,6 +3456,78 @@
               tab.appendChild(t);
 
               // Insert before label text so it doesn't cover the text.
+              const firstText = node.querySelector('text');
+              if (firstText) {
+                node.insertBefore(hit, firstText);
+                node.insertBefore(tab, firstText);
+              } else {
+                node.appendChild(hit);
+                node.appendChild(tab);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
+      // Add a bottom clickable indicator for "hidden children".
+      // Used after expanding parents: parents should offer an expand-down affordance
+      // to reveal siblings/descendants in a controlled way.
+      try {
+        const title = node.querySelector('title')?.textContent?.trim();
+        const pid = normalizePersonIdFromGraphvizTitle(title);
+        const meta = pid ? personMetaById?.get(String(pid)) : null;
+        const familyId = (meta?.hiddenChildFamilies && meta.hiddenChildFamilies.length)
+          ? String(meta.hiddenChildFamilies[0])
+          : '';
+
+        if (pid && meta?.hasHiddenChildren && !node.querySelector('[data-hidden-children-for]')) {
+          const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+          if (shape && typeof shape.getBBox === 'function') {
+            const bb = shape.getBBox();
+            if (bb && Number.isFinite(bb.x) && Number.isFinite(bb.y) && Number.isFinite(bb.width) && Number.isFinite(bb.height)) {
+              const ns = 'http://www.w3.org/2000/svg';
+              const tab = document.createElementNS(ns, 'polygon');
+              const cx = bb.x + bb.width / 2;
+              const yBot = bb.y + bb.height;
+
+              // Bottom tab with pointed bottom.
+              const w = Math.max(18, Math.min(28, bb.width * 0.22));
+              const tipH = 10;
+              const drop = 8; // protrude below card
+              const half = w / 2;
+
+              const p1 = `${cx - half},${yBot - 0.5}`;
+              const p2 = `${cx + half},${yBot - 0.5}`;
+              const p3 = `${cx + half * 0.70},${yBot + drop}`;
+              const p4 = `${cx},${yBot + (drop + tipH)}`;
+              const p5 = `${cx - half * 0.70},${yBot + drop}`;
+
+              tab.setAttribute('points', `${p1} ${p2} ${p3} ${p4} ${p5}`);
+              tab.setAttribute('fill', 'var(--accent2)');
+              tab.setAttribute('stroke', 'rgba(0,0,0,0.25)');
+              tab.setAttribute('stroke-width', '1');
+              tab.setAttribute('opacity', '0.85');
+              tab.setAttribute('data-hidden-children-for', String(pid));
+              if (familyId) tab.setAttribute('data-hidden-children-family', familyId);
+              tab.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,0.18))';
+
+              const hit = document.createElementNS(ns, 'polygon');
+              const hw = w * 1.25;
+              const hhalf = hw / 2;
+              const hp1 = `${cx - hhalf},${yBot - 3}`;
+              const hp2 = `${cx + hhalf},${yBot - 3}`;
+              const hp3 = `${cx + hhalf},${yBot + (drop + tipH + 12)}`;
+              const hp4 = `${cx - hhalf},${yBot + (drop + tipH + 12)}`;
+              hit.setAttribute('points', `${hp1} ${hp2} ${hp3} ${hp4}`);
+              hit.setAttribute('fill', 'rgba(0,0,0,0.001)');
+              hit.setAttribute('stroke', 'none');
+              hit.setAttribute('data-hidden-children-for', String(pid));
+              if (familyId) hit.setAttribute('data-hidden-children-family', familyId);
+
+              const t = document.createElementNS(ns, 'title');
+              t.textContent = 'Has hidden children (click to expand)';
+              tab.appendChild(t);
+
               const firstText = node.querySelector('text');
               if (firstText) {
                 node.insertBefore(hit, firstText);
