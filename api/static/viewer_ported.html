@@ -1660,42 +1660,52 @@
         lines.push(`  ${dotEscape(motherNode)} -> ${dotEscape(fid)} [style=invis, constraint=false, weight=50, minlen=0];`);
 
         // Multi-spouse families are ordered by the dedicated multi-spouse cluster.
-        // If we also create per-family couple clusters, Graphviz may "split" spouses
-        // into separate rows due to conflicting cluster membership.
-        if (isMultiSpouseFamily) {
-          continue;
+        // Skip the per-family couple cluster to avoid conflicting cluster membership
+        // (which can cause Graphviz to "split" spouses into separate rows).
+        // But still emit the strong spouse→hub→spouse ordering edges below.
+        let coupleSepId = null;
+        if (!isMultiSpouseFamily) {
+          // Add an invisible spacer to enlarge the couple block, increasing separation
+          // between unrelated couples while keeping within-couple spacing unchanged.
+          coupleSepId = `${fid}__couple_sep`;
+          lines.push(`  ${dotEscape(coupleSepId)} [shape=box, style=invis, width=0.60, height=0.02, fixedsize=true, margin=0, label=""];`);
+
+          // Keep the whole couple (spouse + family hub + spouse) cohesive.
+          // Using a cluster makes DOT treat this as a block and reduces the chance
+          // of inserting unrelated couples between spouses.
+          lines.push(`  subgraph ${dotEscape('cluster_couple_' + fid)} {`);
+          lines.push('    cluster=true;');
+          lines.push('    style=invis;');
+          lines.push('    color=white;');
+          lines.push('    label=".";');
+          lines.push('    rank=same;');
+          lines.push(`    ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)}; ${dotEscape(coupleSepId)};`);
+          lines.push('  }');
         }
-
-        // Add an invisible spacer to enlarge the couple block, increasing separation
-        // between unrelated couples while keeping within-couple spacing unchanged.
-        const coupleSepId = `${fid}__couple_sep`;
-        lines.push(`  ${dotEscape(coupleSepId)} [shape=box, style=invis, width=0.60, height=0.02, fixedsize=true, margin=0, label=""];`);
-
-        // Keep the whole couple (spouse + family hub + spouse) cohesive.
-        // Using a cluster makes DOT treat this as a block and reduces the chance
-        // of inserting unrelated couples between spouses.
-        lines.push(`  subgraph ${dotEscape('cluster_couple_' + fid)} {`);
-        lines.push('    cluster=true;');
-        lines.push('    style=invis;');
-        lines.push('    color=white;');
-        lines.push('    label=".";');
-        lines.push('    rank=same;');
-        lines.push(`    ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)}; ${dotEscape(coupleSepId)};`);
-        lines.push('  }');
 
         // DOT can ignore rank constraints inside clusters in some cases.
         // Adding a non-cluster rank hint for *every* couple can collapse whole rows,
-        // so only apply it when we expect conflicting constraints.
-        if (parentInSingleParentFamily.has(father) || parentInSingleParentFamily.has(mother)) {
+        // so only apply it when we expect conflicting constraints OR when the couple
+        // has no in-view children (which means DOT has fewer edges to anchor the hub).
+        const childCount = (famChildren.get(fid) || []).length;
+        const needsRankHint = parentInSingleParentFamily.has(father) || 
+                             parentInSingleParentFamily.has(mother) ||
+                             childCount === 0;
+        if (needsRankHint) {
           lines.push(`  { rank=same; ${dotEscape(left)}; ${dotEscape(fid)}; ${dotEscape(right)}; }`);
         }
 
         // Hard ordering: spouse - family - spouse.
         // Use constraint=true: because the nodes are already rank=same, this will not
         // pull anything up/down, but it *will* keep the hub between spouses.
-        lines.push(`  ${dotEscape(left)} -> ${dotEscape(fid)} [style=invis, weight=26000, minlen=0, constraint=true, arrowhead=none];`);
-        lines.push(`  ${dotEscape(fid)} -> ${dotEscape(right)} [style=invis, weight=26000, minlen=0, constraint=true, arrowhead=none];`);
-        lines.push(`  ${dotEscape(right)} -> ${dotEscape(coupleSepId)} [style=invis, weight=26000, minlen=0, constraint=true, arrowhead=none];`);
+        // Use high weight to overcome conflicting constraints.
+        // arrowhead=none prevents visual artifacts if edges become visible.
+        lines.push(`  ${dotEscape(left)} -> ${dotEscape(fid)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+        lines.push(`  ${dotEscape(fid)} -> ${dotEscape(right)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+        if (coupleSepId) {
+          // Spacer creates visual gap between unrelated couples.
+          lines.push(`  ${dotEscape(right)} -> ${dotEscape(coupleSepId)} [style=invis, weight=26000, minlen=0, constraint=true, arrowhead=none];`);
+        }
       }
     }
 
@@ -1744,8 +1754,10 @@
       lines.push(`    ${row.map(dotEscape).join('; ')};`);
       lines.push('  }');
 
+      // Use explicit forward direction and high weight to enforce ordering.
+      // dir=none can cause Graphviz to reverse edges which breaks the intended order.
       for (let i = 0; i < row.length - 1; i++) {
-        lines.push(`  ${dotEscape(row[i])} -> ${dotEscape(row[i + 1])} [style=invis, weight=26000, minlen=0, constraint=true, dir=none];`);
+        lines.push(`  ${dotEscape(row[i])} -> ${dotEscape(row[i + 1])} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
       }
     }
 
@@ -2246,7 +2258,17 @@
         });
       }
 
-      const post = postProcessGraphvizSvg(svg, { personMetaById });
+      // Build family metadata for reliable 2-parent hub detection in SVG post-processing.
+      // (Graphviz doesn't reliably preserve DOT class attributes in SVG output.)
+      const familyMetaById = new Map();
+      for (const n of payload?.nodes || []) {
+        if (n?.type !== 'family') continue;
+        familyMetaById.set(String(n.id), {
+          parents_total: (n.parents_total ?? null),
+        });
+      }
+
+      const post = postProcessGraphvizSvg(svg, { personMetaById, familyMetaById });
 
       // Force rounded joins/caps even when Graphviz emitted inline styles.
       (function enforceEdgeRounding() {
@@ -3128,7 +3150,7 @@
     };
   }
 
-  function postProcessGraphvizSvg(svg, { personMetaById } = {}) {
+  function postProcessGraphvizSvg(svg, { personMetaById, familyMetaById } = {}) {
     const nodes = svg.querySelectorAll('g.node');
     let processed = 0;
 
@@ -3186,7 +3208,10 @@
       for (const node of nodes) {
         const ellipse = node.querySelector('ellipse');
         if (!ellipse) continue;
-        const title = node.querySelector('title')?.textContent?.trim();
+        const titleRaw = node.querySelector('title')?.textContent?.trim();
+        if (!titleRaw) continue;
+        // Graphviz can emit titles like "node <id>"; normalize so we can map back to payload ids.
+        const title = String(titleRaw).replace(/^node\s+/i, '').trim();
         if (!title) continue;
 
         // Identify family hubs by their label (⚭) or by their purple fill.
@@ -3195,10 +3220,13 @@
         const isHub = (labelText === '⚭') || (fill === '#9d7bff');
         if (!isHub) continue;
 
-        // Never shift 2-parent couple hubs: those must remain centered between spouses.
-        // We mark them from DOT via class="hub hub-2p".
+        // Never shift 2-parent couple hubs horizontally: those must remain centered between spouses.
+        // Use payload-derived metadata (parents_total) instead of SVG class, because
+        // Graphviz doesn't reliably preserve DOT class attributes in SVG output.
+        const meta = familyMetaById?.get(String(title)) || null;
+        const pt = Number(meta?.parents_total);
         const cls = (node.getAttribute('class') || '').toString();
-        const isCoupleHub = /\bhub-2p\b/.test(cls);
+        const isCoupleHub = (Number.isFinite(pt) ? (pt >= 2) : /\bhub-2p\b/.test(cls));
 
         // Prefer shifting the whole node group via its translate() transform.
         const tr = parseTranslate(node.getAttribute('transform'));
@@ -3669,12 +3697,6 @@
     }
 
     return { processed, familyHubDyById, familyHubDxById };
-
-    if (processed > 0) {
-      // Small signal to confirm JS is running and SVG post-processing applied.
-      // (Helps when the browser is serving a cached version of this page.)
-      setStatus(`Rendered Graphviz (styled ${processed} person nodes).`);
-    }
   }
 
   function runLayout(layout) {
