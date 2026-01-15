@@ -785,6 +785,14 @@
           'line-color': 'rgba(122,162,255,0.52)',
           'target-arrow-color': 'rgba(122,162,255,0.52)'
         }
+      },
+      {
+        selector: 'edge[type = "single_parent"]',
+        style: {
+          'line-color': 'rgba(122,162,255,0.52)',
+          'target-arrow-shape': 'none',
+          'width': 2,
+        }
       }
     ],
     wheelSensitivity: 0.2,
@@ -854,6 +862,78 @@
     if (s === 'F' || s.toLowerCase() === 'female') return 'F';
     if (s === 'U' || s.toLowerCase() === 'unknown') return 'U';
     return 'U';
+  }
+
+  function rewriteSingleParentFamilies(payload) {
+    // Viewer-side normalization:
+    // If a family has exactly one parent in-view, drop the family hub node and
+    // replace the parent->family + family->child chain with a direct parent->child edge.
+    // This keeps 2-parent families unchanged.
+    const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
+    const edges = Array.isArray(payload?.edges) ? payload.edges : [];
+
+    const familyIds = new Set(nodes.filter(n => n?.type === 'family').map(n => String(n.id)));
+    if (!familyIds.size) return payload;
+
+    const parentsByFamily = new Map();
+    const childrenByFamily = new Map();
+
+    for (const e of edges) {
+      if (!e || !e.type) continue;
+      if (e.type === 'parent') {
+        const fid = String(e.to || '');
+        const pid = String(e.from || '');
+        if (!fid || !pid) continue;
+        if (!familyIds.has(fid)) continue;
+        const arr = parentsByFamily.get(fid) || [];
+        arr.push(pid);
+        parentsByFamily.set(fid, arr);
+      } else if (e.type === 'child') {
+        const fid = String(e.from || '');
+        const cid = String(e.to || '');
+        if (!fid || !cid) continue;
+        if (!familyIds.has(fid)) continue;
+        const arr = childrenByFamily.get(fid) || [];
+        arr.push(cid);
+        childrenByFamily.set(fid, arr);
+      }
+    }
+
+    const singleParentFamilyParent = new Map(); // fid -> parentId
+    for (const fid of familyIds) {
+      const parents = parentsByFamily.get(fid) || [];
+      const uniqParents = [...new Set(parents.filter(Boolean))];
+      if (uniqParents.length === 1) {
+        singleParentFamilyParent.set(fid, uniqParents[0]);
+      }
+    }
+    if (!singleParentFamilyParent.size) return payload;
+
+    const newNodes = nodes.filter(n => !(n?.type === 'family' && singleParentFamilyParent.has(String(n.id))));
+    const newEdges = [];
+
+    for (const e of edges) {
+      const from = String(e?.from || '');
+      const to = String(e?.to || '');
+
+      // Drop any edge that references a removed single-parent family hub.
+      if (singleParentFamilyParent.has(from) || singleParentFamilyParent.has(to)) continue;
+      newEdges.push(e);
+    }
+
+    for (const [fid, parentId] of singleParentFamilyParent.entries()) {
+      const children = [...new Set((childrenByFamily.get(fid) || []).filter(Boolean))];
+      for (const childId of children) {
+        newEdges.push({
+          from: parentId,
+          to: childId,
+          type: 'single_parent',
+          role: null,
+        });
+      }
+    }
+
+    return { ...payload, nodes: newNodes, edges: newEdges };
   }
 
   function makeElements(payload) {
@@ -1781,6 +1861,10 @@
         // Family->child edges define the generation ranks.
         // Higher weight keeps children closer to their own family hub, which helps
         // prevent unrelated nodes from visually "splitting" a sibling row.
+        lines.push(`  ${dotEscape(e.from)} -> ${dotEscape(e.to)} [arrowhead=none, constraint=true, weight=12, minlen=2];`);
+      } else if (e.type === 'single_parent') {
+        // Viewer-side rewrite: single-parent families become direct parent->child edges.
+        // Treat these like a generation-defining edge (same as family->child).
         lines.push(`  ${dotEscape(e.from)} -> ${dotEscape(e.to)} [arrowhead=none, constraint=true, weight=12, minlen=2];`);
       }
     }
@@ -3397,7 +3481,8 @@
         const text = await resp.text();
         throw new Error(`HTTP ${resp.status}: ${text}`);
       }
-      const payload = await resp.json();
+      const payloadRaw = await resp.json();
+      const payload = rewriteSingleParentFamilies(payloadRaw);
       lastPayload = payload;
       renderPeopleIndex(payload);
 
