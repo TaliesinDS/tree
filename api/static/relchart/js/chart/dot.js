@@ -54,27 +54,79 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
 
   const famFather = new Map();
   const famMother = new Map();
+  const parentsTotalByFamily = new Map();
+  for (const [fid, f] of familiesById.entries()) {
+    const pt = Number(f?.parents_total);
+    if (Number.isFinite(pt) && pt >= 0) parentsTotalByFamily.set(fid, pt);
+  }
+
+  // Track which families each person is a parent in (for multi-spouse ordering).
+  // pid -> [{ fid, partner }]
+  const parentFamiliesByPerson = new Map();
+
+  const hasAnyParentEdge = new Set();
   for (const e of edges) {
     if (e?.type !== 'parent') continue;
     const pid = String(e.from || '');
     const fid = String(e.to || '');
     if (!pid || !fid) continue;
     if (!familiesById.has(fid)) continue;
+    if (peopleById.has(pid)) hasAnyParentEdge.add(fid);
     if (e.role === 'father') famFather.set(fid, pid);
     if (e.role === 'mother') famMother.set(fid, pid);
   }
 
+  // Build per-person family membership once father/mother maps are ready.
+  for (const fid of familiesById.keys()) {
+    const fa = famFather.get(fid);
+    const mo = famMother.get(fid);
+    if (!fa || !mo) continue;
+    if (!peopleById.has(fa) || !peopleById.has(mo)) continue;
+
+    const a0 = parentFamiliesByPerson.get(fa) || [];
+    a0.push({ fid, partner: mo });
+    parentFamiliesByPerson.set(fa, a0);
+
+    const a1 = parentFamiliesByPerson.get(mo) || [];
+    a1.push({ fid, partner: fa });
+    parentFamiliesByPerson.set(mo, a1);
+  }
+
+  const multiSpousePeople = new Set();
+  const multiSpouseFamilies = new Set();
+  for (const [pid, arr] of parentFamiliesByPerson.entries()) {
+    const uniqFamilies = new Set((arr || []).map(x => x.fid));
+    if (uniqFamilies.size >= 2) {
+      multiSpousePeople.add(pid);
+      for (const fid of uniqFamilies) multiSpouseFamilies.add(fid);
+    }
+  }
+
+  // Cutoff-parent families: present in the payload but have no visible parent edges.
+  // These families are only placeholders to allow an “expand parents” arrow.
+  // We hide the hub and the dangling edge to the child.
+  const cutoffParentFamilyIds = new Set();
+  for (const fid of familiesById.keys()) {
+    const pt = parentsTotalByFamily.has(fid) ? parentsTotalByFamily.get(fid) : null;
+    if (pt !== null && Number.isFinite(pt) && pt <= 0) continue;
+    if (!hasAnyParentEdge.has(fid)) cutoffParentFamilyIds.add(fid);
+  }
+
   const lines = [];
   lines.push('digraph G {');
+  lines.push('  compound=true;');
   lines.push('  rankdir=TB;');
   lines.push('  bgcolor="transparent";');
-  lines.push('  splines=ortho;');
-  lines.push('  nodesep=0.20;');
+  // Gramps Web baseline: let Graphviz compute splayed polylines, then smooth in SVG.
+  lines.push('  splines=polyline;');
+  // Keep same-rank spacing tight so spouse ↔ hub can sit flush.
+  lines.push('  nodesep=0;');
   lines.push('  ranksep=0.50;');
   lines.push('  pad=0.05;');
   lines.push('  graph [fontname="Inter, Segoe UI, Arial"];');
   lines.push('  node [fontname="Inter, Segoe UI, Arial", fontsize=10, color="#2a3446"];');
   lines.push('  edge [color="#556277", arrowsize=0.7, penwidth=1.6, arrowhead=none];');
+  lines.push('  ordering=out;');
 
   for (const [pid, p] of peopleById.entries()) {
     const gender = String(p?.gender || 'U').toUpperCase();
@@ -91,6 +143,15 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
   }
 
   for (const [fid, f] of familiesById.entries()) {
+    if (cutoffParentFamilyIds.has(fid)) {
+      // Layout-only node (do not render a visible hub)
+      lines.push(
+        `  ${dotId(fid)} [` +
+        `shape=point, width=0.01, height=0.01, fixedsize=true, style=invis, label=""` +
+        `];`
+      );
+      continue;
+    }
     const hasMore = !!f?.has_more_children;
     const fill = hasMore ? '#b28dff' : '#9d7bff';
     lines.push(
@@ -104,19 +165,83 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
   // Encourage couple nodes to sit on one row with hub between them.
   if (couplePriority) {
     for (const fid of familiesById.keys()) {
+      if (cutoffParentFamilyIds.has(fid)) continue;
+      // Multi-spouse families are handled by a dedicated cluster for the shared person.
+      if (multiSpouseFamilies.has(fid)) continue;
       const fa = famFather.get(fid);
       const mo = famMother.get(fid);
       const members = [fa, fid, mo].filter(Boolean);
       if (members.length <= 1) continue;
 
-      lines.push(`  subgraph ${dotId(`cluster_${fid}`)} {`);
+      // Use a real DOT cluster (name starts with cluster_) but keep it invisible.
+      // This is the strongest nudge DOT has for keeping spouse blocks cohesive.
+      if (fa && mo) {
+        lines.push(`  subgraph ${dotId(`cluster_couple_${fid}`)} {`);
+        lines.push('    cluster=true;');
+        lines.push('    style=invis;');
+        lines.push('    color=white;');
+        lines.push('    label=".";');
+        lines.push('    rank=same;');
+        lines.push('    ordering=out;');
+        lines.push(`    ${dotId(fa)}; ${dotId(fid)}; ${dotId(mo)};`);
+        lines.push('  }');
+
+        // Hard ordering: spouse - hub - spouse.
+        // Keep these invisible so the debug-visible spouse→hub edges remain readable.
+        lines.push(`  ${dotId(fa)} -> ${dotId(fid)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+        lines.push(`  ${dotId(fid)} -> ${dotId(mo)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+        // Extra glue: keep spouses adjacent even under conflicting constraints.
+        lines.push(`  ${dotId(fa)} -> ${dotId(mo)} [style=invis, weight=100000, minlen=0, constraint=false, arrowhead=none];`);
+      } else {
+        // Single-parent family: only rank hint.
+        lines.push(`  { rank=same; ${members.map(dotId).join('; ')}; }`);
+      }
+    }
+  }
+
+  // Multi-spouse: keep spouse–hub–common–hub–spouse chains cohesive.
+  // Without this, Graphviz can pull the blocks apart under competing constraints.
+  if (couplePriority) {
+    for (const pid of multiSpousePeople) {
+      const arr = (parentFamiliesByPerson.get(pid) || [])
+        .filter(x => x && x.fid && x.partner)
+        .filter(x => !cutoffParentFamilyIds.has(x.fid));
+      if (arr.length < 2) continue;
+
+      arr.sort((a, b) => String(a.fid).localeCompare(String(b.fid)));
+
+      // Build an order like: partner1, fid1, pid, fid2, partner2, fid3, partner3...
+      const seq = [];
+      seq.push(arr[0].partner, arr[0].fid, pid);
+      for (let i = 1; i < arr.length; i++) {
+        seq.push(arr[i].fid, arr[i].partner);
+      }
+
+      const uniqSeq = [];
+      const seen = new Set();
+      for (const x of seq) {
+        if (!x) continue;
+        if (seen.has(x)) continue;
+        seen.add(x);
+        uniqSeq.push(x);
+      }
+      if (uniqSeq.length < 3) continue;
+
+      lines.push(`  subgraph ${dotId(`cluster_multispouse_${pid}`)} {`);
+      lines.push('    cluster=true;');
+      lines.push('    style=invis;');
+      lines.push('    color=white;');
+      lines.push('    label=".";');
       lines.push('    rank=same;');
-      for (const m of members) lines.push(`    ${dotId(m)};`);
+      lines.push('    ordering=out;');
+      lines.push(`    ${uniqSeq.map(dotId).join('; ')};`);
       lines.push('  }');
 
-      // Invisible ordering edges
-      if (fa) lines.push(`  ${dotId(fa)} -> ${dotId(fid)} [style=invis, weight=20];`);
-      if (mo) lines.push(`  ${dotId(fid)} -> ${dotId(mo)} [style=invis, weight=20];`);
+      for (let i = 0; i < uniqSeq.length - 1; i++) {
+        const a = uniqSeq[i];
+        const b = uniqSeq[i + 1];
+        lines.push(`  ${dotId(a)} -> ${dotId(b)} [style=invis, weight=200000, minlen=0, constraint=true, arrowhead=none];`);
+      }
     }
   }
 
@@ -127,11 +252,19 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
 
     if (e.type === 'parent') {
       if (!peopleById.has(from) || !familiesById.has(to)) continue;
-      lines.push(`  ${dotId(from)} -> ${dotId(to)};`);
+      // Keep the spouse↔hub connector visible for troubleshooting, but avoid using it
+      // as a rank constraint (we want hub and spouses on the same row).
+      const hasTwoParents = !!(famFather.get(to) && famMother.get(to));
+      if (hasTwoParents) {
+        lines.push(`  ${dotId(from)} -> ${dotId(to)} [constraint=false, weight=3, minlen=0];`);
+      } else {
+        lines.push(`  ${dotId(from)} -> ${dotId(to)};`);
+      }
       continue;
     }
     if (e.type === 'child') {
       if (!familiesById.has(from) || !peopleById.has(to)) continue;
+      if (cutoffParentFamilyIds.has(from)) continue;
       lines.push(`  ${dotId(from)} -> ${dotId(to)};`);
       continue;
     }
