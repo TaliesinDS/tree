@@ -41,6 +41,35 @@ function postProcessGraphvizSvg(svg, {
   const familyHubDyById = new Map();
   const familyHubDxById = new Map();
 
+  const parseTranslate = (t) => {
+    const s = String(t || '').trim();
+    if (!s) return null;
+    const m = s.match(/translate\(\s*([-+]?\d*\.?\d+)(?:[\s,]+([-+]?\d*\.?\d+))?\s*\)/i);
+    if (!m) return null;
+    const x = Number(m[1]);
+    const y = Number(m[2] ?? 0);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+  };
+
+  // Estimate a typical person-card height in SVG units so we can place the hub
+  // near the bottom edge of spouse cards (Gramps Web / old graph feel).
+  let typicalPersonCardHeight = null;
+  try {
+    const hs = [];
+    for (const node of nodes) {
+      if (node.querySelector('ellipse')) continue;
+      const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+      if (!shape || typeof shape.getBBox !== 'function') continue;
+      const bb = shape.getBBox();
+      if (!bb || !Number.isFinite(bb.height) || bb.height <= 0) continue;
+      hs.push(bb.height);
+      if (hs.length >= 25) break;
+    }
+    hs.sort((a, b) => a - b);
+    if (hs.length) typicalPersonCardHeight = hs[Math.floor(hs.length / 2)];
+  } catch (_) {}
+
   // --- Family hubs (⚭): detect only (do not move) ---
   try {
     for (const node of nodes) {
@@ -55,8 +84,37 @@ function postProcessGraphvizSvg(svg, {
       const isHub = (labelText === '⚭') || (fill === '#9d7bff');
       if (!isHub) continue;
 
-      // Track hub IDs for edge snapping when smoothing is enabled.
-      familyHubDyById.set(title, 0);
+      let dy = 0;
+      try {
+        if (typicalPersonCardHeight && typeof ellipse.getBBox === 'function') {
+          const bb = ellipse.getBBox();
+          const ry = (bb && Number.isFinite(bb.height)) ? (bb.height / 2) : 0;
+          if (Number.isFinite(ry) && ry > 0) {
+            const bottomGap = Math.max(1, Math.min(4, typicalPersonCardHeight * 0.02));
+            dy = Math.max(0, (typicalPersonCardHeight / 2) - ry - bottomGap);
+            dy = Math.min(dy, typicalPersonCardHeight * 0.45);
+          }
+        }
+      } catch (_) {}
+
+      // Apply translation to move hub lower.
+      try {
+        if (dy > 0) {
+          const tr = parseTranslate(node.getAttribute('transform'));
+          if (tr) {
+            node.setAttribute('transform', `translate(${tr.x} ${tr.y + dy})`);
+          } else {
+            // Graphviz often encodes node geometry as absolute cx/cy/points with no
+            // group transform at all. In that case, add a translate so the hub
+            // actually moves.
+            node.setAttribute('transform', `translate(0 ${dy})`);
+          }
+        }
+      } catch (_) {}
+
+      // Track hub offsets for edge smoothing endpoint snapping.
+      familyHubDyById.set(title, dy);
+      familyHubDxById.set(title, 0);
     }
   } catch (_) {}
 
@@ -491,10 +549,32 @@ function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById
     return `M ${sx} ${sy} C ${sx + ox} ${midY}, ${tx + ox} ${midY}, ${tx} ${ty}`;
   };
 
-  const replaceWithSmoothPath = (el, pts, offsetX) => {
+  const replaceWithSmoothPath = (el, pts, { offsetX, sourceId, targetId } = {}) => {
     if (!pts || pts.length < 2) return;
     // Preserve Graphviz's splay/routing by using only the first+last path points.
-    const ends = { source: pts[0], target: pts[pts.length - 1] };
+    const ends = { source: { ...pts[0] }, target: { ...pts[pts.length - 1] } };
+
+    // If we moved the family hubs (⚭) in SVG space, shift the corresponding
+    // edge endpoints so the smoothed connectors still land on the hub.
+    try {
+      if (familyHubDxById && familyHubDyById) {
+        const sKey = String(sourceId || '');
+        const tKey = String(targetId || '');
+        const sDx = Number(familyHubDxById.get(sKey) ?? 0);
+        const sDy = Number(familyHubDyById.get(sKey) ?? 0);
+        const tDx = Number(familyHubDxById.get(tKey) ?? 0);
+        const tDy = Number(familyHubDyById.get(tKey) ?? 0);
+        if (Number.isFinite(sDx) && Number.isFinite(sDy) && (sDx !== 0 || sDy !== 0)) {
+          ends.source.x += sDx;
+          ends.source.y += sDy;
+        }
+        if (Number.isFinite(tDx) && Number.isFinite(tDy) && (tDx !== 0 || tDy !== 0)) {
+          ends.target.x += tDx;
+          ends.target.y += tDy;
+        }
+      }
+    } catch (_) {}
+
     const d = smoothVerticalConnectorD({ ...ends, offsetX: offsetX || 0 });
     if (!d) return;
 
@@ -565,7 +645,7 @@ function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById
       const e = arr[idx];
       const offset = (idx - mid) * FAN_DELTA;
       try {
-        replaceWithSmoothPath(e.el, e.pts, offset);
+        replaceWithSmoothPath(e.el, e.pts, { offsetX: offset, sourceId: e.source, targetId: e.target });
       } catch (_) {}
     }
   }
