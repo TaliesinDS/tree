@@ -16,3 +16,9 @@ reports/
 
 # OS
 Thumbs.db
+
+# VS Code (local workspace config)
+.vscode/
+
+# Copilot chatmodes are local per-repo preferences
+.github/chatmodes/

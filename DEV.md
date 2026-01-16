@@ -66,9 +66,12 @@ Notes:
 ## Demo UI (graph)
 
 The demo UI is served from the API:
-- `/demo/graph` (interactive; older)
-- `/demo/viewer` (newer Gramps-Web-like viewer shell)
-- `/demo/relationship` (modular relationship chart; Graphviz WASM)
+- **Primary (going forward):** `/demo/relationship` (relchart v3; Graphviz WASM + modular JS/CSS)
+  - Click a person card or family hub to show both API id + Gramps id in the status bar and copy them to clipboard.
+  - Clicking a family hub is selection-only (it does not expand or recenter).
+- Legacy/reference demos:
+  - `/demo/graph` (interactive; older)
+  - `/demo/viewer` (older viewer shell/prototype)
 
 If you edit the static demo file, you usually only need a hard refresh (Ctrl+F5).
 
@@ -77,7 +80,7 @@ Graphviz-specific notes:
 - Multi-spouse people are rendered as a single person node with spouse–family–person blocks.
 - Malformed edges are ignored (e.g., a `child` edge that points to a family node) to prevent orphan family hubs.
 - The viewer supports map-like interaction: drag to pan, wheel to zoom around the cursor (including when zoomed way out).
-- Clicking a person node recenters the viewer on that person; the status bar shows the selected node id and (when available) the Gramps ID.
+- The relationship chart keeps pan/zoom stable during selection; use Fit/controls to change view.
 
 Privacy:
 - The API will always return `display_name: "Private"` for `is_private` or `is_living` rows.

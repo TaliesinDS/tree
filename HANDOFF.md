@@ -59,20 +59,19 @@ Privacy rule (conservative / privacy-first):
   - `layout=direct`: person-only graph with parent and partner edges.
 - Why: family hubs are more readable for genealogy (it matches how Gramps/Graphviz tends to render lineage). Direct edges can be useful for generic graph layouts but tangle more easily.
 
-### Graph rendering: moving from Graphviz DOT to D3 (Dagre)
+### Graph rendering: relchart v3 (the way forward)
 
-Historical decision:
-- The demo UI started with a Graphviz DOT renderer (via wasm graphviz) because DOT produces a clean generational layout.
+Historical context:
+- We experimented with multiple demo viewers/layout engines (Graphviz DOT in large HTML files; later D3/Dagre prototypes).
 
 Current direction (Jan 2026):
-- For **connected exploration** inside the viewer, prefer the **D3 Dagre (connected)** renderer.
-- For the **Gramps-style relationship chart** (couples + hub + children), prefer **Graphviz WASM + DOT**.
+- **Primary UI going forward:** **relchart v3** at `/demo/relationship`.
+  - A modular frontend under `api/static/relchart/`.
+  - Uses Graphviz WASM (`@hpcc-js/wasm-graphviz`) to produce the Gramps-like relationship chart layout.
+  - Implements expand-in-place via the `/graph/family/parents` and `/graph/family/children` endpoints.
 
-Why this split exists:
-- Dagre is stable for larger “connected” exploration graphs.
-- The relationship chart has strong genealogy-specific layout constraints that DOT handles very well.
-
-Graphviz remains valuable (and intentionally used) for the relationship chart demo at `/demo/relationship`.
+Legacy/reference:
+- Older demos (`/demo/viewer`, `/demo/graph`, and `api/static/viewer_ported.html`) are kept as reference while relchart v3 becomes the maintained path.
 
 ### Multi-spouse handling (Graphviz)
 Problem:
@@ -133,14 +132,14 @@ Graphviz layout stability:
 - Multi-spouse layout now supports spouse1–common–spouse2 patterns without duplicating people.
 - Added defensive filtering so malformed edges (e.g., family→family “child” edges) don’t create orphan family hubs.
 
-Viewer UX (Graphviz /demo/viewer):
+Viewer UX (legacy Graphviz /demo/viewer):
 - Family hubs (⚭) are post-processed in SVG for a Gramps-Web-like look.
 - Redundant spouse→hub connector stubs are hidden when the hub touches spouse cards.
 - Edge endpoints that attach to the hub are snapped to the hub ellipse boundary to avoid tiny overshoots in very large families.
 - Pan/zoom is viewBox-based and tuned so drag feels 1:1 at any zoom.
 - Status text includes the Gramps ID when present in the payload.
 
-Viewer UX (D3 Dagre /demo/viewer):
+Viewer UX (legacy D3 Dagre /demo/viewer):
 - Added a new **connected** layout mode based on Dagre (DAG layout).
 - Fixed the “puzzle pieces don’t stick together” issue caused by D3 tree layouts duplicating shared ancestors.
 - Implemented “Graphviz-like couple geometry”:
@@ -157,6 +156,8 @@ Relationship chart (/demo/relationship):
 - Added a focused, modular relationship chart frontend under `api/static/relchart/`.
 - Uses Graphviz WASM (`@hpcc-js/wasm-graphviz`) with DOT generated from `/graph/neighborhood?layout=family`.
 - Supports expand-in-place by calling `/graph/family/parents` and `/graph/family/children` and re-rendering.
+ - Clicking a person card or family hub updates status with both API id + Gramps id and copies them to clipboard.
+ - Clicking a family hub is selection-only (it does not expand or recenter).
 
 Note: because the viewer is a static HTML file, the demo URL uses a `?v=<n>` cache buster when iterating quickly.
 
@@ -179,26 +180,10 @@ See DEV.md for the exact PowerShell commands and Docker option.
 - Full text search indexing exists for notes, but search endpoints/UI are still minimal.
 - Graphviz rendering is currently demo-UI-side (browser wasm), not server-side.
 
-## Graphviz parity: still outstanding
+## Graph rendering notes (current)
 
-The D3 Dagre renderer is now the preferred mode for connected layouts, but these
-Graphviz/DOT features are not yet fully matched:
-
-1) Edge routing fidelity
-- Graphviz produces nicer splines and avoids crossings more aggressively.
-- D3 Dagre currently draws simpler connectors; we don’t yet replicate DOT’s edge bundling and routing polish.
-
-2) Rank/row ordering semantics
-- DOT constraints (rank/same blocks and weighted invisible edges) give very stable spouse/hub ordering.
-- D3 Dagre relies on post-processing; the ordering is good but not yet as semantically stable as DOT.
-
-3) Large-graph robustness and performance
-- Graphviz can produce great layouts but may hang/panic in WASM for certain dense constraint sets.
-- D3 Dagre is more stable, but we still need Strategic-mode level-of-detail (LOD) work if node counts grow.
-
-4) Feature completeness around “DOT exports”
-- The Graphviz path has useful debug affordances (e.g., producing a minimal DOT reproduction for a problem family).
-- No equivalent “export minimal Dagre graph” debug mode exists yet.
+- relchart v3 is the maintained frontend path and is the reference for UI behavior.
+- Legacy viewers remain useful for debugging and comparison, but should be treated as experimental/deprioritized.
 
 ## Next tasks (suggested order)
 

@@ -4,6 +4,10 @@ This is a living mini-spec for the genealogy UI and the backend capabilities it 
 
 See also: TECH_SPEC_GRAPH_VIEWER.md (feature → tech mapping and implementation notes).
 
+Current implementation note (Jan 2026):
+- The primary maintained frontend is **relchart v3** at `/demo/relationship` (Graphviz WASM + modular JS/CSS under `api/static/relchart/`).
+- Older demos (e.g. `/demo/viewer`) are kept as reference/experiments and should not be treated as the direction going forward.
+
 ## A) Two levels of exploration (default vs Strategic)
 There are *two* graph experiences:
 

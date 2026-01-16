@@ -1,8 +1,12 @@
-# Tech Spec: Interactive Graph Viewer (D3 + Dagre, Graphviz optional, view-only)
+# Tech Spec: Interactive Graph Viewer (relchart v3 primary, view-only)
 
 ## 0) Context / intent
 
 This project is a **view-only** genealogy browser inspired by Gramps Web, driven by data exported from Gramps Desktop. It is not intended to be an editing platform.
+
+Current implementation note (Jan 2026):
+- The actively maintained frontend path is **relchart v3** at `/demo/relationship` (Graphviz WASM + modular JS/CSS under `api/static/relchart/`).
+- Other viewer/layout prototypes exist, but are treated as legacy/reference while relchart v3 becomes the stable baseline.
 
 Two distinct graph experiences are required:
 
@@ -257,12 +261,12 @@ Avoid D3 force-layout. Family trees are better handled by a deterministic layout
 
 ## 5) Layout strategy (Graphviz’s role)
 
-## 5) Layout strategy (D3 + Dagre first; Graphviz optional)
+## 5) Layout strategy (relchart v3 first; exploration modes TBD)
 
 Current direction (Jan 2026):
 
-- Prefer a deterministic in-browser layout using **Dagre** (a DAG layout engine).
-- Use D3 primarily for rendering and interaction wiring.
+- For the Gramps-like relationship chart (couples + family hubs + children), use **Graphviz WASM** (DOT → SVG).
+- For future exploration/Strategic modes, keep options open (Dagre, precomputed coordinates, Canvas/WebGL), but do not let those prototypes override the relchart v3 baseline.
 
 Graphviz remains useful as a reference layout engine (and can still be used for
 offline comparisons/debugging), but the goal is to avoid relying on WASM Graphviz

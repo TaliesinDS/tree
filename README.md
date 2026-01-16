@@ -2,7 +2,7 @@
 
 Quick resume doc (for future you / new chats): see HANDOFF.md.
 
-This repo is a **backend-first genealogy web app scaffold** with a working local API + demo graph UI.
+This repo is a **backend-first genealogy web app scaffold** with a working local API + demo UI.
 
 Goals (what you asked for)
 - Pick any **two people** → show the **ancestry/relationship path** between them.
@@ -34,10 +34,13 @@ Files
 - `sql/schema.sql`: starter schema sketch
 
 Demo UI
-- `/demo/graph` renders a neighborhood graph (older demo UI).
-- `/demo/viewer` renders the newer Gramps-Web-like viewer shell (Graphviz + sidebar tabs).
-- `/demo/relationship` renders the modular relationship chart demo (Graphviz WASM + family hubs).
-- Multi-spouse people are supported without duplicating person nodes.
+- **Primary UI (going forward):** `/demo/relationship` — **relchart v3** (Graphviz WASM + modular JS/CSS).
+   - This is the Gramps-Web-like relationship chart: couples + family hubs + children, with expand-in-place.
+   - Clicking a person card or family hub updates the status bar with both API id + Gramps id and copies them to clipboard.
+   - Clicking a family hub is selection-only (it does not expand or recenter).
+- Legacy/reference demos:
+   - `/demo/graph` — older neighborhood graph demo.
+   - `/demo/viewer` — older viewer shell/prototype.
 
 Relationship chart architecture notes:
 - `ARCHITECTURE_RELCHART.md`

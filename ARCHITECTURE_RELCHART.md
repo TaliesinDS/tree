@@ -134,7 +134,8 @@ Both return the same `{nodes, edges}` shape so the frontend can `mergeGraphPaylo
 5) Enable pan/zoom (viewBox transform)
 6) Attach click handlers:
    - click person → select
-   - click family hub → expand children
+  - click family hub → select (no expand or recenter)
+  - selection updates status with both API id + Gramps id and copies them to clipboard
 7) Compute “hidden relatives” signals from payload metadata and add small badges on person cards:
    - `↑` when there is a birth-family hub with missing parent edges in-view
    - `↓` when a parent-family hub has more children than currently in-view
