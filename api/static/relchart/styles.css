@@ -365,9 +365,11 @@ button.secondary {
   border-radius: 10px;
   border: 1px solid var(--border);
   background: rgba(0,0,0,0.25);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: auto;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+  user-select: text;
   margin-top: 10px;
 }
 

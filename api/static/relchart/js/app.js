@@ -25,21 +25,99 @@ const state = {
   people: null,
   peopleLoaded: false,
   peopleSelected: null,
+  nodeById: new Map(),
 };
 
 function setStatus(msg, isError = false) {
   els.status.textContent = String(msg ?? '');
+  els.status.title = String(msg ?? '');
   els.status.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+}
+
+async function copyToClipboard(text) {
+  const s = String(text ?? '');
+  if (!s) return false;
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(s);
+      return true;
+    }
+  } catch (_) {}
+
+  // Fallback for environments where Clipboard API isn't available.
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = s;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return !!ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+function rebuildNodeIndex(payload) {
+  const m = new Map();
+  for (const n of (payload?.nodes || [])) {
+    if (!n?.id) continue;
+    m.set(String(n.id), n);
+  }
+  state.nodeById = m;
+}
+
+function formatIdStatus({ kind, apiId, grampsId }) {
+  const a = String(apiId || '').trim();
+  const g = String(grampsId || '').trim();
+  const k = String(kind || 'node');
+  if (a && g) return `${k}: api=${a} · gramps=${g}`;
+  if (a) return `${k}: api=${a}`;
+  if (g) return `${k}: gramps=${g}`;
+  return `${k}: (no id)`;
 }
 
 async function rerender() {
   if (!state.payload) return;
+  rebuildNodeIndex(state.payload);
   const { panZoom } = await renderRelationshipChart({
     container: els.chart,
     payload: state.payload,
     onSelectPerson: (pid) => {
       state.selectedPersonId = pid;
-      setStatus(`Selected: ${pid}`);
+      const node = state.nodeById.get(String(pid)) || null;
+      const msg = formatIdStatus({
+        kind: 'Person',
+        apiId: pid,
+        grampsId: node?.gramps_id,
+      });
+      setStatus(msg);
+      const copyText = node?.gramps_id
+        ? `api_id=${String(pid)}\ngramps_id=${String(node.gramps_id)}`
+        : `api_id=${String(pid)}`;
+      copyToClipboard(copyText).then((ok) => {
+        if (ok) setStatus(msg + ' (copied)');
+      });
+    },
+    onSelectFamily: (fid) => {
+      const node = state.nodeById.get(String(fid)) || null;
+      const msg = formatIdStatus({
+        kind: 'Family',
+        apiId: fid,
+        grampsId: node?.gramps_id,
+      });
+      setStatus(msg);
+      const copyText = node?.gramps_id
+        ? `api_id=${String(fid)}\ngramps_id=${String(node.gramps_id)}`
+        : `api_id=${String(fid)}`;
+      copyToClipboard(copyText).then((ok) => {
+        if (ok) setStatus(msg + ' (copied)');
+      });
     },
     onExpandParents: async ({ personId, familyId }) => {
       if (!familyId) return;

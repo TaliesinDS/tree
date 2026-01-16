@@ -800,6 +800,7 @@ export async function renderRelationshipChart({
   container,
   payload,
   onSelectPerson,
+  onSelectFamily,
   onExpandParents,
   onExpandChildren,
   onFit,
@@ -906,7 +907,7 @@ export async function renderRelationshipChart({
     }
     if (familyIds.has(id)) {
       node.style.cursor = 'pointer';
-      node.addEventListener('click', () => onExpandChildren?.({ familyId: id }));
+      node.addEventListener('click', () => onSelectFamily?.(id));
     }
   }
 
