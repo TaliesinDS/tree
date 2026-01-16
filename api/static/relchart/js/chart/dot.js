@@ -114,6 +114,7 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
 
   const famFather = new Map();
   const famMother = new Map();
+  const visibleParentCountByFamily = new Map();
   const parentsTotalByFamily = new Map();
   for (const [fid, f] of familiesById.entries()) {
     const pt = Number(f?.parents_total);
@@ -131,9 +132,17 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
     const fid = String(e.to || '');
     if (!pid || !fid) continue;
     if (!familiesById.has(fid)) continue;
-    if (peopleById.has(pid)) hasAnyParentEdge.add(fid);
+    if (peopleById.has(pid)) {
+      hasAnyParentEdge.add(fid);
+      visibleParentCountByFamily.set(fid, (visibleParentCountByFamily.get(fid) || 0) + 1);
+    }
     if (e.role === 'father') famFather.set(fid, pid);
     if (e.role === 'mother') famMother.set(fid, pid);
+  }
+
+  const singleParentFamilyIds = new Set();
+  for (const [fid, n] of visibleParentCountByFamily.entries()) {
+    if (Number(n) === 1) singleParentFamilyIds.add(fid);
   }
 
   // Build per-person family membership once father/mother maps are ready.
@@ -213,6 +222,18 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
       );
       continue;
     }
+
+    if (singleParentFamilyIds.has(fid)) {
+      // Single-parent family: no visible hub. Keep a tiny invisible point as a
+      // branch/junction for children.
+      lines.push(
+        `  ${dotId(fid)} [` +
+        `shape=point, width=0.01, height=0.01, fixedsize=true, style=invis, label=""` +
+        `];`
+      );
+      continue;
+    }
+
     const hasMore = !!f?.has_more_children;
     const fill = hasMore ? '#b28dff' : '#9d7bff';
     lines.push(
@@ -313,6 +334,12 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
 
     if (e.type === 'parent') {
       if (!peopleById.has(from) || !familiesById.has(to)) continue;
+      if (singleParentFamilyIds.has(to)) {
+        // For single-parent families, the invisible family point acts as a junction.
+        // Keep this edge as a layout constraint but do not render it.
+        lines.push(`  ${dotId(from)} -> ${dotId(to)} [constraint=true, weight=200, minlen=1, style=invis];`);
+        continue;
+      }
       // Keep the spouse↔hub connector visible for troubleshooting, but avoid using it
       // as a rank constraint (we want hub and spouses on the same row).
       const hasTwoParents = !!(famFather.get(to) && famMother.get(to));

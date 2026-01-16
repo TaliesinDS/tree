@@ -33,6 +33,7 @@ function normalizeIdFromGraphvizTitle(title) {
 function postProcessGraphvizSvg(svg, {
   personMetaById = new Map(),
   familyMetaById = new Map(),
+  singleParentParentByFamily = new Map(),
   onExpandParents,
   onExpandChildren,
 } = {}) {
@@ -68,6 +69,66 @@ function postProcessGraphvizSvg(svg, {
     }
     hs.sort((a, b) => a - b);
     if (hs.length) typicalPersonCardHeight = hs[Math.floor(hs.length / 2)];
+  } catch (_) {}
+
+  // For single-parent families we hide the hub and use an invisible family node as
+  // a junction. Move that junction directly under the parent's card center so
+  // child lines originate from the bottom-center of the parent.
+  try {
+    const personBottomCenterById = new Map();
+    for (const node of nodes) {
+      if (node.querySelector('ellipse')) continue;
+      const id = normalizeIdFromGraphvizTitle(node.querySelector('title')?.textContent?.trim());
+      if (!id) continue;
+
+      const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+      if (!shape || typeof shape.getBBox !== 'function') continue;
+      const bb = shape.getBBox();
+      if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
+      if (bb.width <= 0 || bb.height <= 0) continue;
+      personBottomCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y + bb.height });
+    }
+
+    for (const [fid, pid] of (singleParentParentByFamily || new Map()).entries()) {
+      const parent = String(pid || '').trim();
+      const bc = personBottomCenterById.get(parent);
+      if (!bc || !Number.isFinite(bc.x) || !Number.isFinite(bc.y)) continue;
+
+      const famNode = Array.from(nodes).find(n => {
+        const t = normalizeIdFromGraphvizTitle(n.querySelector('title')?.textContent?.trim());
+        return t === String(fid);
+      });
+      if (!famNode) continue;
+
+      const bb = (typeof famNode.getBBox === 'function') ? famNode.getBBox() : null;
+      if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
+
+      const cur = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
+      const gap = Math.max(6, Math.min(14, (typicalPersonCardHeight || 120) * 0.10));
+      const desired = { x: bc.x, y: bc.y + gap };
+
+      const dx = desired.x - cur.x;
+      const dy = desired.y - cur.y;
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) continue;
+      if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
+        familyHubDxById.set(String(fid), 0);
+        familyHubDyById.set(String(fid), 0);
+        continue;
+      }
+
+      try {
+        const tr = parseTranslate(famNode.getAttribute('transform'));
+        if (tr) {
+          famNode.setAttribute('transform', `translate(${tr.x + dx} ${tr.y + dy})`);
+        } else {
+          famNode.setAttribute('transform', `translate(${dx} ${dy})`);
+        }
+      } catch (_) {}
+
+      // Reuse the hub offset maps for snapping edge endpoints.
+      familyHubDxById.set(String(fid), dx);
+      familyHubDyById.set(String(fid), dy);
+    }
   } catch (_) {}
 
   // --- Family hubs (⚭): detect only (do not move) ---
@@ -370,7 +431,7 @@ function enforceEdgeRounding(svg) {
   }
 }
 
-function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById, peopleIds, familyIds } = {}) {
+function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById, peopleIds, familyIds, singleParentFamilyIds, singleParentParentByFamily } = {}) {
   const edgeGroups = Array.from(svg.querySelectorAll('g.edge'));
   if (!edgeGroups.length) return;
 
@@ -394,6 +455,23 @@ function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById
       const ry = bb.height / 2;
       if (!Number.isFinite(rx) || !Number.isFinite(ry) || rx <= 0 || ry <= 0) continue;
       hubGeomById.set(id, { cx: bb.x + rx, cy: bb.y + ry, rx, ry });
+    }
+  } catch (_) {}
+
+  const personBottomCenterById = new Map();
+  try {
+    for (const node of svg.querySelectorAll('g.node')) {
+      if (node.querySelector('ellipse')) continue;
+      const id = normalizeIdFromGraphvizTitle(node.querySelector('title')?.textContent?.trim());
+      if (!id) continue;
+      if (!(peopleIds?.has(id) ?? false)) continue;
+
+      const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+      if (!shape || typeof shape.getBBox !== 'function') continue;
+      const bb = shape.getBBox();
+      if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
+      if (bb.width <= 0 || bb.height <= 0) continue;
+      personBottomCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y + bb.height });
     }
   } catch (_) {}
 
@@ -554,6 +632,31 @@ function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById
     // Preserve Graphviz's splay/routing by using only the first+last path points.
     const ends = { source: { ...pts[0] }, target: { ...pts[pts.length - 1] } };
 
+    // For single-parent families, make the trunk edge originate from the
+    // bottom-center of the (sole) parent card (not from the side).
+    try {
+      const sid = String(sourceId || '');
+      const tid = String(targetId || '');
+      // Case A: parent -> (hidden family junction) (mostly invisible)
+      if ((peopleIds?.has(sid) ?? false) && (singleParentFamilyIds?.has(tid) ?? false)) {
+        const bc = personBottomCenterById.get(sid);
+        if (bc && Number.isFinite(bc.x) && Number.isFinite(bc.y)) {
+          ends.source.x = bc.x;
+          ends.source.y = bc.y;
+        }
+      }
+
+      // Case B: (hidden family junction) -> child (visible): start from parent's bottom-center.
+      if ((singleParentFamilyIds?.has(sid) ?? false) && (peopleIds?.has(tid) ?? false)) {
+        const parentId = String(singleParentParentByFamily?.get(sid) || '').trim();
+        const bc = parentId ? personBottomCenterById.get(parentId) : null;
+        if (bc && Number.isFinite(bc.x) && Number.isFinite(bc.y)) {
+          ends.source.x = bc.x;
+          ends.source.y = bc.y;
+        }
+      }
+    } catch (_) {}
+
     // If we moved the family hubs (⚭) in SVG space, shift the corresponding
     // edge endpoints so the smoothed connectors still land on the hub.
     try {
@@ -713,15 +816,38 @@ export async function renderRelationshipChart({
   const peopleIds = new Set((payload?.nodes || []).filter(n => n?.type === 'person').map(n => String(n.id)));
   const familyIds = new Set((payload?.nodes || []).filter(n => n?.type === 'family').map(n => String(n.id)));
 
+  const visibleParentCountByFamily = new Map();
+  const singleParentParentByFamily = new Map();
+  for (const e of payload?.edges || []) {
+    if (e?.type !== 'parent') continue;
+    const pid = String(e.from || '').trim();
+    const fid = String(e.to || '').trim();
+    if (!pid || !fid) continue;
+    if (!peopleIds.has(pid) || !familyIds.has(fid)) continue;
+    visibleParentCountByFamily.set(fid, (visibleParentCountByFamily.get(fid) || 0) + 1);
+    // Track the parent candidate; we’ll only use it if the family ends up being single-parent.
+    singleParentParentByFamily.set(fid, pid);
+  }
+  const singleParentFamilyIds = new Set();
+  for (const [fid, n] of visibleParentCountByFamily.entries()) {
+    if (Number(n) === 1) singleParentFamilyIds.add(fid);
+  }
+
+  // Prune parent mapping to only true single-parent families.
+  for (const [fid] of Array.from(singleParentParentByFamily.entries())) {
+    if (!singleParentFamilyIds.has(fid)) singleParentParentByFamily.delete(fid);
+  }
+
   const post = postProcessGraphvizSvg(svg, {
     personMetaById,
     familyMetaById,
+    singleParentParentByFamily,
     onExpandParents,
     onExpandChildren,
   });
   // Gramps Web style: keep Graphviz splay, but smooth the edge geometry.
   try { enforceEdgeRounding(svg); } catch (_) {}
-  try { convertEdgeElbowsToRoundedPaths(svg, { ...post, peopleIds, familyIds }); } catch (_) {}
+  try { convertEdgeElbowsToRoundedPaths(svg, { ...post, peopleIds, familyIds, singleParentFamilyIds, singleParentParentByFamily }); } catch (_) {}
 
   // Click handlers
   for (const node of svg.querySelectorAll('g.node')) {
