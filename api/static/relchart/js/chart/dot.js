@@ -17,6 +17,12 @@ function htmlEsc(s) {
 const PERSON_CARD_WIDTH_IN = 1.60;
 const PERSON_CARD_HEIGHT_IN = 1.10;
 
+const HUB_DIAMETER_IN = 0.26;
+const INLAW_GAP_IN = HUB_DIAMETER_IN * 0.50;      // ~half a hub
+const UNRELATED_GAP_IN = HUB_DIAMETER_IN * 1.50;  // ~one and a half hubs
+
+const COUPLE_CLUSTER_MARGIN_X_PT = Math.round(UNRELATED_GAP_IN * 72);
+
 const RANKSEP_IN = 1.75;
 
 function wrapTextLines(text, { maxCharsPerLine = 24, maxLines = 2 } = {}) {
@@ -117,6 +123,7 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
   const famFather = new Map();
   const famMother = new Map();
   const visibleParentCountByFamily = new Map();
+  const parentPeopleInView = new Set();
   const parentsTotalByFamily = new Map();
   for (const [fid, f] of familiesById.entries()) {
     const pt = Number(f?.parents_total);
@@ -137,6 +144,7 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
     if (peopleById.has(pid)) {
       hasAnyParentEdge.add(fid);
       visibleParentCountByFamily.set(fid, (visibleParentCountByFamily.get(fid) || 0) + 1);
+      parentPeopleInView.add(pid);
     }
     if (e.role === 'father') famFather.set(fid, pid);
     if (e.role === 'mother') famMother.set(fid, pid);
@@ -181,6 +189,20 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
     const pt = parentsTotalByFamily.has(fid) ? parentsTotalByFamily.get(fid) : null;
     if (pt !== null && Number.isFinite(pt) && pt <= 0) continue;
     if (!hasAnyParentEdge.has(fid)) cutoffParentFamilyIds.add(fid);
+  }
+
+  const childrenByFamily = new Map();
+  for (const e of edges) {
+    if (e?.type !== 'child') continue;
+    const fid = String(e.from || '');
+    const cid = String(e.to || '');
+    if (!fid || !cid) continue;
+    if (!familiesById.has(fid)) continue;
+    if (!peopleById.has(cid)) continue;
+    if (cutoffParentFamilyIds.has(fid)) continue;
+    const arr = childrenByFamily.get(fid) || [];
+    arr.push(cid);
+    childrenByFamily.set(fid, arr);
   }
 
   const lines = [];
@@ -250,10 +272,76 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
     );
   }
 
+  // Per-family sibling clusters: keep siblings tight.
+  // - Between adjacent sibling blocks, add a small spacer when at least one side is a couple.
+  // - Between unrelated sibling groups, add a larger spacer so they don't visually read as couples.
+  for (const [fid, rawKids] of childrenByFamily.entries()) {
+    const kids = (rawKids || [])
+      .map(x => String(x))
+      .filter(x => x && peopleById.has(x));
+    // If someone is a parent in-view, don't pin them into a sibling row.
+    // Otherwise DOT tends to keep them with siblings while their marriages drift away.
+    const siblings = kids.filter(x => !parentPeopleInView.has(x));
+    if (!siblings.length) continue;
+
+    siblings.sort((a, b) => String(a).localeCompare(String(b)));
+
+    const personHasTwoParentFamilyInView = (pid) => {
+      const arr = parentFamiliesByPerson.get(String(pid)) || [];
+      return arr.some(x => {
+        const familyId = String(x?.fid || '');
+        if (!familyId) return false;
+        if (!familiesById.has(familyId)) return false;
+        if (cutoffParentFamilyIds.has(familyId)) return false;
+        if (singleParentFamilyIds.has(familyId)) return false;
+        return !!x?.partner;
+      });
+    };
+
+    const rowSeq = [];
+    for (let i = 0; i < siblings.length; i++) {
+      const a = siblings[i];
+      rowSeq.push(a);
+
+      if (i < siblings.length - 1) {
+        const b = siblings[i + 1];
+        if (personHasTwoParentFamilyInView(a) || personHasTwoParentFamilyInView(b)) {
+          const gapId = `${fid}__inlaw_${i}`;
+          lines.push(
+            `  ${dotId(gapId)} [` +
+            `shape=point, style=invis, width=${INLAW_GAP_IN.toFixed(2)}, height=0.01, fixedsize=true, label=""` +
+            `];`
+          );
+          rowSeq.push(gapId);
+        }
+      }
+    }
+
+    const sepId = `${fid}__sep`;
+    lines.push(
+      `  ${dotId(sepId)} [` +
+      `shape=point, style=invis, width=${UNRELATED_GAP_IN.toFixed(2)}, height=0.01, fixedsize=true, label=""` +
+      `];`
+    );
+
+    lines.push(`  subgraph ${dotId(`cluster_children_${fid}`)} {`);
+    lines.push('    style=invis;');
+    lines.push('    rank=same;');
+    lines.push('    ordering=out;');
+    lines.push(`    ${rowSeq.map(dotId).join('; ')}; ${dotId(sepId)};`);
+    lines.push('  }');
+
+    for (let i = 0; i < rowSeq.length - 1; i++) {
+      lines.push(`  ${dotId(rowSeq[i])} -> ${dotId(rowSeq[i + 1])} [style=invis, weight=220, constraint=false, minlen=0, arrowhead=none];`);
+    }
+    lines.push(`  ${dotId(rowSeq[rowSeq.length - 1])} -> ${dotId(sepId)} [style=invis, weight=220, constraint=false, minlen=0, arrowhead=none];`);
+  }
+
   // Encourage couple nodes to sit on one row with hub between them.
   if (couplePriority) {
     for (const fid of familiesById.keys()) {
       if (cutoffParentFamilyIds.has(fid)) continue;
+      if (singleParentFamilyIds.has(fid)) continue;
       // Multi-spouse families are handled by a dedicated cluster for the shared person.
       if (multiSpouseFamilies.has(fid)) continue;
       const fa = famFather.get(fid);
@@ -264,21 +352,31 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
       // Use a real DOT cluster (name starts with cluster_) but keep it invisible.
       // This is the strongest nudge DOT has for keeping spouse blocks cohesive.
       if (fa && mo) {
+        const coupleSepId = `${fid}__couple_sep`;
+        // Ensure unrelated couples/people don't read as a couple from afar.
+        // Put the separator inside the couple cluster so it stays attached to the block.
+        lines.push(
+          `  ${dotId(coupleSepId)} [` +
+          `shape=point, style=invis, width=${UNRELATED_GAP_IN.toFixed(2)}, height=0.01, fixedsize=true, label=""` +
+          `];`
+        );
+
         lines.push(`  subgraph ${dotId(`cluster_couple_${fid}`)} {`);
         lines.push('    cluster=true;');
         lines.push('    style=invis;');
         lines.push('    color=white;');
         lines.push('    label=".";');
-        lines.push('    margin=0;');
+        lines.push(`    margin="${COUPLE_CLUSTER_MARGIN_X_PT},0";`);
         lines.push('    rank=same;');
         lines.push('    ordering=out;');
-        lines.push(`    ${dotId(fa)}; ${dotId(fid)}; ${dotId(mo)};`);
+        lines.push(`    ${dotId(fa)}; ${dotId(fid)}; ${dotId(mo)}; ${dotId(coupleSepId)};`);
         lines.push('  }');
 
         // Hard ordering: spouse - hub - spouse.
         // Keep these invisible so the debug-visible spouse→hub edges remain readable.
         lines.push(`  ${dotId(fa)} -> ${dotId(fid)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
         lines.push(`  ${dotId(fid)} -> ${dotId(mo)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+        lines.push(`  ${dotId(mo)} -> ${dotId(coupleSepId)} [style=invis, weight=8000, minlen=0, constraint=true, arrowhead=none];`);
         // Extra glue: keep spouses adjacent even under conflicting constraints.
         lines.push(`  ${dotId(fa)} -> ${dotId(mo)} [style=invis, weight=100000, minlen=0, constraint=false, arrowhead=none];`);
       } else {
