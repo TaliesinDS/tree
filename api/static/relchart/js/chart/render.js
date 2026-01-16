@@ -488,6 +488,7 @@ function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById
   } catch (_) {}
 
   const personBottomCenterById = new Map();
+  const personTopCenterById = new Map();
   try {
     for (const node of svg.querySelectorAll('g.node')) {
       if (node.querySelector('ellipse')) continue;
@@ -501,6 +502,7 @@ function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById
       if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
       if (bb.width <= 0 || bb.height <= 0) continue;
       personBottomCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y + bb.height });
+      personTopCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y });
     }
   } catch (_) {}
 
@@ -682,6 +684,17 @@ function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById
         if (bc && Number.isFinite(bc.x) && Number.isFinite(bc.y)) {
           ends.source.x = bc.x;
           ends.source.y = bc.y;
+        }
+      }
+
+      // For child edges, always enter the child card at the top-center.
+      // This avoids visible gaps caused by rounded corners when Graphviz
+      // chooses an entry point near a corner.
+      if ((familyIds?.has(sid) ?? false) && (peopleIds?.has(tid) ?? false)) {
+        const tc = personTopCenterById.get(tid);
+        if (tc && Number.isFinite(tc.x) && Number.isFinite(tc.y)) {
+          ends.target.x = tc.x;
+          ends.target.y = tc.y;
         }
       }
     } catch (_) {}
