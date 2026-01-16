@@ -196,6 +196,19 @@ def demo_viewer() -> FileResponse:
     return FileResponse(path)
 
 
+@app.get("/demo/relationship")
+def demo_relationship() -> FileResponse:
+    """Relationship chart (Graphviz WASM) demo.
+
+    Focused, modular frontend that renders a Gramps-Web-like relationship chart.
+    """
+
+    path = _STATIC_DIR / "relchart" / "index.html"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="demo not found")
+    return FileResponse(path)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"ok": "true"}

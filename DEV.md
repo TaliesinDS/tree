@@ -68,6 +68,7 @@ Notes:
 The demo UI is served from the API:
 - `/demo/graph` (interactive; older)
 - `/demo/viewer` (newer Gramps-Web-like viewer shell)
+- `/demo/relationship` (modular relationship chart; Graphviz WASM)
 
 If you edit the static demo file, you usually only need a hard refresh (Ctrl+F5).
 

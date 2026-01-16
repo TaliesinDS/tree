@@ -36,7 +36,11 @@ Files
 Demo UI
 - `/demo/graph` renders a neighborhood graph (older demo UI).
 - `/demo/viewer` renders the newer Gramps-Web-like viewer shell (Graphviz + sidebar tabs).
+- `/demo/relationship` renders the modular relationship chart demo (Graphviz WASM + family hubs).
 - Multi-spouse people are supported without duplicating person nodes.
+
+Relationship chart architecture notes:
+- `ARCHITECTURE_RELCHART.md`
 
 Interactive “carve-a-path” expansion
 - The viewer supports incremental expand-in-place actions:

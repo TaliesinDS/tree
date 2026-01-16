@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Relationship Chart</title>
+  <link rel="stylesheet" href="/static/relchart/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="sidebarBrand">
+        <div class="sidebarBrandMain">
+          <div class="title">Relationship Chart</div>
+          <div class="sub">Graphviz WASM • family hubs</div>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Viewer tabs">
+        <button class="tabbtn active" type="button" data-tab="graph" role="tab" aria-selected="true">Graph</button>
+        <button class="tabbtn" type="button" data-tab="people" role="tab" aria-selected="false">People</button>
+        <button class="tabbtn" type="button" data-tab="events" role="tab" aria-selected="false">Events</button>
+        <button class="tabbtn" type="button" data-tab="map" role="tab" aria-selected="false">Map</button>
+      </div>
+
+      <div class="sidebarPanel">
+        <div class="tabpanel active" data-panel="graph" role="tabpanel">
+          <h2>Graph</h2>
+
+          <div class="controls">
+            <label>
+              Person ID
+              <input id="personId" value="I0001" placeholder="I0001 or _handle" />
+            </label>
+            <label>
+              Depth
+              <input id="depth" type="number" min="0" max="12" value="4" />
+            </label>
+            <label>
+              Max nodes
+              <input id="maxNodes" type="number" min="1" max="5000" value="1200" />
+            </label>
+
+            <div class="buttons">
+              <button id="loadBtn" type="button">Load</button>
+              <button id="fitBtn" type="button" class="secondary">Fit</button>
+              <button id="resetBtn" type="button" class="secondary">Reset</button>
+            </div>
+          </div>
+
+          <div id="status" class="status">Ready.</div>
+        </div>
+
+        <div class="tabpanel" data-panel="people" role="tabpanel">
+          <h2>People</h2>
+          <div class="muted">Coming next: surname-grouped list synced to selection.</div>
+        </div>
+
+        <div class="tabpanel" data-panel="events" role="tabpanel">
+          <h2>Events</h2>
+          <div class="muted">Coming next: timeline/search filters.</div>
+        </div>
+
+        <div class="tabpanel" data-panel="map" role="tabpanel">
+          <h2>Map</h2>
+          <div class="muted">Coming next: map markers from event locations.</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="canvas" id="canvas">
+      <div id="chart" class="chart" aria-label="relationship chart"></div>
+    </main>
+  </div>
+
+  <script type="module" src="/static/relchart/js/app.js"></script>
+  <script>
+    (function () {
+      const tabButtons = Array.from(document.querySelectorAll('.tabbtn[data-tab]'));
+      const tabPanels = Array.from(document.querySelectorAll('.tabpanel[data-panel]'));
+
+      function setActiveTab(tabName) {
+        for (const b of tabButtons) {
+          const active = b.dataset.tab === tabName;
+          b.classList.toggle('active', active);
+          b.setAttribute('aria-selected', active ? 'true' : 'false');
+        }
+        for (const p of tabPanels) {
+          p.classList.toggle('active', p.dataset.panel === tabName);
+        }
+      }
+
+      for (const b of tabButtons) {
+        b.addEventListener('click', () => setActiveTab(b.dataset.tab));
+      }
+
+      window.addEventListener('keydown', (e) => {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        const k = String(e.key || '').toLowerCase();
+        if (k === 'g') setActiveTab('graph');
+        if (k === 'p') setActiveTab('people');
+        if (k === 'e') setActiveTab('events');
+        if (k === 'm') setActiveTab('map');
+      });
+    })();
+  </script>
+</body>
+</html>

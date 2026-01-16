@@ -65,13 +65,14 @@ Historical decision:
 - The demo UI started with a Graphviz DOT renderer (via wasm graphviz) because DOT produces a clean generational layout.
 
 Current direction (Jan 2026):
-- Prefer the **D3 Dagre (connected)** renderer in the viewer.
-- Why:
-  - Graphviz WASM can be slow or unstable on some graphs (hangs / internal panics).
-  - DOT+SVG post-processing became increasingly complex and brittle for multi-spouse edge cases.
-  - Dagre gives a deterministic DAG layout while keeping unique person nodes (no “duplicate ancestors” artifacts).
+- For **connected exploration** inside the viewer, prefer the **D3 Dagre (connected)** renderer.
+- For the **Gramps-style relationship chart** (couples + hub + children), prefer **Graphviz WASM + DOT**.
 
-Graphviz remains valuable as a reference renderer and for debugging, but the goal is to reduce reliance on it for day-to-day exploration.
+Why this split exists:
+- Dagre is stable for larger “connected” exploration graphs.
+- The relationship chart has strong genealogy-specific layout constraints that DOT handles very well.
+
+Graphviz remains valuable (and intentionally used) for the relationship chart demo at `/demo/relationship`.
 
 ### Multi-spouse handling (Graphviz)
 Problem:
@@ -97,7 +98,11 @@ API:
 - api/db.py — DB connection helper (simple per-request connection)
 - api/static/graph_demo.html — interactive graph demo (Cytoscape + Graphviz)
 - api/static/viewer_ported.html — newer Gramps-Web-like viewer shell (Graphviz + sidebar tabs)
+- api/static/relchart/ — modular relationship chart demo frontend (Graphviz WASM)
 - api/restart_api_8080.ps1 — start/restart uvicorn detached, logs to reports/
+
+Relchart notes:
+- `ARCHITECTURE_RELCHART.md` explains the relchart architecture + decisions.
 
 Export pipeline:
 - export/README.md — why Gramps XML export; how to run exporter/loader
@@ -147,6 +152,11 @@ Viewer UX (D3 Dagre /demo/viewer):
 - Selection behavior matches the Graphviz view:
   - clicking a person shows/pins their `Ixxxx`
   - clicking a family hub shows/pins its internal `_f...` id.
+
+Relationship chart (/demo/relationship):
+- Added a focused, modular relationship chart frontend under `api/static/relchart/`.
+- Uses Graphviz WASM (`@hpcc-js/wasm-graphviz`) with DOT generated from `/graph/neighborhood?layout=family`.
+- Supports expand-in-place by calling `/graph/family/parents` and `/graph/family/children` and re-rendering.
 
 Note: because the viewer is a static HTML file, the demo URL uses a `?v=<n>` cache buster when iterating quickly.
 
