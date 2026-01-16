@@ -7,9 +7,23 @@
   --danger: #ff6b6b;
   --border: rgba(255,255,255,0.10);
   --shadow: 0 12px 32px rgba(0,0,0,0.45);
+  --canvas-bg: rgba(3, 6, 10, 0.65);
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   --sidebar-w: 340px;
+}
+
+html[data-theme="light"] {
+  /* Palette sampled from https://www.arthurkortekaas.nl/autism/ */
+  --bg: #f3f3f3;
+  --panel: rgba(255,255,255,0.92);
+  --text: #343434;
+  --muted: #706E66;
+  --accent: #afa58f;
+  --danger: #ff6b6b;
+  --border: #e9dcbe;
+  --shadow: 0 6px 18px rgba(0,0,0,0.10);
+  --canvas-bg: #f4f2f3;
 }
 
 * { box-sizing: border-box; }
@@ -23,6 +37,10 @@ html, body {
     var(--bg);
   color: var(--text);
   font-family: var(--sans);
+}
+
+html[data-theme="light"] body {
+  background: var(--bg);
 }
 
 .shell {
@@ -41,6 +59,11 @@ html, body {
   grid-template-rows: auto auto 1fr;
   gap: 10px;
   overflow: hidden;
+}
+
+html[data-theme="light"] .sidebar {
+  background: var(--bg);
+  backdrop-filter: none;
 }
 
 .sidebarBrand {
@@ -92,6 +115,19 @@ html, body {
   background: rgba(122,162,255,0.16);
 }
 
+html[data-theme="light"] .tabbtn {
+  border-color: var(--border);
+  background: #ffffff;
+  color: var(--text);
+}
+
+html[data-theme="light"] .tabbtn:hover { background: #e0e0e0; }
+
+html[data-theme="light"] .tabbtn.active {
+  border-color: rgba(175,165,143,0.70);
+  background: rgba(175,165,143,0.22);
+}
+
 .sidebarPanel {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -99,6 +135,10 @@ html, body {
   box-shadow: var(--shadow);
   overflow: auto;
   padding: 10px;
+}
+
+html[data-theme="light"] .sidebarPanel {
+  background: rgba(255,255,255,0.78);
 }
 
 .sidebarPanel h2 {
@@ -114,6 +154,91 @@ html, body {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.35);
+  border-radius: 8px;
+  color: #cfe0ff;
+}
+
+html[data-theme="light"] .kbd {
+  background: rgba(255,255,255,0.90);
+  color: var(--text);
+}
+
+.themeToggle {
+  white-space: nowrap;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+
+.themeToggle:hover { background: rgba(255,255,255,0.10); }
+
+html[data-theme="light"] .themeToggle {
+  border-color: var(--border);
+  background: #ffffff;
+}
+
+html[data-theme="light"] .themeToggle:hover { background: #e0e0e0; }
+
+.right {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.topbar {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(18,26,39,0.95), rgba(18,26,39,0.70));
+  backdrop-filter: blur(6px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+html[data-theme="light"] .topbar {
+  background: var(--bg);
+  backdrop-filter: none;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.brand {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-right: 10px;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.brand .sub {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .tabpanel { display: none; }
@@ -142,6 +267,11 @@ input {
   padding: 8px 10px;
   outline: none;
   min-width: 140px;
+}
+
+html[data-theme="light"] input {
+  background: rgba(255,255,255,0.90);
+  color: var(--text);
 }
 
 input[type="number"] { min-width: 90px; }
@@ -182,6 +312,10 @@ button.secondary {
   margin-top: 10px;
 }
 
+html[data-theme="light"] .status {
+  background: rgba(255,255,255,0.75);
+}
+
 .canvas {
   padding: 12px;
   overflow: hidden;
@@ -192,7 +326,7 @@ button.secondary {
   width: 100%;
   border-radius: 14px;
   border: 1px solid var(--border);
-  background: rgba(3, 6, 10, 0.65);
+  background: var(--canvas-bg);
   box-shadow: var(--shadow);
   overflow: hidden;
   position: relative;

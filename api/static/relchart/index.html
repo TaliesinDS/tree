@@ -14,6 +14,8 @@
           <div class="title">Relationship Chart</div>
           <div class="sub">Graphviz WASM • family hubs</div>
         </div>
+
+        <button id="themeToggle" class="themeToggle" type="button" title="Toggle theme">Theme</button>
       </div>
 
       <div class="tabs" role="tablist" aria-label="Viewer tabs">
@@ -26,6 +28,34 @@
       <div class="sidebarPanel">
         <div class="tabpanel active" data-panel="graph" role="tabpanel">
           <h2>Graph</h2>
+
+          <div class="muted">Controls are in the top bar. Shortcuts: <span class="kbd">g</span>raph, <span class="kbd">p</span>eople, <span class="kbd">e</span>vents, <span class="kbd">m</span>ap.</div>
+        </div>
+
+        <div class="tabpanel" data-panel="people" role="tabpanel">
+          <h2>People</h2>
+          <div class="muted">Coming next: surname-grouped list synced to selection.</div>
+        </div>
+
+        <div class="tabpanel" data-panel="events" role="tabpanel">
+          <h2>Events</h2>
+          <div class="muted">Coming next: timeline/search filters.</div>
+        </div>
+
+        <div class="tabpanel" data-panel="map" role="tabpanel">
+          <h2>Map</h2>
+          <div class="muted">Coming next: map markers from event locations.</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="right" id="canvas">
+      <header class="topbar">
+        <div class="row">
+          <div class="brand">
+            <h1>Relationship Chart</h1>
+            <div class="sub">Graphviz WASM</div>
+          </div>
 
           <div class="controls">
             <label>
@@ -50,26 +80,11 @@
 
           <div id="status" class="status">Ready.</div>
         </div>
+      </header>
 
-        <div class="tabpanel" data-panel="people" role="tabpanel">
-          <h2>People</h2>
-          <div class="muted">Coming next: surname-grouped list synced to selection.</div>
-        </div>
-
-        <div class="tabpanel" data-panel="events" role="tabpanel">
-          <h2>Events</h2>
-          <div class="muted">Coming next: timeline/search filters.</div>
-        </div>
-
-        <div class="tabpanel" data-panel="map" role="tabpanel">
-          <h2>Map</h2>
-          <div class="muted">Coming next: map markers from event locations.</div>
-        </div>
+      <div class="canvas">
+        <div id="chart" class="chart" aria-label="relationship chart"></div>
       </div>
-    </aside>
-
-    <main class="canvas" id="canvas">
-      <div id="chart" class="chart" aria-label="relationship chart"></div>
     </main>
   </div>
 
@@ -78,6 +93,7 @@
     (function () {
       const tabButtons = Array.from(document.querySelectorAll('.tabbtn[data-tab]'));
       const tabPanels = Array.from(document.querySelectorAll('.tabpanel[data-panel]'));
+      const themeToggleEl = document.getElementById('themeToggle');
 
       function setActiveTab(tabName) {
         for (const b of tabButtons) {
@@ -102,6 +118,33 @@
         if (k === 'e') setActiveTab('events');
         if (k === 'm') setActiveTab('map');
       });
+
+      const THEME_KEY = 'tree_relchart_theme_v1';
+      const getTheme = () => {
+        try {
+          const t = String(localStorage.getItem(THEME_KEY) || '').trim().toLowerCase();
+          return (t === 'dark' || t === 'light') ? t : 'light';
+        } catch {
+          return 'light';
+        }
+      };
+      const setTheme = (theme) => {
+        const t = (theme === 'dark') ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+        if (themeToggleEl) {
+          themeToggleEl.textContent = (t === 'light') ? 'Light' : 'Dark';
+          themeToggleEl.title = (t === 'light') ? 'Switch to dark theme' : 'Switch to light theme';
+        }
+        try { localStorage.setItem(THEME_KEY, t); } catch {}
+      };
+
+      setTheme(getTheme());
+      if (themeToggleEl) {
+        themeToggleEl.addEventListener('click', () => {
+          const next = (document.documentElement.dataset.theme === 'light') ? 'dark' : 'light';
+          setTheme(next);
+        });
+      }
     })();
   </script>
 </body>
