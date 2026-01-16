@@ -599,6 +599,10 @@
   let gvPanZoom = null;
   let lastPayload = null;
 
+  // D3 layout stability: keep prior positions so expansions don't reshuffle the whole graph.
+  let d3LastRootRef = null;
+  let d3LastPositions = new Map(); // id -> {x, y}
+
   const optShowIdsEl = document.getElementById('optShowIds');
   const optShowDistanceEl = document.getElementById('optShowDistance');
   const optCouplePriorityEl = document.getElementById('optCouplePriority');
@@ -1872,6 +1876,15 @@
     const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
     const edges = Array.isArray(payload?.edges) ? payload.edges : [];
 
+    // Reset stability cache when the root changes (re-center).
+    try {
+      const rootRef = String(payload?.root || requestedGrampsId || '').trim();
+      if (rootRef && rootRef !== d3LastRootRef) {
+        d3LastRootRef = rootRef;
+        d3LastPositions = new Map();
+      }
+    } catch (_) {}
+
     const hiddenParentFamiliesByPersonId = computeHiddenParentFamiliesByPersonId(payload);
     const hiddenChildFamiliesByPersonId = computeHiddenChildFamiliesByPersonId(payload);
 
@@ -1985,8 +1998,8 @@
     const boxWidth = 144;
     const boxHeight = 79;
     const hubRadius = 10;
-    const gapX = 30;
-    const gapY = 72;
+    const gapX = 18;
+    const gapY = 92;
     const hubDy = Math.round(Math.max(8, Math.min(34, boxHeight * 0.35)));
     // Use a slight overlap instead of a gap so cards visually touch the hub.
     const touchEps = 0.6;
@@ -2009,50 +2022,79 @@
       return;
     }
 
-    const gD = new window.dagre.graphlib.Graph({ multigraph: true });
-    gD.setGraph({
+    const baseGraphOpts = {
       rankdir: 'TB',
       nodesep: gapX,
       ranksep: gapY,
-      marginx: 80,
-      marginy: 60,
-    });
-    gD.setDefaultEdgeLabel(() => ({}));
+      marginx: 40,
+      marginy: 40,
+    };
 
-    // Nodes
-    for (const [pid] of peopleById.entries()) {
-      gD.setNode(pid, { width: boxWidth, height: boxHeight, kind: 'person' });
-    }
-    for (const [fid] of familiesById.entries()) {
-      if (!familyIsVisible(fid)) continue;
-      // Small node for hub; we will position it between spouses after layout.
-      gD.setNode(fid, { width: hubRadius * 2 + 6, height: hubRadius * 2 + 6, kind: 'family' });
-    }
+    const preferredGraphOpts = {
+      ...baseGraphOpts,
+      // These options can reduce crossings, but dagre can throw on some cyclic-ish graphs.
+      ranker: 'tight-tree',
+      acyclicer: 'greedy',
+    };
 
-    // Edges
-    let edgeSeq = 0;
-    for (const e of edges) {
-      if (!e || !e.type) continue;
-      if (e.type === 'parent') {
-        const from = String(e.from || '');
-        const to = String(e.to || '');
-        if (!peopleById.has(from) || !familyIsVisible(to)) continue;
-        gD.setEdge(from, to, { minlen: 0, weight: 6, type: 'parent' }, `e${edgeSeq++}`);
-      } else if (e.type === 'child') {
-        const from = String(e.from || '');
-        const to = String(e.to || '');
-        if (!familyIsVisible(from) || !peopleById.has(to)) continue;
-        gD.setEdge(from, to, { minlen: 2, weight: 10, type: 'child' }, `e${edgeSeq++}`);
-      } else if (e.type === 'single_parent') {
-        const from = String(e.from || '');
-        const to = String(e.to || '');
-        if (!peopleById.has(from) || !peopleById.has(to)) continue;
-        gD.setEdge(from, to, { minlen: 2, weight: 10, type: 'single_parent' }, `e${edgeSeq++}`);
+    const buildDagreGraph = (graph) => {
+      graph.setDefaultEdgeLabel(() => ({}));
+
+      // Nodes
+      for (const [pid] of peopleById.entries()) {
+        graph.setNode(pid, { width: boxWidth, height: boxHeight, kind: 'person' });
+      }
+      for (const [fid] of familiesById.entries()) {
+        if (!familyIsVisible(fid)) continue;
+        graph.setNode(fid, { width: hubRadius * 2 + 6, height: hubRadius * 2 + 6, kind: 'family' });
+      }
+
+      // Edges
+      let edgeSeq = 0;
+      for (const e of edges) {
+        if (!e || !e.type) continue;
+        if (e.type === 'parent') {
+          const from = String(e.from || '');
+          const to = String(e.to || '');
+          if (!from || !to || from === to) continue;
+          if (!peopleById.has(from) || !familyIsVisible(to)) continue;
+          graph.setEdge(from, to, { minlen: 0, weight: 6, type: 'parent' }, `e${edgeSeq++}`);
+        } else if (e.type === 'child') {
+          const from = String(e.from || '');
+          const to = String(e.to || '');
+          if (!from || !to || from === to) continue;
+          if (!familyIsVisible(from) || !peopleById.has(to)) continue;
+          graph.setEdge(from, to, { minlen: 2, weight: 10, type: 'child' }, `e${edgeSeq++}`);
+        } else if (e.type === 'single_parent') {
+          const from = String(e.from || '');
+          const to = String(e.to || '');
+          if (!from || !to || from === to) continue;
+          if (!peopleById.has(from) || !peopleById.has(to)) continue;
+          graph.setEdge(from, to, { minlen: 2, weight: 10, type: 'single_parent' }, `e${edgeSeq++}`);
+        }
+      }
+    };
+
+    const tryLayout = (opts) => {
+      const graph = new window.dagre.graphlib.Graph({ multigraph: true });
+      graph.setGraph(opts);
+      buildDagreGraph(graph);
+      window.dagre.layout(graph);
+      return graph;
+    };
+
+    let gD;
+    try {
+      gD = tryLayout(preferredGraphOpts);
+    } catch (err) {
+      console.warn('Dagre layout failed; retrying with safer options.', err);
+      try {
+        gD = tryLayout(baseGraphOpts);
+      } catch (err2) {
+        console.error('Dagre layout failed even with safe options.', err2);
+        throw err;
       }
     }
-
-    // Layout
-    window.dagre.layout(gD);
 
     // Positions
     const pos = new Map();
@@ -2060,6 +2102,157 @@
       const n = gD.node(id);
       if (!n) continue;
       pos.set(String(id), { x: Number(n.x) || 0, y: Number(n.y) || 0, w: Number(n.width) || 0, h: Number(n.height) || 0 });
+    }
+
+    // ------------------------------------------------------------------------
+    // Deterministic vertical placement: compute *signed generations* from the
+    // center person so ancestors are above and descendants below.
+    // (Using undirected BFS distance mixes parents + children into the same row.)
+    // ------------------------------------------------------------------------
+    const stepY = (boxHeight + gapY);
+    const yForGen = (g) => Number(g) * stepY;
+
+    const computeSignedGenerations = (centerPid) => {
+      const gen = new Map();
+      const center = String(centerPid || '').trim();
+      if (!center || !peopleById.has(center)) return gen;
+
+      // Build full family parent/child maps (including hidden cutoff hubs),
+      // so generation inference remains correct even if we don't render a hub.
+      const famParentsAll = new Map();
+      const famChildrenAll = new Map();
+      for (const e of edges) {
+        if (!e || !e.type) continue;
+        if (e.type === 'parent') {
+          const pid = String(e.from || '');
+          const fid = String(e.to || '');
+          if (!pid || !fid) continue;
+          if (!peopleById.has(pid) || !familiesById.has(fid)) continue;
+          const s = famParentsAll.get(fid) || new Set();
+          s.add(pid);
+          famParentsAll.set(fid, s);
+        } else if (e.type === 'child') {
+          const fid = String(e.from || '');
+          const cid = String(e.to || '');
+          if (!fid || !cid) continue;
+          if (!familiesById.has(fid) || !peopleById.has(cid)) continue;
+          const s = famChildrenAll.get(fid) || new Set();
+          s.add(cid);
+          famChildrenAll.set(fid, s);
+        }
+      }
+
+      const parentFamiliesByPersonAll = new Map();
+      const childFamiliesByPersonAll = new Map();
+      for (const [fid, pset] of famParentsAll.entries()) {
+        for (const pid of pset) {
+          const arr = parentFamiliesByPersonAll.get(pid) || [];
+          arr.push(fid);
+          parentFamiliesByPersonAll.set(pid, arr);
+        }
+      }
+      for (const [fid, cset] of famChildrenAll.entries()) {
+        for (const cid of cset) {
+          const arr = childFamiliesByPersonAll.get(cid) || [];
+          arr.push(fid);
+          childFamiliesByPersonAll.set(cid, arr);
+        }
+      }
+
+      const q = [center];
+      gen.set(center, 0);
+
+      const maybeSet = (pid, g) => {
+        const id = String(pid || '').trim();
+        if (!id) return;
+        if (!peopleById.has(id)) return;
+        const ng = Number(g);
+        if (!Number.isFinite(ng)) return;
+        const cur = gen.get(id);
+        if (cur === undefined) {
+          gen.set(id, ng);
+          q.push(id);
+          return;
+        }
+        if (Math.abs(ng) < Math.abs(cur)) {
+          gen.set(id, ng);
+          q.push(id);
+        }
+      };
+
+      // BFS with signed generation deltas.
+      // - spouse/sibling: delta 0
+      // - parent: delta -1
+      // - child: delta +1
+      let guard = 0;
+      while (q.length && guard++ < 200000) {
+        const pid = q.shift();
+        const g0 = gen.get(pid);
+        if (g0 === undefined) continue;
+
+        // Families where pid is a parent.
+        for (const fid of (parentFamiliesByPersonAll.get(pid) || [])) {
+          const parents = [...(famParentsAll.get(fid) || [])];
+          const children = [...(famChildrenAll.get(fid) || [])];
+          for (const sp of parents) {
+            if (String(sp) !== String(pid)) maybeSet(sp, g0);
+          }
+          for (const cid of children) {
+            maybeSet(cid, g0 + 1);
+          }
+        }
+
+        // Families where pid is a child.
+        for (const fid of (childFamiliesByPersonAll.get(pid) || [])) {
+          const parents = [...(famParentsAll.get(fid) || [])];
+          const children = [...(famChildrenAll.get(fid) || [])];
+          for (const par of parents) {
+            maybeSet(par, g0 - 1);
+          }
+          for (const sib of children) {
+            if (String(sib) !== String(pid)) maybeSet(sib, g0);
+          }
+        }
+      }
+
+      return gen;
+    };
+
+    const genByPersonId = computeSignedGenerations(centerPersonId);
+
+    // Apply stable Y to people based on signed generation.
+    for (const [pid] of peopleById.entries()) {
+      const p = pos.get(pid);
+      if (!p) continue;
+      const g = genByPersonId.get(pid);
+      if (g === undefined) continue;
+      p.y = yForGen(g);
+    }
+
+    // Put family hubs near their parents' generation (slightly below spouse row).
+    for (const [fid] of familiesById.entries()) {
+      if (!familyIsVisible(fid)) continue;
+      const hub = pos.get(fid);
+      if (!hub) continue;
+      const pset = famParents.get(fid);
+      if (!pset || !pset.size) continue;
+      const gens = [...pset].map(pid => genByPersonId.get(String(pid))).filter(g => g !== undefined);
+      if (!gens.length) continue;
+      const parentGen = Math.min(...gens);
+      hub.y = yForGen(parentGen) + hubDy;
+    }
+
+    // ------------------------------------------------------------------------
+    // Layout stability across expansions: smooth x positions for existing nodes.
+    // Keeps the mental map and reduces new crossings caused by global reshuffles.
+    // ------------------------------------------------------------------------
+    const SMOOTH_ALPHA = 0.62; // weight of previous position (lower => more reshuffle to reduce crossings)
+    for (const [id, p] of pos.entries()) {
+      const prev = d3LastPositions.get(id);
+      if (!prev) continue;
+      if (Number.isFinite(prev.x) && Number.isFinite(p.x)) {
+        p.x = prev.x * SMOOTH_ALPHA + p.x * (1 - SMOOTH_ALPHA);
+      }
     }
 
     // Helpers for snapping + overlap resolution.
@@ -2307,6 +2500,283 @@
       }
     }
 
+    // 4) Pull children (and their downstream subtrees) under their birth-family hub.
+    // This avoids pathological long edges where a parent is at one extreme and
+    // their children end up on the opposite extreme of the next row.
+    const getDownstreamBlockIds = (rootPid) => {
+      const root = String(rootPid || '').trim();
+      if (!root) return [];
+      if (!peopleById.has(root)) return [];
+
+      const maxIds = 260;
+      const ids = new Set([root]);
+      const q = [root];
+      const visitedFamilies = new Set();
+
+      let guard = 0;
+      while (q.length && guard++ < 200000) {
+        const pid = q.shift();
+        const fams = parentFamiliesByPerson.get(pid) || [];
+        for (const fid of fams) {
+          const f = String(fid || '').trim();
+          if (!f || !familyIsVisible(f)) continue;
+          if (visitedFamilies.has(f)) continue;
+          visitedFamilies.add(f);
+          ids.add(f);
+
+          const parents = famParents.get(f) || new Set();
+          for (const sp of parents) {
+            const sid = String(sp || '').trim();
+            if (!sid || !peopleById.has(sid)) continue;
+            if (!ids.has(sid)) {
+              ids.add(sid);
+              q.push(sid);
+              if (ids.size >= maxIds) return [...ids];
+            }
+          }
+
+          const children = famChildren.get(f) || new Set();
+          for (const cid of children) {
+            const c = String(cid || '').trim();
+            if (!c || !peopleById.has(c)) continue;
+            if (!ids.has(c)) {
+              ids.add(c);
+              q.push(c);
+              if (ids.size >= maxIds) return [...ids];
+            }
+          }
+        }
+        if (ids.size >= maxIds) break;
+      }
+      return [...ids];
+    };
+
+    const stepXChildren = Math.max(boxWidth + gapX, 140);
+    for (const [fid, cset] of famChildren.entries()) {
+      const hub = pos.get(fid);
+      if (!hub) continue;
+      const children = [...(cset || new Set())].map(cid => String(cid)).filter(cid => pos.get(cid));
+      if (!children.length) continue;
+
+      children.sort((a, b) => (pos.get(a).x - pos.get(b).x));
+
+      const centerX = hub.x;
+      const n = children.length;
+      for (let i = 0; i < n; i++) {
+        const cid = children[i];
+        const childPos = pos.get(cid);
+        if (!childPos) continue;
+        const targetX = centerX + (i - (n - 1) / 2) * stepXChildren;
+        const dx = targetX - childPos.x;
+        if (!Number.isFinite(dx) || Math.abs(dx) < 0.01) continue;
+
+        const blockIds = getDownstreamBlockIds(cid);
+        shiftIds(blockIds, dx, 0);
+      }
+    }
+
+    // 5) After shifting child subtrees, couple rows can overlap and/or end up with
+    // excessive whitespace. Compact by shifting whole family blocks together.
+    // IMPORTANT: never move a hub/person independently of its block.
+    try {
+      const SIBLING_PAD_X = 14;
+      const UNRELATED_PAD_X = 34;
+
+      const getFamilyBlockIds = (fid) => {
+        const f = String(fid || '').trim();
+        if (!f) return [];
+        if (!familyIsVisible(f)) return [];
+
+        const ids = new Set([f]);
+        const parents = famParents.get(f) || new Set();
+        const children = famChildren.get(f) || new Set();
+
+        for (const pid of parents) ids.add(String(pid));
+        for (const cid of children) {
+          const c = String(cid);
+          ids.add(c);
+          for (const x of getDownstreamBlockIds(c)) ids.add(String(x));
+        }
+
+        return [...ids];
+      };
+
+      // Disjoint-set union for merging families that share a spouse in the same band.
+      class DSU {
+        constructor(n) {
+          this.p = Array.from({ length: n }, (_v, i) => i);
+          this.r = Array.from({ length: n }, () => 0);
+        }
+        find(x) {
+          while (this.p[x] !== x) {
+            this.p[x] = this.p[this.p[x]];
+            x = this.p[x];
+          }
+          return x;
+        }
+        union(a, b) {
+          let ra = this.find(a);
+          let rb = this.find(b);
+          if (ra === rb) return;
+          if (this.r[ra] < this.r[rb]) {
+            const t = ra; ra = rb; rb = t;
+          }
+          this.p[rb] = ra;
+          if (this.r[ra] === this.r[rb]) this.r[ra]++;
+        }
+      }
+
+      // Build per-band family items using only the couple-row geometry for sorting/packing,
+      // but shift the entire family block (including descendants) when moved.
+      const familiesByBand = new Map();
+      for (const [fid] of familiesById.entries()) {
+        if (!familyIsVisible(fid)) continue;
+        const pset = famParents.get(fid);
+        if (!pset || pset.size < 2) continue;
+        const hub = pos.get(fid);
+        if (!hub) continue;
+
+        const parents = [...pset]
+          .map(x => String(x))
+          .filter(pid => peopleById.has(pid) && pos.get(pid));
+        if (parents.length < 2) continue;
+
+        const rowIds = [String(fid), parents[0], parents[1]];
+        const rowInterval = computeIntervalForIds(rowIds);
+        if (!rowInterval) continue;
+
+        const bandKey = bandKeyForY(hub.y);
+        const arr = familiesByBand.get(bandKey) || [];
+        arr.push({ fid: String(fid), bandKey, rowIds, rowMinX: rowInterval.minX, rowMaxX: rowInterval.maxX });
+        familiesByBand.set(bandKey, arr);
+      }
+
+      // Birth-family mapping for sibling proximity (child -> family).
+      const birthFamilyByPerson = new Map();
+      for (const [fid, cset] of famChildren.entries()) {
+        if (!familyIsVisible(fid)) continue;
+        for (const cid of (cset || new Set())) {
+          const c = String(cid);
+          if (!c) continue;
+          if (!birthFamilyByPerson.has(c)) birthFamilyByPerson.set(c, String(fid));
+        }
+      }
+
+      // Pack each band: merge items that share a spouse (so a person in multiple
+      // marriages isn't shifted twice), then pack left-to-right.
+      for (const [bandKey, famItems] of familiesByBand.entries()) {
+        if (!Array.isArray(famItems) || famItems.length < 2) continue;
+
+        const dsu = new DSU(famItems.length);
+        const personToFirst = new Map();
+        for (let i = 0; i < famItems.length; i++) {
+          const it = famItems[i];
+          for (const pid of it.rowIds) {
+            if (!peopleById.has(pid)) continue;
+            const prev = personToFirst.get(pid);
+            if (prev === undefined) personToFirst.set(pid, i);
+            else dsu.union(i, prev);
+          }
+        }
+
+        const mergedByRoot = new Map();
+        for (let i = 0; i < famItems.length; i++) {
+          const root = dsu.find(i);
+          const it = famItems[i];
+          const m = mergedByRoot.get(root) || {
+            kind: 'block',
+            fids: [],
+            rowIds: new Set(),
+            moveIds: new Set(),
+          };
+
+          m.fids.push(it.fid);
+          for (const rid of it.rowIds) m.rowIds.add(String(rid));
+          for (const id of getFamilyBlockIds(it.fid)) m.moveIds.add(String(id));
+          mergedByRoot.set(root, m);
+        }
+
+        // Couple blocks (merged).
+        const coupleBlocks = [];
+        const idsInCoupleRow = new Set();
+        for (const b of mergedByRoot.values()) {
+          const rowInterval = computeIntervalForIds(b.rowIds);
+          if (!rowInterval) continue;
+          const siblingKeys = new Set();
+          for (const rid of b.rowIds) {
+            const sid = String(rid);
+            idsInCoupleRow.add(sid);
+            if (peopleById.has(sid)) {
+              const bf = birthFamilyByPerson.get(sid);
+              if (bf) siblingKeys.add(String(bf));
+            }
+          }
+          coupleBlocks.push({
+            kind: 'couple',
+            minX: rowInterval.minX,
+            maxX: rowInterval.maxX,
+            moveIds: b.moveIds,
+            siblingKeys,
+          });
+        }
+
+        // Solo nodes in this band that are not part of any couple row.
+        const soloBlocks = [];
+        for (const [id, p] of pos.entries()) {
+          const sid = String(id);
+          if (!p) continue;
+          if (bandKeyForY(p.y) !== bandKey) continue;
+          if (idsInCoupleRow.has(sid)) continue;
+
+          // Respect visibility for family hubs.
+          if (familiesById.has(sid) && !familyIsVisible(sid)) continue;
+
+          const w = getIdWidth(sid);
+          const siblingKeys = new Set();
+          if (peopleById.has(sid)) {
+            const bf = birthFamilyByPerson.get(sid);
+            if (bf) siblingKeys.add(String(bf));
+          }
+          soloBlocks.push({
+            kind: 'solo',
+            minX: p.x - w / 2,
+            maxX: p.x + w / 2,
+            moveIds: new Set([sid]),
+            siblingKeys,
+          });
+        }
+
+        const items = coupleBlocks.concat(soloBlocks);
+        if (items.length < 2) continue;
+        items.sort((a, b) => (a.minX - b.minX));
+
+        const sharesSiblingKey = (a, b) => {
+          if (!a?.siblingKeys?.size || !b?.siblingKeys?.size) return false;
+          for (const k of a.siblingKeys) {
+            if (b.siblingKeys.has(k)) return true;
+          }
+          return false;
+        };
+
+        let cursor = -Infinity;
+        let prev = null;
+        for (const it of items) {
+          const gap = prev ? (sharesSiblingKey(prev, it) ? SIBLING_PAD_X : UNRELATED_PAD_X) : 0;
+          const minAllowed = Number.isFinite(cursor) ? (cursor + gap) : it.minX;
+          const dx = minAllowed - it.minX;
+          if (Number.isFinite(dx) && dx > 0.01) {
+            shiftIds(it.moveIds, dx, 0);
+            it.minX += dx;
+            it.maxX += dx;
+          }
+          cursor = Math.max(cursor, it.maxX);
+          prev = it;
+        }
+      }
+    } catch (_) {
+      // Best-effort; don't block rendering.
+    }
+
     // Compute viewBox bounds
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const [id, p] of pos.entries()) {
@@ -2323,7 +2793,7 @@
       return;
     }
 
-    const pad = 120;
+    const pad = 70;
     const vbX = minX - pad;
     const vbY = minY - pad;
     const vbW = (maxX - minX) + pad * 2;
@@ -2798,6 +3268,16 @@
         .attr('font-size', 10)
         .text('⚭');
     }
+
+    // Persist positions for next render (after all snapping/adjustments).
+    try {
+      const next = new Map();
+      for (const [id, p] of pos.entries()) {
+        if (!p) continue;
+        next.set(String(id), { x: Number(p.x) || 0, y: Number(p.y) || 0 });
+      }
+      d3LastPositions = next;
+    } catch (_) {}
   }
 
   // ============================================================================
