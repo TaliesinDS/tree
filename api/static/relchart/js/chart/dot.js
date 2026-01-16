@@ -190,6 +190,10 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
   lines.push('  splines=polyline;');
   // Keep same-rank spacing tight so spouse ↔ hub can sit flush.
   lines.push('  nodesep=0;');
+  // Reduce built-in separation buffers so hub and spouse cards can get closer.
+  // (DOT still avoids overlaps; this mainly removes extra whitespace padding.)
+  lines.push('  sep="+0.0,+0.0";');
+  lines.push('  esep="+0.0,+0.0";');
   lines.push('  ranksep=0.50;');
   lines.push('  pad=0.05;');
   lines.push('  graph [fontname="Inter, Segoe UI, Arial"];');
@@ -263,6 +267,7 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
         lines.push('    style=invis;');
         lines.push('    color=white;');
         lines.push('    label=".";');
+        lines.push('    margin=0;');
         lines.push('    rank=same;');
         lines.push('    ordering=out;');
         lines.push(`    ${dotId(fa)}; ${dotId(fid)}; ${dotId(mo)};`);
@@ -344,7 +349,10 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
       // as a rank constraint (we want hub and spouses on the same row).
       const hasTwoParents = !!(famFather.get(to) && famMother.get(to));
       if (hasTwoParents) {
-        lines.push(`  ${dotId(from)} -> ${dotId(to)} [constraint=false, weight=3, minlen=0];`);
+        // Regular families: hide hub↔spouse connector lines.
+        // Keep it as a (weak) non-constraint edge so the graph remains connected
+        // for DOT heuristics, but don't render it.
+        lines.push(`  ${dotId(from)} -> ${dotId(to)} [constraint=false, weight=3, minlen=0, style=invis];`);
       } else {
         lines.push(`  ${dotId(from)} -> ${dotId(to)};`);
       }

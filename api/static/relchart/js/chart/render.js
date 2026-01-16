@@ -145,6 +145,18 @@ function postProcessGraphvizSvg(svg, {
       const isHub = (labelText === '⚭') || (fill === '#9d7bff');
       if (!isHub) continue;
 
+      // Close the tiny visual gap between hub and spouse cards.
+      // Do this in SVG postprocess so it won't affect overall Graphviz spacing.
+      try {
+        const rx0 = Number(ellipse.getAttribute('rx'));
+        const ry0 = Number(ellipse.getAttribute('ry'));
+        if (Number.isFinite(rx0) && Number.isFinite(ry0) && rx0 > 0 && ry0 > 0) {
+          const bump = 3; // px-ish in Graphviz SVG units
+          ellipse.setAttribute('rx', String(rx0 + bump));
+          ellipse.setAttribute('ry', String(ry0 + bump));
+        }
+      } catch (_) {}
+
       let dy = 0;
       try {
         if (typicalPersonCardHeight && typeof ellipse.getBBox === 'function') {
