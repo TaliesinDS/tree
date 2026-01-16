@@ -133,6 +133,7 @@ function postProcessGraphvizSvg(svg, {
 
   // --- Family hubs (⚭): detect only (do not move) ---
   try {
+    const hubNodes = [];
     for (const node of nodes) {
       const ellipse = node.querySelector('ellipse');
       if (!ellipse) continue;
@@ -144,6 +145,8 @@ function postProcessGraphvizSvg(svg, {
       const fill = (ellipse.getAttribute('fill') || '').trim().toLowerCase();
       const isHub = (labelText === '⚭') || (fill === '#9d7bff');
       if (!isHub) continue;
+
+      hubNodes.push(node);
 
       // Close the tiny visual gap between hub and spouse cards.
       // Do this in SVG postprocess so it won't affect overall Graphviz spacing.
@@ -189,6 +192,16 @@ function postProcessGraphvizSvg(svg, {
       familyHubDyById.set(title, dy);
       familyHubDxById.set(title, 0);
     }
+
+    // Ensure hubs are painted above person cards.
+    // Some nodes can overlap after we enlarge/lower hubs; SVG z-order is DOM order.
+    // Moving hubs to the end of their parent group brings them to the front.
+    try {
+      for (const node of hubNodes) {
+        const parent = node.parentNode;
+        if (parent && parent.appendChild) parent.appendChild(node);
+      }
+    } catch (_) {}
   } catch (_) {}
 
   // --- Person cards: paint Gramps-like rim + add expand affordances ---
