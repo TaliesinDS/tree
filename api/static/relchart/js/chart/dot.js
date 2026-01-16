@@ -17,6 +17,8 @@ function htmlEsc(s) {
 const PERSON_CARD_WIDTH_IN = 1.60;
 const PERSON_CARD_HEIGHT_IN = 1.10;
 
+const RANKSEP_IN = 1.75;
+
 function wrapTextLines(text, { maxCharsPerLine = 24, maxLines = 2 } = {}) {
   const raw = String(text ?? '').trim();
   if (!raw) return [''];
@@ -194,7 +196,7 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
   // (DOT still avoids overlaps; this mainly removes extra whitespace padding.)
   lines.push('  sep="+0.0,+0.0";');
   lines.push('  esep="+0.0,+0.0";');
-  lines.push('  ranksep=0.50;');
+  lines.push(`  ranksep=${RANKSEP_IN};`);
   lines.push('  pad=0.05;');
   lines.push('  graph [fontname="Inter, Segoe UI, Arial"];');
   lines.push('  node [fontname="Inter, Segoe UI, Arial", fontsize=10, color="#2a3446"];');

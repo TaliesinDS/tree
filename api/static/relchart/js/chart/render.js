@@ -6,6 +6,8 @@ import {
 } from './payload.js';
 import { buildRelationshipDot } from './dot.js';
 
+const HUB_EXTRA_LOWER_PX = 6;
+
 function reorderGraphvizLayers(svg) {
   const containers = Array.from(svg.querySelectorAll('g')).filter(g => {
     const kids = Array.from(g.children);
@@ -172,6 +174,8 @@ function postProcessGraphvizSvg(svg, {
           }
         }
       } catch (_) {}
+
+      if (dy > 0) dy += HUB_EXTRA_LOWER_PX;
 
       // Apply translation to move hub lower.
       try {
