@@ -12,6 +12,7 @@
       --text: #e8eefc;
       --muted: #a6b4d6;
       --accent: #7aa2ff;
+      --accent2: #7ce38b;
       --danger: #ff6b6b;
       --border: rgba(255,255,255,0.08);
       --shadow: 0 12px 32px rgba(0,0,0,0.45);
@@ -29,6 +30,7 @@
       --text: #343434;
       --muted: #706E66;
       --accent: #afa58f;
+      --accent2: #7fbf85;
       --border: #e9dcbe;
       --shadow: 0 6px 18px rgba(0,0,0,0.10);
       --canvas-bg: #f4f2f3;
@@ -963,6 +965,150 @@
     return { ...payload, nodes: newNodes, edges: newEdges };
   }
 
+  function mergeGraphPayload(base, delta) {
+    const out = {
+      ...(base || {}),
+      nodes: [],
+      edges: [],
+    };
+
+    const nodesById = new Map();
+    for (const n of (base?.nodes || [])) {
+      if (n?.id) nodesById.set(String(n.id), n);
+    }
+    for (const n of (delta?.nodes || [])) {
+      if (n?.id) nodesById.set(String(n.id), n);
+    }
+    out.nodes = [...nodesById.values()];
+
+    const edgeKey = (e) => {
+      const from = String(e?.from || '');
+      const to = String(e?.to || '');
+      const type = String(e?.type || '');
+      const role = String(e?.role || '');
+      return `${from}|${to}|${type}|${role}`;
+    };
+    const edgesByKey = new Map();
+    for (const e of (base?.edges || [])) {
+      edgesByKey.set(edgeKey(e), e);
+    }
+    for (const e of (delta?.edges || [])) {
+      edgesByKey.set(edgeKey(e), e);
+    }
+    out.edges = [...edgesByKey.values()];
+
+    return out;
+  }
+
+  function computeHiddenParentFamiliesByPersonId(payload) {
+    // A person has "hidden parents" when they are a child of a family hub that
+    // has no parent edges in the current payload (typically generation cutoff).
+    const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
+    const edges = Array.isArray(payload?.edges) ? payload.edges : [];
+
+    const personIds = new Set(nodes.filter(n => n?.type === 'person').map(n => String(n.id)));
+
+    const familyNodes = nodes.filter(n => n?.type === 'family');
+    const familyIds = new Set(familyNodes.map(n => String(n.id)));
+    if (!familyIds.size) return new Map();
+
+    const parentsTotalByFamily = new Map();
+    for (const n of familyNodes) {
+      const fid = String(n?.id || '');
+      if (!fid) continue;
+      const pt = Number(n?.parents_total);
+      if (Number.isFinite(pt) && pt >= 0) parentsTotalByFamily.set(fid, pt);
+    }
+
+    const hasAnyParentEdge = new Set();
+    for (const e of edges) {
+      if (e?.type !== 'parent') continue;
+      const fid = String(e.to || '');
+      const pid = String(e.from || '');
+      // Only consider parent edges that are renderable (parent person exists in payload).
+      if (fid && familyIds.has(fid) && pid && personIds.has(pid)) hasAnyParentEdge.add(fid);
+    }
+
+    const out = new Map();
+    for (const e of edges) {
+      if (e?.type !== 'child') continue;
+      const fid = String(e.from || '');
+      const cid = String(e.to || '');
+      if (!fid || !cid) continue;
+      if (!familyIds.has(fid)) continue;
+      if (!personIds.has(cid)) continue;
+
+      // If the family explicitly has no parents recorded, do not show an expand-up indicator.
+      const parentsTotal = parentsTotalByFamily.has(fid) ? parentsTotalByFamily.get(fid) : null;
+      if (parentsTotal !== null && Number.isFinite(parentsTotal) && parentsTotal <= 0) continue;
+
+      if (hasAnyParentEdge.has(fid)) continue;
+      const arr = out.get(cid) || [];
+      arr.push(fid);
+      out.set(cid, arr);
+    }
+    return out;
+  }
+
+  function computeHiddenChildFamiliesByPersonId(payload) {
+    // A person has "hidden children" if they are a parent of a family hub where
+    // (a) children_total is known and exceeds the number of currently present child edges, OR
+    // (b) (fallback) the payload indicates more children exist (has_more_children), OR
+    // (c) (fallback) the family hub currently has no child edges in the payload.
+    const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
+    const edges = Array.isArray(payload?.edges) ? payload.edges : [];
+
+    const personIds = new Set(nodes.filter(n => n?.type === 'person').map(n => String(n.id)));
+
+    const familyNodes = nodes.filter(n => n?.type === 'family');
+    const familyIds = new Set(familyNodes.map(n => String(n.id)));
+    if (!familyIds.size) return new Map();
+
+    const familyHasMoreChildren = new Set(familyNodes.filter(n => !!n?.has_more_children).map(n => String(n.id)));
+    const childrenTotalByFamily = new Map();
+    for (const n of familyNodes) {
+      const fid = String(n?.id || '');
+      if (!fid) continue;
+      const ct = Number(n?.children_total);
+      if (Number.isFinite(ct) && ct >= 0) childrenTotalByFamily.set(fid, ct);
+    }
+
+    const childEdgeCountByFamily = new Map();
+    for (const e of edges) {
+      if (e?.type !== 'child') continue;
+      const fid = String(e.from || '');
+      const cid = String(e.to || '');
+      if (!fid || !familyIds.has(fid)) continue;
+      if (!cid || !personIds.has(cid)) continue;
+      childEdgeCountByFamily.set(fid, (childEdgeCountByFamily.get(fid) || 0) + 1);
+    }
+
+    const out = new Map();
+    for (const e of edges) {
+      if (e?.type !== 'parent') continue;
+      const pid = String(e.from || '');
+      const fid = String(e.to || '');
+      if (!pid || !fid) continue;
+      if (!familyIds.has(fid)) continue;
+
+      const childEdgeCount = childEdgeCountByFamily.get(fid) || 0;
+      const childrenTotal = childrenTotalByFamily.has(fid) ? childrenTotalByFamily.get(fid) : null;
+
+      let needsExpand = false;
+      if (childrenTotal !== null && Number.isFinite(childrenTotal)) {
+        needsExpand = (childrenTotal > childEdgeCount);
+      } else {
+        needsExpand = familyHasMoreChildren.has(fid) || childEdgeCount === 0;
+      }
+      if (!needsExpand) continue;
+
+      const arr = out.get(pid) || [];
+      arr.push(fid);
+      out.set(pid, arr);
+    }
+    return out;
+  }
+
   function makeElements(payload) {
     const nodes = [];
     const edges = [];
@@ -1726,6 +1872,9 @@
     const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
     const edges = Array.isArray(payload?.edges) ? payload.edges : [];
 
+    const hiddenParentFamiliesByPersonId = computeHiddenParentFamiliesByPersonId(payload);
+    const hiddenChildFamiliesByPersonId = computeHiddenChildFamiliesByPersonId(payload);
+
     const peopleById = new Map();
     const familiesById = new Map();
     const famParents = new Map(); // fid -> Set(pid)
@@ -1737,13 +1886,73 @@
       if (n.type === 'family') familiesById.set(String(n.id), n);
     }
 
+    // Hide \"cutoff\" birth-family hubs (the empty ⚭ hub + line) when the
+    // parents are not in-view. The expand-up arrow on the child card replaces this.
+    // NOTE: This intentionally hides these hubs even when multiple children are
+    // connected (i.e., siblings will no longer be visually linked by a hub).
+    const hiddenCutoffFamilyHubs = (() => {
+      const familyIds = new Set(familiesById.keys());
+      if (!familyIds.size) return new Set();
+
+      const personIds = new Set(peopleById.keys());
+
+      const parentsTotalByFamily = new Map();
+      for (const [fid, fam] of familiesById.entries()) {
+        const pt = Number(fam?.parents_total);
+        if (Number.isFinite(pt)) parentsTotalByFamily.set(fid, pt);
+      }
+
+      const hasAnyParentEdge = new Set();
+      const visibleChildCountByFamily = new Map();
+
+      for (const e of edges) {
+        if (!e || !e.type) continue;
+
+        if (e.type === 'parent') {
+          const pid = String(e.from || '');
+          const fid = String(e.to || '');
+          if (!pid || !fid) continue;
+          if (!personIds.has(pid) || !familyIds.has(fid)) continue;
+          hasAnyParentEdge.add(fid);
+          continue;
+        }
+
+        if (e.type === 'child') {
+          const fid = String(e.from || '');
+          const cid = String(e.to || '');
+          if (!fid || !cid) continue;
+          if (!familyIds.has(fid) || !personIds.has(cid)) continue;
+          visibleChildCountByFamily.set(fid, (visibleChildCountByFamily.get(fid) || 0) + 1);
+        }
+      }
+
+      const out = new Set();
+      for (const fid of familyIds) {
+        if (hasAnyParentEdge.has(fid)) continue;
+
+        const pt = parentsTotalByFamily.has(fid) ? parentsTotalByFamily.get(fid) : null;
+        // If the family explicitly has no parents recorded, do not hide it.
+        if (pt !== null && Number.isFinite(pt) && pt <= 0) continue;
+
+        const childCount = visibleChildCountByFamily.get(fid) || 0;
+        if (childCount >= 1) out.add(fid);
+      }
+      return out;
+    })();
+
+    const familyIsVisible = (fid) => {
+      const f = String(fid || '');
+      if (!f) return false;
+      return familiesById.has(f) && !hiddenCutoffFamilyHubs.has(f);
+    };
+
     for (const e of edges) {
       if (!e || !e.type) continue;
       if (e.type === 'parent') {
         const pid = String(e.from || '');
         const fid = String(e.to || '');
         if (!pid || !fid) continue;
-        if (!peopleById.has(pid) || !familiesById.has(fid)) continue;
+        if (!peopleById.has(pid) || !familyIsVisible(fid)) continue;
         const s = famParents.get(fid) || new Set();
         s.add(pid);
         famParents.set(fid, s);
@@ -1751,7 +1960,7 @@
         const fid = String(e.from || '');
         const cid = String(e.to || '');
         if (!fid || !cid) continue;
-        if (!familiesById.has(fid) || !peopleById.has(cid)) continue;
+        if (!familyIsVisible(fid) || !peopleById.has(cid)) continue;
         const s = famChildren.get(fid) || new Set();
         s.add(cid);
         famChildren.set(fid, s);
@@ -1815,6 +2024,7 @@
       gD.setNode(pid, { width: boxWidth, height: boxHeight, kind: 'person' });
     }
     for (const [fid] of familiesById.entries()) {
+      if (!familyIsVisible(fid)) continue;
       // Small node for hub; we will position it between spouses after layout.
       gD.setNode(fid, { width: hubRadius * 2 + 6, height: hubRadius * 2 + 6, kind: 'family' });
     }
@@ -1826,12 +2036,12 @@
       if (e.type === 'parent') {
         const from = String(e.from || '');
         const to = String(e.to || '');
-        if (!peopleById.has(from) || !familiesById.has(to)) continue;
+        if (!peopleById.has(from) || !familyIsVisible(to)) continue;
         gD.setEdge(from, to, { minlen: 0, weight: 6, type: 'parent' }, `e${edgeSeq++}`);
       } else if (e.type === 'child') {
         const from = String(e.from || '');
         const to = String(e.to || '');
-        if (!familiesById.has(from) || !peopleById.has(to)) continue;
+        if (!familyIsVisible(from) || !peopleById.has(to)) continue;
         gD.setEdge(from, to, { minlen: 2, weight: 10, type: 'child' }, `e${edgeSeq++}`);
       } else if (e.type === 'single_parent') {
         const from = String(e.from || '');
@@ -2187,10 +2397,11 @@
       return { given: parts.slice(0, -1).join(' '), surname: parts[parts.length - 1] };
     };
 
-    const renderPersonCard = (person, x, y) => {
+    const renderPersonCard = (person, x, y, { hiddenParentFamilyId = '', hiddenChildFamilyId = '' } = {}) => {
       const cardG = g.append('g')
         .attr('class', 'node d3-node person-node')
         .attr('transform', `translate(${x}, ${y})`)
+        .attr('data-person-id', String(person?.id ?? ''))
         .style('cursor', 'pointer');
 
       const gid = person?.gramps_id ? String(person.gramps_id) : '';
@@ -2223,6 +2434,209 @@
       cardG.append('path').attr('d', dOuter).attr('fill', bodyBg).attr('stroke', 'none');
       cardG.append('path').attr('d', dOuter).attr('fill', rimColor).attr('stroke', 'none');
       cardG.append('path').attr('d', dInner).attr('fill', bodyBg).attr('stroke', 'none').attr('transform', `translate(0, ${rimH})`);
+
+      const stop = (ev) => {
+        try { ev?.preventDefault?.(); } catch (_) {}
+        try { ev?.stopPropagation?.(); } catch (_) {}
+      };
+
+      const expandParentsInPlace = async (ev) => {
+        stop(ev);
+        const pid = String(person?.id ?? '').trim();
+        if (!pid) return;
+        const familyId = String(hiddenParentFamilyId || '').trim();
+        if (!familyId) {
+          // Fallback: preserve legacy behavior.
+          if (gid) {
+            personIdEl.value = gid;
+            setStatus(`Centering on ${gid}...`);
+            document.getElementById('loadBtn').click();
+          }
+          return;
+        }
+
+        const vb = gvPanZoom?.getViewBox?.() || null;
+        const anchorBefore = { x: Number(x), y: Number(y) };
+
+        try {
+          const url = new URL('/graph/family/parents', window.location.origin);
+          url.searchParams.set('family_id', familyId);
+          url.searchParams.set('child_id', pid);
+          setStatus(`Expanding parents for ${familyId}...`);
+
+          const resp = await fetch(url.toString());
+          if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`HTTP ${resp.status}: ${text}`);
+          }
+          const deltaRaw = await resp.json();
+          const merged = mergeGraphPayload(lastPayload, deltaRaw);
+          lastPayload = rewriteSingleParentFamilies(merged);
+
+          await renderGraph(lastPayload);
+
+          if (vb) {
+            const svgAfter = gvEl.querySelector('svg');
+            const anchorAfter = (() => {
+              try {
+                if (!svgAfter) return null;
+                const esc = (window.CSS && typeof window.CSS.escape === 'function')
+                  ? window.CSS.escape
+                  : (s) => String(s).replace(/[^a-zA-Z0-9_\-]/g, '\\$&');
+                const el = svgAfter.querySelector(`g.person-node[data-person-id="${esc(pid)}"]`);
+                if (!el) return null;
+                const m = String(el.getAttribute('transform') || '').match(/translate\(\s*([-0-9.]+)[ ,]\s*([-0-9.]+)\s*\)/);
+                if (!m) return null;
+                const ax = Number(m[1]);
+                const ay = Number(m[2]);
+                if (![ax, ay].every(Number.isFinite)) return null;
+                return { x: ax, y: ay };
+              } catch (_) {
+                return null;
+              }
+            })();
+
+            if (anchorAfter) {
+              const dx = anchorAfter.x - anchorBefore.x;
+              const dy = anchorAfter.y - anchorBefore.y;
+              gvPanZoom?.setViewBox?.({ x: vb.x + dx, y: vb.y + dy, w: vb.w, h: vb.h });
+            } else {
+              gvPanZoom?.setViewBox?.(vb);
+            }
+          }
+
+          setStatus(`Expanded parents for ${familyId}.`);
+        } catch (err) {
+          console.error(err);
+          setStatus(String(err), true);
+        }
+      };
+
+      const expandChildrenInPlace = async (ev) => {
+        stop(ev);
+        const pid = String(person?.id ?? '').trim();
+        if (!pid) return;
+        const familyId = String(hiddenChildFamilyId || '').trim();
+        if (!familyId) return;
+
+        const vb = gvPanZoom?.getViewBox?.() || null;
+        const anchorBefore = { x: Number(x), y: Number(y) };
+
+        try {
+          const url = new URL('/graph/family/children', window.location.origin);
+          url.searchParams.set('family_id', familyId);
+          url.searchParams.set('include_spouses', 'true');
+          setStatus(`Expanding children for ${familyId}...`);
+
+          const resp = await fetch(url.toString());
+          if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`HTTP ${resp.status}: ${text}`);
+          }
+          const deltaRaw = await resp.json();
+          const merged = mergeGraphPayload(lastPayload, deltaRaw);
+          lastPayload = rewriteSingleParentFamilies(merged);
+
+          await renderGraph(lastPayload);
+
+          if (vb) {
+            const svgAfter = gvEl.querySelector('svg');
+            const anchorAfter = (() => {
+              try {
+                if (!svgAfter) return null;
+                const esc = (window.CSS && typeof window.CSS.escape === 'function')
+                  ? window.CSS.escape
+                  : (s) => String(s).replace(/[^a-zA-Z0-9_\-]/g, '\\$&');
+                const el = svgAfter.querySelector(`g.person-node[data-person-id="${esc(pid)}"]`);
+                if (!el) return null;
+                const m = String(el.getAttribute('transform') || '').match(/translate\(\s*([-0-9.]+)[ ,]\s*([-0-9.]+)\s*\)/);
+                if (!m) return null;
+                const ax = Number(m[1]);
+                const ay = Number(m[2]);
+                if (![ax, ay].every(Number.isFinite)) return null;
+                return { x: ax, y: ay };
+              } catch (_) {
+                return null;
+              }
+            })();
+
+            if (anchorAfter) {
+              const dx = anchorAfter.x - anchorBefore.x;
+              const dy = anchorAfter.y - anchorBefore.y;
+              gvPanZoom?.setViewBox?.({ x: vb.x + dx, y: vb.y + dy, w: vb.w, h: vb.h });
+            } else {
+              gvPanZoom?.setViewBox?.(vb);
+            }
+          }
+
+          setStatus(`Expanded children for ${familyId}.`);
+        } catch (err) {
+          console.error(err);
+          setStatus(String(err), true);
+        }
+      };
+
+      // Top clickable indicator for hidden parents.
+      if (hiddenParentFamilyId) {
+        const w = Math.max(18, Math.min(28, boxWidth * 0.22));
+        const tipH = 10;
+        const rise = 8;
+        const half = w / 2;
+        const yTop = cy;
+
+        const hit = cardG.append('polygon')
+          .attr('points', `${-half * 1.25},${yTop + 3} ${half * 1.25},${yTop + 3} ${half * 1.25},${yTop - (rise + tipH + 10)} ${-half * 1.25},${yTop - (rise + tipH + 10)}`)
+          .attr('fill', 'rgba(0,0,0,0.001)')
+          .attr('stroke', 'none')
+          .attr('data-hidden-parents-for', String(person?.id ?? ''))
+          .attr('data-hidden-parents-family', String(hiddenParentFamilyId))
+          .style('pointer-events', 'all');
+
+        hit.append('title').text('Has hidden parents (click to expand)');
+
+        hit.on('pointerdown', stop);
+        hit.on('click', expandParentsInPlace);
+
+        cardG.append('polygon')
+          .attr('points', `${-half},${yTop + 0.5} ${half},${yTop + 0.5} ${half * 0.70},${yTop - rise} 0,${yTop - (rise + tipH)} ${-half * 0.70},${yTop - rise}`)
+          .attr('fill', 'var(--accent)')
+          .attr('stroke', 'rgba(0,0,0,0.25)')
+          .attr('stroke-width', 1)
+          .attr('opacity', 0.90)
+          .style('filter', 'drop-shadow(0 1px 2px rgba(0,0,0,0.25))')
+          .style('pointer-events', 'none');
+      }
+
+      // Bottom clickable indicator for hidden children.
+      if (hiddenChildFamilyId) {
+        const w = Math.max(18, Math.min(28, boxWidth * 0.22));
+        const tipH = 10;
+        const drop = 8;
+        const half = w / 2;
+        const yBot = cy + boxHeight;
+
+        const hit = cardG.append('polygon')
+          .attr('points', `${-half * 1.25},${yBot - 3} ${half * 1.25},${yBot - 3} ${half * 1.25},${yBot + (drop + tipH + 12)} ${-half * 1.25},${yBot + (drop + tipH + 12)}`)
+          .attr('fill', 'rgba(0,0,0,0.001)')
+          .attr('stroke', 'none')
+          .attr('data-hidden-children-for', String(person?.id ?? ''))
+          .attr('data-hidden-children-family', String(hiddenChildFamilyId))
+          .style('pointer-events', 'all');
+
+        hit.append('title').text('Has hidden children (click to expand)');
+
+        hit.on('pointerdown', stop);
+        hit.on('click', expandChildrenInPlace);
+
+        cardG.append('polygon')
+          .attr('points', `${-half},${yBot - 0.5} ${half},${yBot - 0.5} ${half * 0.70},${yBot + drop} 0,${yBot + (drop + tipH)} ${-half * 0.70},${yBot + drop}`)
+          .attr('fill', 'var(--accent2)')
+          .attr('stroke', 'rgba(0,0,0,0.25)')
+          .attr('stroke-width', 1)
+          .attr('opacity', 0.85)
+          .style('filter', 'drop-shadow(0 1px 2px rgba(0,0,0,0.18))')
+          .style('pointer-events', 'none');
+      }
 
       const name = formatName(person);
       const textStartX = cx + 8;
@@ -2333,7 +2747,12 @@
     for (const [pid, person] of peopleById.entries()) {
       const p = pos.get(pid);
       if (!p) continue;
-      renderPersonCard(person, p.x, p.y);
+      const hiddenParents = hiddenParentFamiliesByPersonId.get(String(pid)) || [];
+      const hiddenChildren = hiddenChildFamiliesByPersonId.get(String(pid)) || [];
+      renderPersonCard(person, p.x, p.y, {
+        hiddenParentFamilyId: hiddenParents.length ? String(hiddenParents[0]) : '',
+        hiddenChildFamilyId: hiddenChildren.length ? String(hiddenChildren[0]) : '',
+      });
     }
 
     // Draw hubs last (above edges)
@@ -3513,118 +3932,8 @@
   }
 
   async function renderGraphvizSvg(payload) {
-    const hiddenParentFamiliesByPersonId = (() => {
-      // A person has "hidden parents" when they are a child of a family hub that
-      // has no parent edges in the current payload (typically generation cutoff).
-      const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
-      const edges = Array.isArray(payload?.edges) ? payload.edges : [];
-
-      const personIds = new Set(nodes.filter(n => n?.type === 'person').map(n => String(n.id)));
-
-      const familyNodes = nodes.filter(n => n?.type === 'family');
-      const familyIds = new Set(familyNodes.map(n => String(n.id)));
-      if (!familyIds.size) return new Set();
-
-      const parentsTotalByFamily = new Map();
-      for (const n of familyNodes) {
-        const fid = String(n?.id || '');
-        if (!fid) continue;
-        const pt = Number(n?.parents_total);
-        if (Number.isFinite(pt) && pt >= 0) parentsTotalByFamily.set(fid, pt);
-      }
-
-      const hasAnyParentEdge = new Set();
-      for (const e of edges) {
-        if (e?.type !== 'parent') continue;
-        const fid = String(e.to || '');
-        const pid = String(e.from || '');
-        // Only consider parent edges that are renderable (parent person exists in payload).
-        if (fid && familyIds.has(fid) && pid && personIds.has(pid)) hasAnyParentEdge.add(fid);
-      }
-
-      const out = new Map();
-      for (const e of edges) {
-        if (e?.type !== 'child') continue;
-        const fid = String(e.from || '');
-        const cid = String(e.to || '');
-        if (!fid || !cid) continue;
-        if (!familyIds.has(fid)) continue;
-        // Only consider child edges that are renderable (child person exists in payload).
-        if (!personIds.has(cid)) continue;
-
-        // If the family explicitly has no parents recorded, do not show an expand-up indicator.
-        const parentsTotal = parentsTotalByFamily.has(fid) ? parentsTotalByFamily.get(fid) : null;
-        if (parentsTotal !== null && Number.isFinite(parentsTotal) && parentsTotal <= 0) continue;
-
-        if (hasAnyParentEdge.has(fid)) continue;
-        const arr = out.get(cid) || [];
-        arr.push(fid);
-        out.set(cid, arr);
-      }
-      return out;
-    })();
-
-    const hiddenChildFamiliesByPersonId = (() => {
-      // A person has "hidden children" if they are a parent of a family hub where
-      // (a) children_total is known and exceeds the number of currently present child edges, OR
-      // (b) (fallback) the payload indicates more children exist (has_more_children), OR
-      // (c) (fallback) the family hub currently has no child edges in the payload.
-      const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
-      const edges = Array.isArray(payload?.edges) ? payload.edges : [];
-
-      const personIds = new Set(nodes.filter(n => n?.type === 'person').map(n => String(n.id)));
-
-      const familyNodes = nodes.filter(n => n?.type === 'family');
-      const familyIds = new Set(familyNodes.map(n => String(n.id)));
-      if (!familyIds.size) return new Map();
-
-      const familyHasMoreChildren = new Set(familyNodes.filter(n => !!n?.has_more_children).map(n => String(n.id)));
-      const childrenTotalByFamily = new Map();
-      for (const n of familyNodes) {
-        const fid = String(n?.id || '');
-        if (!fid) continue;
-        const ct = Number(n?.children_total);
-        if (Number.isFinite(ct) && ct >= 0) childrenTotalByFamily.set(fid, ct);
-      }
-
-      const childEdgeCountByFamily = new Map();
-      for (const e of edges) {
-        if (e?.type !== 'child') continue;
-        const fid = String(e.from || '');
-        const cid = String(e.to || '');
-        if (!fid || !familyIds.has(fid)) continue;
-        // Only count renderable child edges (child person exists in payload).
-        if (!cid || !personIds.has(cid)) continue;
-        childEdgeCountByFamily.set(fid, (childEdgeCountByFamily.get(fid) || 0) + 1);
-      }
-
-      const out = new Map();
-      for (const e of edges) {
-        if (e?.type !== 'parent') continue;
-        const pid = String(e.from || '');
-        const fid = String(e.to || '');
-        if (!pid || !fid) continue;
-        if (!familyIds.has(fid)) continue;
-
-        const childEdgeCount = childEdgeCountByFamily.get(fid) || 0;
-        const childrenTotal = childrenTotalByFamily.has(fid) ? childrenTotalByFamily.get(fid) : null;
-
-        // Prefer the numeric rule when possible.
-        let needsExpand = false;
-        if (childrenTotal !== null && Number.isFinite(childrenTotal)) {
-          needsExpand = (childrenTotal > childEdgeCount);
-        } else {
-          // Fallback for older payloads.
-          needsExpand = familyHasMoreChildren.has(fid) || childEdgeCount === 0;
-        }
-        if (!needsExpand) continue;
-
-        const arr = out.get(pid) || [];
-        arr.push(fid);
-        out.set(pid, arr);
-      }
-      return out;
-    })();
+    const hiddenParentFamiliesByPersonId = computeHiddenParentFamiliesByPersonId(payload);
+    const hiddenChildFamiliesByPersonId = computeHiddenChildFamiliesByPersonId(payload);
 
     const dot = buildDotForFamily(payload);
     const gv = await getGraphviz();
@@ -4394,41 +4703,6 @@
         });
       });
 
-      const mergePayload = (base, delta) => {
-        const out = {
-          ...(base || {}),
-          nodes: [],
-          edges: [],
-        };
-
-        const nodesById = new Map();
-        for (const n of (base?.nodes || [])) {
-          if (n?.id) nodesById.set(String(n.id), n);
-        }
-        for (const n of (delta?.nodes || [])) {
-          if (n?.id) nodesById.set(String(n.id), n);
-        }
-        out.nodes = [...nodesById.values()];
-
-        const edgeKey = (e) => {
-          const from = String(e?.from || '');
-          const to = String(e?.to || '');
-          const type = String(e?.type || '');
-          const role = String(e?.role || '');
-          return `${from}|${to}|${type}|${role}`;
-        };
-        const edgesByKey = new Map();
-        for (const e of (base?.edges || [])) {
-          edgesByKey.set(edgeKey(e), e);
-        }
-        for (const e of (delta?.edges || [])) {
-          edgesByKey.set(edgeKey(e), e);
-        }
-        out.edges = [...edgesByKey.values()];
-
-        return out;
-      };
-
       const getPersonNodeCenter = (svgEl, personNodeId) => {
         try {
           if (!svgEl || !personNodeId) return null;
@@ -4497,7 +4771,7 @@
             const deltaRaw = await resp.json();
             // Merge first, then rewrite using the full context (base payload already has
             // other edges like family->child). This matters for single-parent families.
-            const merged = mergePayload(lastPayload, deltaRaw);
+            const merged = mergeGraphPayload(lastPayload, deltaRaw);
             lastPayload = rewriteSingleParentFamilies(merged);
 
             // Re-render but keep view stable (no pan/zoom change).
@@ -4557,7 +4831,7 @@
               throw new Error(`HTTP ${resp.status}: ${text}`);
             }
             const deltaRaw = await resp.json();
-            const merged = mergePayload(lastPayload, deltaRaw);
+            const merged = mergeGraphPayload(lastPayload, deltaRaw);
             lastPayload = rewriteSingleParentFamilies(merged);
 
             await renderGraph(lastPayload);

@@ -962,6 +962,11 @@ def graph_neighborhood(
                         "type": "family",
                         "is_private": bool(is_private_flag),
                         "parents_total": parents_total,
+                        # Total children recorded for this family.
+                        # Used by the UI to show an accurate "expand children" affordance.
+                        "children_total": None,
+                        # True when this family has children outside the current neighborhood cutoff.
+                        "has_more_children": None,
                     }
                 )
 
@@ -975,6 +980,20 @@ def graph_neighborhood(
                     )
 
             if family_ids:
+                # Total children counts for each family.
+                counts = conn.execute(
+                    """
+                    SELECT family_id, COUNT(*)
+                    FROM family_child
+                    WHERE family_id = ANY(%s)
+                    GROUP BY family_id
+                    """.strip(),
+                    (family_ids,),
+                ).fetchall()
+                children_total_by_family = {fid2: int(cnt or 0) for (fid2, cnt) in counts}
+
+                # Child edges that are within the current neighborhood payload.
+                child_edge_count_by_family: dict[str, int] = {str(fid2): 0 for fid2 in family_ids}
                 fc_rows = conn.execute(
                     """
                     SELECT family_id, child_id
@@ -986,6 +1005,19 @@ def graph_neighborhood(
                 for family_id, child_id in fc_rows:
                     if child_id in node_ids:
                         edges.append({"from": family_id, "to": child_id, "type": "child"})
+                        child_edge_count_by_family[str(family_id)] = child_edge_count_by_family.get(str(family_id), 0) + 1
+
+                # Update family node metadata in-place.
+                for n in nodes:
+                    if n.get("type") != "family":
+                        continue
+                    fid2 = n.get("id")
+                    if fid2 not in family_ids:
+                        continue
+                    total = int(children_total_by_family.get(fid2, 0))
+                    present = int(child_edge_count_by_family.get(str(fid2), 0))
+                    n["children_total"] = total
+                    n["has_more_children"] = bool(total > present)
 
         else:
             # parent edges
