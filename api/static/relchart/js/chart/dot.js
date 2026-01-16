@@ -14,6 +14,57 @@ function htmlEsc(s) {
     .replaceAll('"', '&quot;');
 }
 
+const PERSON_CARD_WIDTH_IN = 1.60;
+const PERSON_CARD_HEIGHT_IN = 1.10;
+
+function wrapTextLines(text, { maxCharsPerLine = 24, maxLines = 2 } = {}) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return [''];
+
+  const words = raw.split(/\s+/g).filter(Boolean);
+  if (words.length <= 1) {
+    const single = raw;
+    if (single.length <= maxCharsPerLine) return [single];
+    return [single.slice(0, Math.max(1, maxCharsPerLine - 1)) + '…'];
+  }
+
+  const lines = [];
+  let current = '';
+
+  for (const w of words) {
+    const candidate = current ? `${current} ${w}` : w;
+    if (candidate.length <= maxCharsPerLine || !current) {
+      current = candidate;
+      continue;
+    }
+
+    lines.push(current);
+    current = w;
+    if (lines.length >= maxLines - 1) break;
+  }
+
+  if (lines.length < maxLines && current) lines.push(current);
+  if (lines.length > maxLines) lines.length = maxLines;
+
+  if (lines.length === maxLines) {
+    const joinedWords = words.join(' ');
+    const already = lines.join(' ');
+    if (already.length < joinedWords.length) {
+      const lastIdx = lines.length - 1;
+      const last = lines[lastIdx];
+      if (last.length > maxCharsPerLine) {
+        lines[lastIdx] = last.slice(0, Math.max(1, maxCharsPerLine - 1)) + '…';
+      } else if (!last.endsWith('…')) {
+        lines[lastIdx] = (last.length >= maxCharsPerLine)
+          ? last.slice(0, Math.max(1, maxCharsPerLine - 1)) + '…'
+          : (last + '…');
+      }
+    }
+  }
+
+  return lines;
+}
+
 function formatNameLines(p) {
   const given = (p?.given_name || '').trim();
   const surname = (p?.surname || '').trim();
@@ -33,8 +84,17 @@ function personHtmlLabel(p) {
   const gid = (p?.gramps_id || '').trim();
 
   const rows = [];
-  rows.push(`<TR><TD ALIGN="LEFT">${htmlEsc(n.given)}</TD></TR>`);
-  rows.push(`<TR><TD ALIGN="LEFT"><B>${htmlEsc(n.surname)}</B></TD></TR>`);
+
+  for (const line of wrapTextLines(n.given, { maxCharsPerLine: 26, maxLines: 2 })) {
+    if (!line) continue;
+    rows.push(`<TR><TD ALIGN="LEFT">${htmlEsc(line)}</TD></TR>`);
+  }
+
+  for (const line of wrapTextLines(n.surname, { maxCharsPerLine: 26, maxLines: 2 })) {
+    if (!line) continue;
+    rows.push(`<TR><TD ALIGN="LEFT"><B>${htmlEsc(line)}</B></TD></TR>`);
+  }
+
   if (birth) rows.push(`<TR><TD ALIGN="LEFT">* ${htmlEsc(birth)}</TD></TR>`);
   if (death) rows.push(`<TR><TD ALIGN="LEFT">&#8224; ${htmlEsc(death)}</TD></TR>`);
   if (!birth && !death && gid && p?.display_name === 'Private') {
@@ -136,8 +196,9 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
 
     lines.push(
       `  ${dotId(pid)} [` +
-      `shape=box, style="rounded,filled", penwidth=0, margin="0.06,0.04",` +
-      ` fillcolor="${body}", color="${rim}", label=${label}` +
+      `shape=box, style="rounded,filled", penwidth=0,` +
+      ` fixedsize=true, width=${PERSON_CARD_WIDTH_IN}, height=${PERSON_CARD_HEIGHT_IN},` +
+      ` margin="0.00,0.00", fillcolor="${body}", color="${rim}", label=${label}` +
       `];`
     );
   }
