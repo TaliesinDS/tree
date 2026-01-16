@@ -34,7 +34,14 @@
 
         <div class="tabpanel" data-panel="people" role="tabpanel">
           <h2>People</h2>
-          <div class="muted">Coming next: surname-grouped list synced to selection.</div>
+          <div class="peopleTools">
+            <label>
+              Search
+              <input id="peopleSearch" placeholder="Type a name…" />
+            </label>
+            <div id="peopleStatus" class="muted">Open this tab to load people.</div>
+          </div>
+          <div id="peopleList" class="peopleList" aria-label="People list"></div>
         </div>
 
         <div class="tabpanel" data-panel="events" role="tabpanel">

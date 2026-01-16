@@ -244,6 +244,65 @@ html[data-theme="light"] .topbar {
 .tabpanel { display: none; }
 .tabpanel.active { display: block; }
 
+.peopleTools {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.peopleList {
+  display: grid;
+  gap: 0px;
+}
+
+.peopleGroup {
+  padding: 1px;
+  background: rgba(0,0,0,0.20);
+}
+
+html[data-theme="light"] .peopleGroup {
+  background: #f2f3f3;
+}
+
+.peopleGroup summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.peopleItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 1px 4px;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  cursor: pointer;
+  user-select: none;
+}
+
+html[data-theme="light"] .peopleItem {
+  border-bottom-color: rgba(0,0,0,0.07);
+}
+
+.peopleItem:last-child { border-bottom: none; }
+.peopleItem:hover { background: rgba(122,162,255,0.10); border-radius: 8px; }
+
+.peopleItem.selected {
+  background: rgba(122,162,255,0.16);
+  border-radius: 8px;
+}
+
+.peopleItem .name { font-size: 13px; }
+.peopleItem .meta { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
 .controls {
   display: flex;
   flex-wrap: wrap;
