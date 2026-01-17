@@ -76,6 +76,19 @@ This section expands the running TODO list into small, actionable feature notes.
 - Frontend:
   - render as dots/lines at far zoom; expand details only near selection.
 
+**Lineage-only ancestor view (patrilineal / matrilineal / direct ancestors)**
+- Goal: pick a person and show a “clean spine” upward:
+  - **Patrilineal**: father → father → father … (no siblings)
+  - **Matrilineal**: mother → mother → mother … (no siblings)
+  - **Direct ancestors**: both parents each generation, but still no siblings/extra spouses
+- UX:
+  - mode toggle + generation depth slider (e.g. 5, 10, 20, or “all until unknown”)
+  - should be fast and stable (very small subgraph)
+- Backend:
+  - can be implemented as repeated parent lookups (cheap) or a recursive CTE with a “direction” filter
+  - API shape idea: `GET /graph/lineage?center=<id>&mode=patrilineal|matrilineal|ancestors&max_depth=20`
+  - return nodes+edges suitable for reuse in the main renderer
+
 ### Major UI elements
 
 **Person detail panel**

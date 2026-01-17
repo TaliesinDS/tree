@@ -219,6 +219,90 @@ function postProcessGraphvizSvg(svg, {
       const meta = personMetaById?.get(String(pid)) || null;
       if (!meta) continue;
 
+      try { node.classList.add('personNode'); } catch (_) {}
+
+      // Text layout: keep names at top, dates at bottom, and reduce line spacing.
+      try {
+        const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+        if (shape && typeof shape.getBBox === 'function') {
+          const bb = shape.getBBox();
+          if (bb && Number.isFinite(bb.x) && Number.isFinite(bb.y) && Number.isFinite(bb.width) && Number.isFinite(bb.height)) {
+            const texts = Array.from(node.querySelectorAll('text'))
+              .filter(t => {
+                // Ignore edge labels / stray SVG text; keep only label rows.
+                const s = String(t.textContent || '').trim();
+                if (!s) return false;
+                return true;
+              })
+              .map(t => {
+                const y = Number(t.getAttribute('y'));
+                const s = String(t.textContent || '').trim();
+                const fw = String(t.getAttribute('font-weight') || '').trim().toLowerCase();
+                const isBold = (fw === 'bold') || (fw === '600') || (fw === '700');
+                const isDate = s.startsWith('*') || s.startsWith('†') || s.startsWith('\u2020');
+                return { t, y, s, isBold, isDate };
+              })
+              .filter(x => Number.isFinite(x.y));
+
+            if (texts.length >= 2) {
+              const ys = texts.map(x => x.y).sort((a, b) => a - b);
+              const diffs = [];
+              for (let i = 1; i < ys.length; i++) {
+                const d = ys[i] - ys[i - 1];
+                if (Number.isFinite(d) && d > 0.1 && d < bb.height) diffs.push(d);
+              }
+              diffs.sort((a, b) => a - b);
+              const typicalStep = diffs.length ? diffs[Math.floor(diffs.length / 2)] : 14;
+              const step = Math.max(10, typicalStep * 0.82);
+
+              const nameLines = texts.filter(x => x.isBold && !x.isDate).sort((a, b) => a.y - b.y);
+              const dateLines = texts.filter(x => x.isDate).sort((a, b) => a.y - b.y);
+              const otherLines = texts.filter(x => !x.isBold && !x.isDate).sort((a, b) => a.y - b.y);
+
+              // Rim-safe padding: keep the first line from touching the colored rim.
+              const padTop = Math.max(8, Math.min(14, bb.height * 0.12));
+              const padBot = Math.max(8, Math.min(14, bb.height * 0.12));
+
+              // If no explicit name lines (should be rare), treat everything as name.
+              const topBlock = nameLines.length ? nameLines : texts;
+
+              // If there are no date lines, keep other lines (e.g. private GID) near bottom.
+              const bottomBlock = dateLines.length ? dateLines : otherLines;
+
+              // Place top block from the top down.
+              let yTop = bb.y + padTop;
+              for (let i = 0; i < topBlock.length; i++) {
+                const x = topBlock[i];
+                const y = yTop + (i * step);
+                x.t.setAttribute('y', String(y));
+              }
+
+              // Place bottom block from the bottom up.
+              if (bottomBlock.length) {
+                const lastIdx = bottomBlock.length - 1;
+                let yBottomLast = (bb.y + bb.height) - padBot;
+                for (let i = lastIdx; i >= 0; i--) {
+                  const x = bottomBlock[i];
+                  const y = yBottomLast - ((lastIdx - i) * step);
+                  x.t.setAttribute('y', String(y));
+                }
+              }
+
+              // Any remaining non-bold, non-date lines not used in bottomBlock: keep them
+              // just above the date block so they don't collide with name lines.
+              const used = new Set([...topBlock, ...bottomBlock].map(x => x.t));
+              const leftovers = texts.filter(x => !used.has(x.t)).sort((a, b) => a.y - b.y);
+              if (leftovers.length) {
+                const base = (bb.y + bb.height) - padBot - (bottomBlock.length ? (bottomBlock.length * step) : 0) - (step * 0.25);
+                for (let i = leftovers.length - 1; i >= 0; i--) {
+                  leftovers[i].t.setAttribute('y', String(base - ((leftovers.length - 1 - i) * step)));
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
       // Rim overlay
       if (!node.querySelector('[data-rim="1"]')) {
         let rim = '#93A7BF';

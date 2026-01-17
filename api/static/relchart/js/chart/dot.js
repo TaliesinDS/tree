@@ -95,7 +95,7 @@ function personHtmlLabel(p) {
 
   for (const line of wrapTextLines(n.given, { maxCharsPerLine: 26, maxLines: 2 })) {
     if (!line) continue;
-    rows.push(`<TR><TD ALIGN="LEFT">${htmlEsc(line)}</TD></TR>`);
+    rows.push(`<TR><TD ALIGN="LEFT"><B>${htmlEsc(line)}</B></TD></TR>`);
   }
 
   for (const line of wrapTextLines(n.surname, { maxCharsPerLine: 26, maxLines: 2 })) {
@@ -110,7 +110,7 @@ function personHtmlLabel(p) {
     rows.push(`<TR><TD ALIGN="LEFT">${htmlEsc(gid)}</TD></TR>`);
   }
 
-  return `<<TABLE BORDER="0" CELLBORDER="0" CELLPADDING="2" CELLSPACING="0">${rows.join('')}</TABLE>>`;
+  return `<<TABLE BORDER="0" CELLBORDER="0" CELLPADDING="1" CELLSPACING="0">${rows.join('')}</TABLE>>`;
 }
 
 export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
