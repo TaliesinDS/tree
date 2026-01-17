@@ -11,13 +11,14 @@ from typing import Any, Iterable
 import psycopg
 
 
-_DATE_RE = re.compile(r"^(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})$")
+_DATE_RE = re.compile(r"\b(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})\b")
 
 
 def _parse_full_date(s: str | None) -> date | None:
     if not s:
         return None
-    m = _DATE_RE.match(s)
+    # Dates may be prefixed (e.g. "estimated 1920-10-20").
+    m = _DATE_RE.search(s)
     if not m:
         return None
     return date(int(m.group("y")), int(m.group("m")), int(m.group("d")))

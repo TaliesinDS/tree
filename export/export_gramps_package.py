@@ -54,10 +54,68 @@ def _parse_date_like(val: str | None) -> str | None:
     return None
 
 
+def _format_gramps_date_element(elem: ET.Element) -> str | None:
+    """Convert a Gramps XML date element into a compact, human-ish string.
+
+    Key requirement: preserve qualifier semantics (before/after/about + estimated/calculated)
+    so downstream UI can display them like Gramps Desktop.
+
+    DTD notes (Gramps XML v1.7.x):
+    - <dateval val="..." type=(before|after|about) quality=(estimated|calculated)>
+    - <daterange start="..." stop="..." quality=(estimated|calculated)>
+    - <datespan start="..." stop="..." quality=(estimated|calculated)>
+    - <datestr val="..."> (already a display string)
+    """
+
+    tag = _strip_ns(elem.tag)
+
+    if tag == "datestr":
+        v = (elem.get("val") or elem.get("value") or "").strip()
+        return v or None
+
+    if tag == "dateval" or tag == "date":
+        raw = (elem.get("val") or elem.get("value") or "").strip()
+        if not raw:
+            return None
+        base = _parse_date_like(raw) or raw
+
+        # Gramps qualifier fields.
+        qual = (elem.get("quality") or "").strip().lower()  # estimated|calculated
+        typ = (elem.get("type") or "").strip().lower()      # before|after|about
+
+        parts: list[str] = []
+        if qual in {"estimated", "calculated"}:
+            parts.append(qual)
+        if typ in {"before", "after", "about"}:
+            parts.append(typ)
+        parts.append(base)
+
+        out = " ".join([p for p in parts if p]).strip()
+        return out or None
+
+    if tag in {"daterange", "datespan"}:
+        start = (elem.get("start") or "").strip()
+        stop = (elem.get("stop") or "").strip()
+        if not start or not stop:
+            return None
+
+        s0 = _parse_date_like(start) or start
+        s1 = _parse_date_like(stop) or stop
+
+        qual = (elem.get("quality") or "").strip().lower()
+        prefix = qual if qual in {"estimated", "calculated"} else ""
+
+        core = f"{s0}–{s1}"
+        return f"{prefix} {core}".strip() if prefix else core
+
+    return None
+
+
 def _year_from_date_str(s: str | None) -> int | None:
     if not s:
         return None
-    m = re.match(r"^(\d{4})", s)
+    # Dates may be prefixed by qualifiers like "estimated" / "before".
+    m = re.search(r"\b(\d{4})\b", s)
     if not m:
         return None
     try:
@@ -278,9 +336,9 @@ def export_from_xml(
                     desc = ch.text.strip()
                 elif ctag == "place" and ch.get("hlink"):
                     place_hlink = ch.get("hlink")
-                elif ctag in {"dateval", "date"}:
-                    # dateval commonly has val="..."
-                    ev_date = _parse_date_like(ch.get("val") or ch.get("value")) or ev_date
+                elif ctag in {"daterange", "datespan", "dateval", "datestr", "date"}:
+                    # Preserve qualifier semantics from Gramps XML.
+                    ev_date = _format_gramps_date_element(ch) or ev_date
                 elif ctag == "noteref" and ch.get("hlink"):
                     event_note.append({"event_id": handle, "note_id": ch.get("hlink")})
 
