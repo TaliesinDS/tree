@@ -53,6 +53,7 @@ function normalizeIdFromGraphvizTitle(title) {
 function postProcessGraphvizSvg(svg, {
   personMetaById = new Map(),
   familyMetaById = new Map(),
+  familyParentsById = new Map(),
   singleParentParentByFamily = new Map(),
   onExpandParents,
   onExpandChildren,
@@ -91,11 +92,10 @@ function postProcessGraphvizSvg(svg, {
     if (hs.length) typicalPersonCardHeight = hs[Math.floor(hs.length / 2)];
   } catch (_) {}
 
-  // For single-parent families we hide the hub and use an invisible family node as
-  // a junction. Move that junction directly under the parent's card center so
-  // child lines originate from the bottom-center of the parent.
+  // Precompute person card anchors for later adjustments (single-parent junctions + hub centering).
+  const personBottomCenterById = new Map();
+  const personCenterById = new Map();
   try {
-    const personBottomCenterById = new Map();
     for (const node of nodes) {
       if (node.querySelector('ellipse')) continue;
       const id = normalizeIdFromGraphvizTitle(node.querySelector('title')?.textContent?.trim());
@@ -107,8 +107,14 @@ function postProcessGraphvizSvg(svg, {
       if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
       if (bb.width <= 0 || bb.height <= 0) continue;
       personBottomCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y + bb.height });
+      personCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 });
     }
+  } catch (_) {}
 
+  // For single-parent families we hide the hub and use an invisible family node as
+  // a junction. Move that junction directly under the parent's card center so
+  // child lines originate from the bottom-center of the parent.
+  try {
     for (const [fid, pid] of (singleParentParentByFamily || new Map()).entries()) {
       const parent = String(pid || '').trim();
       const bc = personBottomCenterById.get(parent);
@@ -195,24 +201,49 @@ function postProcessGraphvizSvg(svg, {
 
       if (dy > 0) dy += HUB_EXTRA_LOWER_PX;
 
+      // Also center the hub horizontally between spouses (if both are present).
+      // This prevents odd cases where other constraints (e.g. single-parent junctions)
+      // cause DOT to place the hub to the left/right of the couple.
+      let dx = 0;
+      try {
+        const parents = familyParentsById?.get(title) || null;
+        const aId = String(parents?.fatherId || '').trim();
+        const bId = String(parents?.motherId || '').trim();
+        if (aId && bId) {
+          // personCenterById is computed above in the single-parent anchor pass.
+          const a = personCenterById.get(aId);
+          const b = personCenterById.get(bId);
+          if (a && b && Number.isFinite(a.x) && Number.isFinite(b.x)) {
+            const desiredX = (a.x + b.x) / 2;
+            if (typeof ellipse.getBBox === 'function') {
+              const ebb = ellipse.getBBox();
+              const curX = (ebb && Number.isFinite(ebb.x) && Number.isFinite(ebb.width)) ? (ebb.x + (ebb.width / 2)) : null;
+              if (curX !== null && Number.isFinite(curX)) {
+                dx = desiredX - curX;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
       // Apply translation to move hub lower.
       try {
-        if (dy > 0) {
+        if (dx !== 0 || dy > 0) {
           const tr = parseTranslate(node.getAttribute('transform'));
           if (tr) {
-            node.setAttribute('transform', `translate(${tr.x} ${tr.y + dy})`);
+            node.setAttribute('transform', `translate(${tr.x + dx} ${tr.y + dy})`);
           } else {
             // Graphviz often encodes node geometry as absolute cx/cy/points with no
             // group transform at all. In that case, add a translate so the hub
             // actually moves.
-            node.setAttribute('transform', `translate(0 ${dy})`);
+            node.setAttribute('transform', `translate(${dx} ${dy})`);
           }
         }
       } catch (_) {}
 
       // Track hub offsets for edge smoothing endpoint snapping.
       familyHubDyById.set(title, dy);
-      familyHubDxById.set(title, 0);
+      familyHubDxById.set(title, dx);
     }
 
     // Ensure hubs are painted above person cards.
@@ -985,6 +1016,19 @@ export async function renderRelationshipChart({
   const peopleIds = new Set((payload?.nodes || []).filter(n => n?.type === 'person').map(n => String(n.id)));
   const familyIds = new Set((payload?.nodes || []).filter(n => n?.type === 'family').map(n => String(n.id)));
 
+  const familyParentsById = new Map();
+  for (const e of payload?.edges || []) {
+    if (e?.type !== 'parent') continue;
+    const pid = String(e.from || '').trim();
+    const fid = String(e.to || '').trim();
+    if (!pid || !fid) continue;
+    if (!peopleIds.has(pid) || !familyIds.has(fid)) continue;
+    const cur = familyParentsById.get(fid) || { fatherId: null, motherId: null };
+    if (e.role === 'father') cur.fatherId = pid;
+    if (e.role === 'mother') cur.motherId = pid;
+    familyParentsById.set(fid, cur);
+  }
+
   const visibleParentCountByFamily = new Map();
   const singleParentParentByFamily = new Map();
   for (const e of payload?.edges || []) {
@@ -1010,6 +1054,7 @@ export async function renderRelationshipChart({
   const post = postProcessGraphvizSvg(svg, {
     personMetaById,
     familyMetaById,
+    familyParentsById,
     singleParentParentByFamily,
     onExpandParents,
     onExpandChildren,

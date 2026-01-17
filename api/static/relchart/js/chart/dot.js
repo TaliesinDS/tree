@@ -579,6 +579,7 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
       if (singleParentFamilyIds.has(to)) {
         // For single-parent families, the invisible family point acts as a junction.
         // Keep this edge as a layout constraint but do not render it.
+        // (Hubs are centered in SVG postprocess; this keeps subtrees from floating.)
         lines.push(`  ${dotId(from)} -> ${dotId(to)} [constraint=true, weight=200, minlen=1, style=invis];`);
         continue;
       }
