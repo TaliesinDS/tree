@@ -543,10 +543,62 @@ function _displayPersonLabel(p) {
   return gid ? `${name} (${gid})` : name;
 }
 
+function _surnameGroupKey(surnameRaw) {
+  const raw = String(surnameRaw || '').trim();
+  if (!raw || raw === '?') return 'No surname';
+
+  // Normalize apostrophes/punctuation for matching particles, but keep original
+  // casing for the returned group label.
+  const parts = raw.split(/\s+/g).filter(Boolean);
+  if (!parts.length) return raw;
+
+  const particles = new Set([
+    // Dutch
+    'van', 'v', 'vd', 'vander', 'vander', 'vanden', 'vanden', 'ten', 'ter', 'te', 't', "'t",
+    'der', 'den', 'de', 'het',
+    // German
+    'von', 'zu', 'zum', 'zur',
+    // French/Spanish/Portuguese/Italian (common)
+    'da', 'das', 'do', 'dos', 'di', 'del', 'della', 'des', 'du', 'la', 'le', 'las', 'los',
+    // English/other
+    'of', 'the',
+  ]);
+
+  let i = 0;
+  while (i < parts.length) {
+    const tokenOrig = parts[i];
+    const tokenNorm = String(tokenOrig)
+      .toLowerCase()
+      .replace(/[\u2019\u0060]/g, "'")
+      .replace(/[.·]/g, '')
+      .replace(/[\\/]/g, '')
+      .trim();
+
+    // Handle d'Artagnan / l'Overture style names: group by the part after d'/l'.
+    if (i === 0 && (tokenNorm.startsWith("d'") || tokenNorm.startsWith("l'"))) {
+      const remainder = tokenOrig.slice(2).trim();
+      if (remainder) {
+        parts[i] = remainder;
+      } else {
+        i++;
+      }
+      break;
+    }
+
+    if (particles.has(tokenNorm)) {
+      i++;
+      continue;
+    }
+    break;
+  }
+
+  const remaining = parts.slice(i).filter(Boolean);
+  if (!remaining.length) return raw;
+  return remaining.join(' ');
+}
+
 function _surnameGroupLabel(p) {
-  const s = String(p?.surname || '').trim();
-  if (!s || s === '?') return 'No surname';
-  return s;
+  return _surnameGroupKey(p?.surname);
 }
 
 function _renderPeopleList(people, query) {
