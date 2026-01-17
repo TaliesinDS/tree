@@ -8,6 +8,10 @@ import { buildRelationshipDot } from './dot.js';
 
 const HUB_EXTRA_LOWER_PX = 6;
 
+// Minimum horizontal gap (in SVG units) between spouse cards for "special" couples
+// where one spouse is also the parent in a single-parent family.
+const SPECIAL_COUPLE_MIN_SPOUSE_GAP_PX = 17;
+
 // --- Person card typography knobs (tweak by hand) ---
 // Positive values move the block DOWN; negative move UP.
 const PERSON_CARD_TEXT_TOP_SHIFT_PX = 6;
@@ -74,6 +78,61 @@ function postProcessGraphvizSvg(svg, {
     return { x, y };
   };
 
+  // getBBox() does NOT account for SVG transforms (e.g. Graphviz uses translate(...) on g.node).
+  // For layout math we need boxes in the SVG user coordinate space.
+  const bboxInUserSpace = (el) => {
+    try {
+      if (!el) return null;
+
+      // Most reliable: use screen-space rect, then map back into SVG user-space.
+      // This accounts for nested transforms even when getCTM()/createSVGPoint behave oddly.
+      const r = (typeof el.getBoundingClientRect === 'function') ? el.getBoundingClientRect() : null;
+      const screenCTM = (svg && typeof svg.getScreenCTM === 'function') ? svg.getScreenCTM() : null;
+      if (r && screenCTM && Number.isFinite(r.left) && Number.isFinite(r.top) && Number.isFinite(r.right) && Number.isFinite(r.bottom)) {
+        let inv = null;
+        try { inv = screenCTM.inverse(); } catch (_) { inv = null; }
+        const xform = (x, y) => {
+          try {
+            if (inv && typeof DOMPoint === 'function') {
+              return new DOMPoint(x, y).matrixTransform(inv);
+            }
+          } catch (_) {}
+          return null;
+        };
+
+        const pts = [
+          xform(r.left, r.top),
+          xform(r.right, r.top),
+          xform(r.left, r.bottom),
+          xform(r.right, r.bottom),
+        ].filter(Boolean);
+
+        if (pts.length >= 2) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const p of pts) {
+            if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
+          }
+          if (Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY)) {
+            return { x: minX, y: minY, width: Math.max(0, maxX - minX), height: Math.max(0, maxY - minY) };
+          }
+        }
+      }
+
+      // Fallback: best-effort local bbox.
+      if (typeof el.getBBox === 'function') {
+        const bb = el.getBBox();
+        if (bb && Number.isFinite(bb.x) && Number.isFinite(bb.y) && Number.isFinite(bb.width) && Number.isFinite(bb.height)) return bb;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  };
+
   // Estimate a typical person-card height in SVG units so we can place the hub
   // near the bottom edge of spouse cards (Gramps Web / old graph feel).
   let typicalPersonCardHeight = null;
@@ -95,6 +154,8 @@ function postProcessGraphvizSvg(svg, {
   // Precompute person card anchors for later adjustments (single-parent junctions + hub centering).
   const personBottomCenterById = new Map();
   const personCenterById = new Map();
+  const personNodeById = new Map();
+  const personShapeById = new Map();
   try {
     for (const node of nodes) {
       if (node.querySelector('ellipse')) continue;
@@ -103,11 +164,13 @@ function postProcessGraphvizSvg(svg, {
 
       const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
       if (!shape || typeof shape.getBBox !== 'function') continue;
-      const bb = shape.getBBox();
+      const bb = bboxInUserSpace(shape);
       if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
       if (bb.width <= 0 || bb.height <= 0) continue;
       personBottomCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y + bb.height });
       personCenterById.set(id, { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 });
+      personNodeById.set(id, node);
+      personShapeById.set(id, shape);
     }
   } catch (_) {}
 
@@ -126,7 +189,7 @@ function postProcessGraphvizSvg(svg, {
       });
       if (!famNode) continue;
 
-      const bb = (typeof famNode.getBBox === 'function') ? famNode.getBBox() : null;
+      const bb = bboxInUserSpace(famNode);
       if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) continue;
 
       const cur = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
@@ -157,9 +220,90 @@ function postProcessGraphvizSvg(svg, {
     }
   } catch (_) {}
 
+  // --- Nudge spouse cards apart for "special" couples ---
+  // Track person-card X offsets so edge endpoints can be updated later.
+  const personDxById = new Map();
+  try {
+    // People who are parents in any single-parent family (in-view).
+    const hasSingleParentFamilyByPerson = new Set();
+    for (const [, pid] of (singleParentParentByFamily || new Map()).entries()) {
+      const p = String(pid || '').trim();
+      if (p) hasSingleParentFamilyByPerson.add(p);
+    }
+
+    // For each couple where one spouse is in a single-parent family, check if
+    // their cards are too close and nudge them apart symmetrically.
+    for (const [fid, parents] of (familyParentsById || new Map()).entries()) {
+      const aId = String(parents?.fatherId || '').trim();
+      const bId = String(parents?.motherId || '').trim();
+      if (!aId || !bId) continue;
+
+      const needsExtraGap = hasSingleParentFamilyByPerson.has(aId) || hasSingleParentFamilyByPerson.has(bId);
+      if (!needsExtraGap) continue;
+
+      const aShape = personShapeById.get(aId);
+      const bShape = personShapeById.get(bId);
+      if (!aShape || !bShape) continue;
+
+      const abb = bboxInUserSpace(aShape);
+      const bbb = bboxInUserSpace(bShape);
+      if (!abb || !bbb) continue;
+      if (!Number.isFinite(abb.x) || !Number.isFinite(abb.width) || !Number.isFinite(bbb.x) || !Number.isFinite(bbb.width)) continue;
+
+      // Determine which spouse is on the left.
+      const leftId = (abb.x <= bbb.x) ? aId : bId;
+      const rightId = (leftId === aId) ? bId : aId;
+      const leftBB = (leftId === aId) ? abb : bbb;
+      const rightBB = (rightId === aId) ? abb : bbb;
+
+      const currentGap = rightBB.x - (leftBB.x + leftBB.width);
+      if (currentGap >= SPECIAL_COUPLE_MIN_SPOUSE_GAP_PX) continue;
+
+      // Nudge each spouse outward by half the shortfall.
+      const shortfall = SPECIAL_COUPLE_MIN_SPOUSE_GAP_PX - currentGap;
+      const nudge = shortfall / 2;
+
+      // Move left spouse left, right spouse right.
+      const leftNode = personNodeById.get(leftId);
+      const rightNode = personNodeById.get(rightId);
+      if (!leftNode || !rightNode) continue;
+
+      try {
+        const trL = parseTranslate(leftNode.getAttribute('transform'));
+        if (trL) {
+          leftNode.setAttribute('transform', `translate(${trL.x - nudge} ${trL.y})`);
+        } else {
+          leftNode.setAttribute('transform', `translate(${-nudge} 0)`);
+        }
+        personDxById.set(leftId, (personDxById.get(leftId) || 0) - nudge);
+      } catch (_) {}
+
+      try {
+        const trR = parseTranslate(rightNode.getAttribute('transform'));
+        if (trR) {
+          rightNode.setAttribute('transform', `translate(${trR.x + nudge} ${trR.y})`);
+        } else {
+          rightNode.setAttribute('transform', `translate(${nudge} 0)`);
+        }
+        personDxById.set(rightId, (personDxById.get(rightId) || 0) + nudge);
+      } catch (_) {}
+    }
+  } catch (_) {}
+
   // --- Family hubs (⚭): detect only (do not move) ---
   try {
     const hubNodes = [];
+
+    // People who are parents in any single-parent family (in-view).
+    // This correlates with DOT occasionally packing a separate couple too tightly.
+    const hasSingleParentFamilyByPerson = new Set();
+    try {
+      for (const [, pid] of (singleParentParentByFamily || new Map()).entries()) {
+        const p = String(pid || '').trim();
+        if (p) hasSingleParentFamilyByPerson.add(p);
+      }
+    } catch (_) {}
+
     for (const node of nodes) {
       const ellipse = node.querySelector('ellipse');
       if (!ellipse) continue;
@@ -174,17 +318,9 @@ function postProcessGraphvizSvg(svg, {
 
       hubNodes.push(node);
 
-      // Close the tiny visual gap between hub and spouse cards.
-      // Do this in SVG postprocess so it won't affect overall Graphviz spacing.
-      try {
-        const rx0 = Number(ellipse.getAttribute('rx'));
-        const ry0 = Number(ellipse.getAttribute('ry'));
-        if (Number.isFinite(rx0) && Number.isFinite(ry0) && rx0 > 0 && ry0 > 0) {
-          const bump = 3; // px-ish in Graphviz SVG units
-          ellipse.setAttribute('rx', String(rx0 + bump));
-          ellipse.setAttribute('ry', String(ry0 + bump));
-        }
-      } catch (_) {}
+      // Whether this hub belongs to a "special" couple where we want extra horizontal breathing room.
+      // (Do not change vertical placement for these; only spacing.)
+      let needsExtraGapForThisHub = false;
 
       let dy = 0;
       try {
@@ -210,19 +346,47 @@ function postProcessGraphvizSvg(svg, {
         const aId = String(parents?.fatherId || '').trim();
         const bId = String(parents?.motherId || '').trim();
         if (aId && bId) {
-          // personCenterById is computed above in the single-parent anchor pass.
-          const a = personCenterById.get(aId);
-          const b = personCenterById.get(bId);
-          if (a && b && Number.isFinite(a.x) && Number.isFinite(b.x)) {
-            const desiredX = (a.x + b.x) / 2;
-            if (typeof ellipse.getBBox === 'function') {
-              const ebb = ellipse.getBBox();
-              const curX = (ebb && Number.isFinite(ebb.x) && Number.isFinite(ebb.width)) ? (ebb.x + (ebb.width / 2)) : null;
-              if (curX !== null && Number.isFinite(curX)) {
-                dx = desiredX - curX;
-              }
+          needsExtraGapForThisHub = hasSingleParentFamilyByPerson.has(aId) || hasSingleParentFamilyByPerson.has(bId);
+
+          // Center hub between current spouse card centers.
+          const aShape2 = personShapeById.get(aId);
+          const bShape2 = personShapeById.get(bId);
+          const abb2 = aShape2 ? bboxInUserSpace(aShape2) : null;
+          const bbb2 = bShape2 ? bboxInUserSpace(bShape2) : null;
+          const ebb0 = bboxInUserSpace(ellipse);
+          if (abb2 && bbb2 && ebb0 && Number.isFinite(abb2.x) && Number.isFinite(abb2.width) && Number.isFinite(bbb2.x) && Number.isFinite(bbb2.width) && Number.isFinite(ebb0.width)) {
+            const aCx = abb2.x + abb2.width / 2;
+            const bCx = bbb2.x + bbb2.width / 2;
+            const desiredCenterX = (aCx + bCx) / 2;
+
+            // Clamp hub so it stays between spouse cards with a small visible gap.
+            const leftBB = (abb2.x <= bbb2.x) ? abb2 : bbb2;
+            const rightBB = (leftBB === abb2) ? bbb2 : abb2;
+            const minSideGap = needsExtraGapForThisHub ? 30 : 0;
+            const minHubX = leftBB.x + leftBB.width + minSideGap;
+            const maxHubX = rightBB.x - minSideGap - ebb0.width;
+
+            let desiredHubX = desiredCenterX - (ebb0.width / 2);
+            if (Number.isFinite(minHubX) && Number.isFinite(maxHubX) && minHubX <= maxHubX) {
+              desiredHubX = Math.max(minHubX, Math.min(maxHubX, desiredHubX));
             }
+            const desiredHubCenterX = desiredHubX + (ebb0.width / 2);
+
+            const curCenterX = (Number.isFinite(ebb0.x) && Number.isFinite(ebb0.width)) ? (ebb0.x + (ebb0.width / 2)) : null;
+            if (curCenterX !== null && Number.isFinite(curCenterX)) dx = desiredHubCenterX - curCenterX;
           }
+        }
+      } catch (_) {}
+
+      // Slightly enlarge the hub to fill the natural gap between hub and spouse cards.
+      // This gives couples a consistent "tight" look.
+      try {
+        const rx0 = Number(ellipse.getAttribute('rx'));
+        const ry0 = Number(ellipse.getAttribute('ry'));
+        if (Number.isFinite(rx0) && Number.isFinite(ry0) && rx0 > 0 && ry0 > 0) {
+          const bump = 2;
+          ellipse.setAttribute('rx', String(rx0 + bump));
+          ellipse.setAttribute('ry', String(ry0 + bump));
         }
       } catch (_) {}
 
@@ -604,7 +768,7 @@ function postProcessGraphvizSvg(svg, {
     } catch (_) {}
   }
 
-  return { familyHubDyById, familyHubDxById };
+  return { familyHubDyById, familyHubDxById, personDxById };
 }
 
 function enforceEdgeRounding(svg) {
@@ -617,7 +781,7 @@ function enforceEdgeRounding(svg) {
   }
 }
 
-function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById, peopleIds, familyIds, singleParentFamilyIds, singleParentParentByFamily } = {}) {
+function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById, personDxById, peopleIds, familyIds, singleParentFamilyIds, singleParentParentByFamily } = {}) {
   const edgeGroups = Array.from(svg.querySelectorAll('g.edge'));
   if (!edgeGroups.length) return;
 
@@ -873,6 +1037,23 @@ function convertEdgeElbowsToRoundedPaths(svg, { familyHubDyById, familyHubDxById
         if (Number.isFinite(tDx) && Number.isFinite(tDy) && (tDx !== 0 || tDy !== 0)) {
           ends.target.x += tDx;
           ends.target.y += tDy;
+        }
+      }
+    } catch (_) {}
+
+    // If we nudged person cards horizontally (for special couples), shift the
+    // corresponding edge endpoints so connectors still land on the cards.
+    try {
+      if (personDxById) {
+        const sKey = String(sourceId || '');
+        const tKey = String(targetId || '');
+        const sDx = Number(personDxById.get(sKey) ?? 0);
+        const tDx = Number(personDxById.get(tKey) ?? 0);
+        if (Number.isFinite(sDx) && sDx !== 0) {
+          ends.source.x += sDx;
+        }
+        if (Number.isFinite(tDx) && tDx !== 0) {
+          ends.target.x += tDx;
         }
       }
     } catch (_) {}

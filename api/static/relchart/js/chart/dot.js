@@ -24,6 +24,7 @@ const PERSON_LABEL_CELL_PADDING = 1;
 const HUB_DIAMETER_IN = 0.26;
 const INLAW_GAP_IN = HUB_DIAMETER_IN * 0.50;      // ~half a hub
 const UNRELATED_GAP_IN = HUB_DIAMETER_IN * 1.50;  // ~one and a half hubs
+const COUPLE_HUB_SIDE_GAP_IN = 0; // DOT-level gaps don't work reliably; spacing is handled in SVG post-processing
 
 const COUPLE_CLUSTER_MARGIN_X_PT = Math.round(UNRELATED_GAP_IN * 72);
 
@@ -281,6 +282,20 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
     if (Number(n) === 1) singleParentFamilyIds.add(fid);
   }
 
+  // Track which people participate in any single-parent family in-view.
+  // This matters because single-parent family constraints can make DOT pack a couple
+  // too tightly (hub ends up visually like sibling spacing).
+  const hasSingleParentFamilyByPerson = new Set();
+  for (const e of edges) {
+    if (e?.type !== 'parent') continue;
+    const pid = String(e.from || '');
+    const fid = String(e.to || '');
+    if (!pid || !fid) continue;
+    if (!peopleById.has(pid)) continue;
+    if (!singleParentFamilyIds.has(fid)) continue;
+    hasSingleParentFamilyByPerson.add(pid);
+  }
+
   // Build per-person family membership once father/mother maps are ready.
   for (const fid of familiesById.keys()) {
     const fa = famFather.get(fid);
@@ -489,6 +504,11 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
       // Use a real DOT cluster (name starts with cluster_) but keep it invisible.
       // This is the strongest nudge DOT has for keeping spouse blocks cohesive.
       if (fa && mo) {
+        const spouseHasSingleParent = hasSingleParentFamilyByPerson.has(fa) || hasSingleParentFamilyByPerson.has(mo);
+        // Only use extra gap nodes when one spouse is in a single-parent family.
+        // Hidden children alone don't cause the tight-spacing bug.
+        const needsExtraCoupleGap = spouseHasSingleParent;
+
         const coupleSepId = `${fid}__couple_sep`;
         // Ensure unrelated couples/people don't read as a couple from afar.
         // Put the separator inside the couple cluster so it stays attached to the block.
@@ -498,6 +518,24 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
           `];`
         );
 
+        // When children are hidden by depth/cutoff, DOT sometimes packs the couple too tightly.
+        // Add a tiny spacer on both sides of the hub so it still reads as a couple.
+        const leftGapId = `${fid}__hub_gap_l`;
+        const rightGapId = `${fid}__hub_gap_r`;
+        if (needsExtraCoupleGap) {
+          // Use an invisible *box* (not point) so width reliably affects layout.
+          lines.push(
+            `  ${dotId(leftGapId)} [` +
+            `shape=box, style=invis, width=${COUPLE_HUB_SIDE_GAP_IN.toFixed(2)}, height=0.01, fixedsize=true, margin=0, label=""` +
+            `];`
+          );
+          lines.push(
+            `  ${dotId(rightGapId)} [` +
+            `shape=box, style=invis, width=${COUPLE_HUB_SIDE_GAP_IN.toFixed(2)}, height=0.01, fixedsize=true, margin=0, label=""` +
+            `];`
+          );
+        }
+
         lines.push(`  subgraph ${dotId(`cluster_couple_${fid}`)} {`);
         lines.push('    cluster=true;');
         lines.push('    style=invis;');
@@ -506,13 +544,25 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
         lines.push(`    margin="${COUPLE_CLUSTER_MARGIN_X_PT},0";`);
         lines.push('    rank=same;');
         lines.push('    ordering=out;');
-        lines.push(`    ${dotId(fa)}; ${dotId(fid)}; ${dotId(mo)}; ${dotId(coupleSepId)};`);
+        if (needsExtraCoupleGap) {
+          lines.push(`    ${dotId(fa)}; ${dotId(leftGapId)}; ${dotId(fid)}; ${dotId(rightGapId)}; ${dotId(mo)}; ${dotId(coupleSepId)};`);
+        } else {
+          lines.push(`    ${dotId(fa)}; ${dotId(fid)}; ${dotId(mo)}; ${dotId(coupleSepId)};`);
+        }
         lines.push('  }');
 
         // Hard ordering: spouse - hub - spouse.
         // Keep these invisible so the debug-visible spouse→hub edges remain readable.
-        lines.push(`  ${dotId(fa)} -> ${dotId(fid)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
-        lines.push(`  ${dotId(fid)} -> ${dotId(mo)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+        // Use minlen=0 to keep everything on the same rank; spacing comes from gap node width.
+        if (needsExtraCoupleGap) {
+          lines.push(`  ${dotId(fa)} -> ${dotId(leftGapId)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+          lines.push(`  ${dotId(leftGapId)} -> ${dotId(fid)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+          lines.push(`  ${dotId(fid)} -> ${dotId(rightGapId)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+          lines.push(`  ${dotId(rightGapId)} -> ${dotId(mo)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+        } else {
+          lines.push(`  ${dotId(fa)} -> ${dotId(fid)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+          lines.push(`  ${dotId(fid)} -> ${dotId(mo)} [style=invis, weight=50000, minlen=0, constraint=true, arrowhead=none];`);
+        }
         lines.push(`  ${dotId(mo)} -> ${dotId(coupleSepId)} [style=invis, weight=8000, minlen=0, constraint=true, arrowhead=none];`);
         // Extra glue: keep spouses adjacent even under conflicting constraints.
         lines.push(`  ${dotId(fa)} -> ${dotId(mo)} [style=invis, weight=100000, minlen=0, constraint=false, arrowhead=none];`);
