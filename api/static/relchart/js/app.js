@@ -16,6 +16,9 @@ const els = {
   peopleSearch: $('peopleSearch'),
   peopleStatus: $('peopleStatus'),
   peopleList: $('peopleList'),
+  peopleExpandToggle: $('peopleExpandToggle'),
+  optPeopleWidePx: $('optPeopleWidePx'),
+  optionsMenu: $('optionsMenu'),
 };
 
 const state = {
@@ -25,8 +28,90 @@ const state = {
   people: null,
   peopleLoaded: false,
   peopleSelected: null,
+  peopleExpanded: false,
   nodeById: new Map(),
 };
+
+const PEOPLE_EXPANDED_KEY = 'tree_relchart_people_expanded_v1';
+const PEOPLE_WIDE_PX_KEY = 'tree_relchart_people_wide_px_v1';
+const PEOPLE_WIDE_PX_DEFAULT = 440;
+
+function _setPeopleWidePx(px, { persist = true } = {}) {
+  let n = Number(px);
+  if (!Number.isFinite(n)) return;
+  n = Math.round(n);
+  n = Math.max(360, Math.min(900, n));
+  document.documentElement.style.setProperty('--sidebar-w-wide', `${n}px`);
+  if (els.peopleWidth) els.peopleWidth.value = String(n);
+  if (persist) {
+    try { localStorage.setItem(PEOPLE_WIDE_PX_KEY, String(n)); } catch (_) {}
+  }
+}
+
+function _setPeopleExpanded(expanded, { persist = true, rerender = true } = {}) {
+  const on = !!expanded;
+  state.peopleExpanded = on;
+  document.documentElement.dataset.peopleWide = on ? 'true' : 'false';
+  if (els.peopleExpandToggle) {
+    els.peopleExpandToggle.textContent = on ? 'Compact' : 'Expand';
+    els.peopleExpandToggle.title = on ? 'Collapse people list' : 'Expand people list (show years)';
+  }
+  if (persist) {
+    try { localStorage.setItem(PEOPLE_EXPANDED_KEY, on ? '1' : '0'); } catch (_) {}
+  }
+  if (rerender && state.peopleLoaded && state.people) {
+    _renderPeopleList(state.people, els.peopleSearch?.value || '');
+  }
+}
+
+function _initPeopleExpanded() {
+  let on = false;
+  try {
+    const v = String(localStorage.getItem(PEOPLE_EXPANDED_KEY) || '').trim();
+    on = (v === '1' || v.toLowerCase() === 'true');
+  } catch (_) {}
+
+  let px = PEOPLE_WIDE_PX_DEFAULT;
+  try {
+    const raw = String(localStorage.getItem(PEOPLE_WIDE_PX_KEY) || '').trim();
+    const n = Number(raw);
+    if (Number.isFinite(n)) px = n;
+  } catch (_) {}
+  _setPeopleWidePx(px, { persist: false });
+
+  if (els.optPeopleWidePx) {
+    els.optPeopleWidePx.value = String(px);
+    els.optPeopleWidePx.addEventListener('change', () => {
+      _setPeopleWidePx(els.optPeopleWidePx.value);
+      if (state.peopleExpanded && state.peopleLoaded && state.people) {
+        _renderPeopleList(state.people, els.peopleSearch?.value || '');
+      }
+    });
+  }
+
+  // Close the menu when clicking outside.
+  if (els.optionsMenu) {
+    document.addEventListener('click', (e) => {
+      const open = els.optionsMenu.open;
+      if (!open) return;
+      const t = e.target;
+      if (t && els.optionsMenu.contains(t)) return;
+      els.optionsMenu.open = false;
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        try { els.optionsMenu.open = false; } catch (_) {}
+      }
+    });
+  }
+
+  _setPeopleExpanded(on, { persist: false, rerender: false });
+  if (els.peopleExpandToggle) {
+    els.peopleExpandToggle.addEventListener('click', () => {
+      _setPeopleExpanded(!state.peopleExpanded);
+    });
+  }
+}
 
 function _setSidebarActiveTab(tabName) {
   const name = String(tabName || '').trim();
@@ -532,6 +617,7 @@ els.fitBtn.addEventListener('click', () => {
 
 // Initial
 setStatus('Ready.');
+_initPeopleExpanded();
 
 function _normKey(s) {
   return String(s || '').trim().toLowerCase();
@@ -664,12 +750,48 @@ function _renderPeopleList(people, query) {
       nameEl.className = 'name';
       nameEl.textContent = String(p?.display_name || '');
 
-      const metaEl = document.createElement('div');
+      const metaRow = document.createElement('div');
+      metaRow.className = 'metaRow';
+
+      if (state.peopleExpanded) {
+        const by = p?.birth_year;
+        const dy = p?.death_year;
+        const hasBy = (typeof by === 'number') && Number.isFinite(by);
+        const hasDy = (typeof dy === 'number') && Number.isFinite(dy);
+
+        // Always render the dates block in expanded mode so IDs align.
+        // Use fixed-width sub-spans so:
+        // - missing death => "563 -     I1221" (no leading spaces)
+        // - missing birth => "    - 1060 I1221"
+        const datesBlock = document.createElement('span');
+        datesBlock.className = 'datesBlock';
+
+        const birthEl = document.createElement('span');
+        birthEl.className = 'dateBirth';
+        birthEl.textContent = hasBy ? String(by) : '';
+
+        const dashEl = document.createElement('span');
+        dashEl.className = 'dateDash';
+        dashEl.textContent = (hasBy || hasDy) ? ' - ' : '';
+
+        const deathEl = document.createElement('span');
+        deathEl.className = 'dateDeath';
+        deathEl.textContent = hasDy ? String(dy) : '';
+
+        datesBlock.appendChild(birthEl);
+        datesBlock.appendChild(dashEl);
+        datesBlock.appendChild(deathEl);
+
+        metaRow.appendChild(datesBlock);
+      }
+
+      const metaEl = document.createElement('span');
       metaEl.className = 'meta';
       metaEl.textContent = String(p?.gramps_id || p?.id || '');
+      metaRow.appendChild(metaEl);
 
       btn.appendChild(nameEl);
-      btn.appendChild(metaEl);
+      btn.appendChild(metaRow);
 
       btn.addEventListener('click', async () => {
         const ref = String(p?.gramps_id || p?.id || '').trim();

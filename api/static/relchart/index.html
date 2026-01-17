@@ -33,7 +33,12 @@
         </div>
 
         <div class="tabpanel" data-panel="people" role="tabpanel">
-          <h2>People</h2>
+          <div class="panelHeaderRow">
+            <h2>People</h2>
+            <div class="panelHeaderControls">
+              <button id="peopleExpandToggle" class="miniToggle" type="button" title="Toggle expanded people list">Expand</button>
+            </div>
+          </div>
           <div class="peopleTools">
             <label>
               Search
@@ -85,7 +90,43 @@
             </div>
           </div>
 
-          <div id="status" class="status">Ready.</div>
+          <div class="topRight">
+            <div id="status" class="status">Ready.</div>
+
+            <details id="optionsMenu" class="optionsMenu">
+              <summary id="optionsBtn" class="optionsBtn" title="Options">Options</summary>
+              <div class="optionsPanel" role="menu" aria-label="Options">
+                <div class="optionsSection">
+                  <div class="optionsSectionTitle">People</div>
+                  <div class="optRow">
+                    <div class="optLabel">Expanded sidebar width</div>
+                    <input id="optPeopleWidePx" class="miniNumber" type="number" min="360" max="900" step="10" value="440" />
+                  </div>
+                  <div class="optHint">Controls how wide the People tab gets when you click “Expand”.</div>
+                </div>
+
+                <div class="optionsSection">
+                  <div class="optionsSectionTitle">Graph</div>
+                  <div class="optHint">(Soon) Layout tuning, card density, and hub styling.</div>
+                </div>
+
+                <div class="optionsSection">
+                  <div class="optionsSectionTitle">Interaction</div>
+                  <div class="optHint">(Soon) Keyboard shortcuts, wheel zoom speed, pan modifiers.</div>
+                </div>
+
+                <div class="optionsSection">
+                  <div class="optionsSectionTitle">Privacy</div>
+                  <div class="optHint">(Soon) Private/living display and export-safe modes.</div>
+                </div>
+
+                <div class="optionsSection">
+                  <div class="optionsSectionTitle">Developer</div>
+                  <div class="optHint">(Soon) Debug overlays and diagnostics.</div>
+                </div>
+              </div>
+            </details>
+          </div>
         </div>
       </header>
 

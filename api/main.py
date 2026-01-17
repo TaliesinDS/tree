@@ -234,7 +234,8 @@ def list_people(
         rows = conn.execute(
             """
             SELECT id, gramps_id, display_name, given_name, surname,
-                   birth_date, death_date, is_living, is_private, is_living_override
+                   birth_text, death_text, birth_date, death_date,
+                   is_living, is_private, is_living_override
             FROM person
             ORDER BY display_name NULLS LAST, id
             LIMIT %s OFFSET %s
@@ -250,6 +251,8 @@ def list_people(
             display_name,
             given_name,
             surname,
+            birth_text,
+            death_text,
             birth_date,
             death_date,
             is_living_flag,
@@ -257,12 +260,38 @@ def list_people(
             is_living_override,
         ) = tuple(r)
 
+        def _year_hint(bd: date | None, dd: date | None, bt: str | None, dt: str | None) -> tuple[int | None, int | None]:
+            by = bd.year if bd is not None else None
+            dy = dd.year if dd is not None else None
+
+            def _year_from_text(s: str | None) -> int | None:
+                if not s:
+                    return None
+                m = re.search(r"\b(\d{4})\b", str(s))
+                if not m:
+                    return None
+                try:
+                    y = int(m.group(1))
+                except ValueError:
+                    return None
+                if y < 1 or y > date.today().year + 5:
+                    return None
+                return y
+
+            if by is None:
+                by = _year_from_text(bt)
+            if dy is None:
+                dy = _year_from_text(dt)
+            return by, dy
+
         if _is_effectively_private(
             is_private=is_private_flag,
             is_living_override=is_living_override,
             is_living=is_living_flag,
             birth_date=birth_date,
             death_date=death_date,
+            birth_text=birth_text,
+            death_text=death_text,
         ):
             results.append(
                 {
@@ -272,6 +301,8 @@ def list_people(
                     "display_name": "Private",
                     "given_name": None,
                     "surname": None,
+                    "birth_year": None,
+                    "death_year": None,
                 }
             )
         else:
@@ -280,6 +311,7 @@ def list_people(
                 given_name=given_name,
                 surname=surname,
             )
+            by, dy = _year_hint(birth_date, death_date, birth_text, death_text)
             results.append(
                 {
                     "id": pid,
@@ -288,6 +320,8 @@ def list_people(
                     "display_name": display_name,
                     "given_name": given_name_out,
                     "surname": surname_out,
+                    "birth_year": by,
+                    "death_year": dy,
                 }
             )
 
