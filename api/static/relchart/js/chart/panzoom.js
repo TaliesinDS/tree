@@ -104,11 +104,34 @@ export function enableSvgPanZoom(svg, { container } = {}) {
   const move = (e) => {
     if (!state.dragging) return;
     e.preventDefault();
-    const rect = (container || svg).getBoundingClientRect();
+
     const dxPx = e.clientX - state.lastX;
     const dyPx = e.clientY - state.lastY;
     state.lastX = e.clientX;
     state.lastY = e.clientY;
+
+    // Convert pixel delta to SVG user-unit delta as a *vector*.
+    // Using vector transform avoids feedback lag/flicker because the viewBox
+    // translation changes the point mapping but does not affect vectors.
+    try {
+      const ctm = svg.getScreenCTM?.();
+      if (ctm && typeof ctm.inverse === 'function') {
+        const inv = ctm.inverse();
+        const p0 = new DOMPoint(0, 0).matrixTransform(inv);
+        const p1 = new DOMPoint(dxPx, dyPx).matrixTransform(inv);
+        const dxSvg = p1.x - p0.x;
+        const dySvg = p1.y - p0.y;
+        if (Number.isFinite(dxSvg) && Number.isFinite(dySvg)) {
+          state.x -= dxSvg;
+          state.y -= dySvg;
+          apply();
+          return;
+        }
+      }
+    } catch (_) {}
+
+    // Fallback: approximate using container proportions.
+    const rect = (container || svg).getBoundingClientRect();
     state.x -= dxPx * (state.w / rect.width);
     state.y -= dyPx * (state.h / rect.height);
     apply();
