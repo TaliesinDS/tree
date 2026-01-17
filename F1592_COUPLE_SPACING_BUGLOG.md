@@ -208,3 +208,166 @@ If ever moving person cards in SVG, update `convertEdgeElbowsToRoundedPaths` end
 
 ## Appendix: Related Prior Notes
 - Existing bug log: `FID_MISALIGNMENT_BUGLOG.md` (different issue; hub alignment/float behaviors are adjacent).
+
+---
+
+## RESOLUTION (2026-01-17)
+
+### Status: FIXED ✓
+
+The bug has been successfully resolved. F1592 now displays with proper couple-like spacing between spouse cards while maintaining consistent hub sizing with other couples.
+
+### Root Cause Analysis
+
+The bug had **two interacting root causes**:
+
+#### 1. DOT Layout Constraint Interference (Primary Cause)
+When a person participates in both:
+- A **two-parent family** (as a spouse), AND
+- A **single-parent family** (as the sole visible parent)
+
+...the DOT layout engine's constraint solver experiences conflicting pressures:
+
+- The **couple cluster** (`cluster_couple_<fid>`) wants spouse—hub—spouse tightly packed on the same rank
+- The **single-parent junction** (invisible family node) creates additional rank/ordering constraints anchoring to that same person
+- Graphviz resolves these conflicts by **compressing the couple's horizontal spacing** to satisfy the single-parent edge constraints
+
+This compression made F1592's spouses render with sibling-like spacing (~5-8px gap) instead of couple-like spacing (~17-20px gap).
+
+#### 2. DOT Gap Node Strategy Ineffective
+Previous attempts to fix this via DOT-level invisible "gap nodes" (`fid__hub_gap_l`, `fid__hub_gap_r`) with `shape=box` and explicit `width` values **failed** because:
+
+- The global `nodesep=0` setting overrode per-node width for same-rank spacing
+- `minlen=1` on ordering edges caused **rank separation** (vertical) not horizontal spacing
+- The gap nodes were created but Graphviz collapsed them during layout optimization
+
+### The Fix: SVG Post-Processing Spouse Nudge with Edge Re-Snapping
+
+Since DOT-level fixes proved unreliable, the solution moved to **SVG post-processing** in `render.js`:
+
+#### Step 1: Detect "Special" Couples
+Identify couples where one spouse is also a parent in a single-parent family (in the current view):
+
+```javascript
+// In postProcessGraphvizSvg():
+const hasSingleParentFamilyByPerson = new Set();
+for (const [, pid] of (singleParentParentByFamily || new Map()).entries()) {
+  const p = String(pid || '').trim();
+  if (p) hasSingleParentFamilyByPerson.add(p);
+}
+
+// For each couple:
+const needsExtraGap = hasSingleParentFamilyByPerson.has(aId) || hasSingleParentFamilyByPerson.has(bId);
+```
+
+#### Step 2: Measure Current Spouse Gap
+Use reliable bounding-box computation via `getBoundingClientRect()` mapped back to SVG user-space:
+
+```javascript
+const bboxInUserSpace = (el) => {
+  const r = el.getBoundingClientRect();
+  const screenCTM = svg.getScreenCTM();
+  const inv = screenCTM.inverse();
+  // Transform screen coords back to SVG user-space...
+};
+
+const currentGap = rightBB.x - (leftBB.x + leftBB.width);
+```
+
+#### Step 3: Nudge Spouse Cards Apart Symmetrically
+If the gap is below the minimum threshold (`SPECIAL_COUPLE_MIN_SPOUSE_GAP_PX = 17`), move each spouse card outward by half the shortfall:
+
+```javascript
+if (currentGap < SPECIAL_COUPLE_MIN_SPOUSE_GAP_PX) {
+  const shortfall = SPECIAL_COUPLE_MIN_SPOUSE_GAP_PX - currentGap;
+  const nudge = shortfall / 2;
+  
+  // Move left spouse left, right spouse right
+  leftNode.setAttribute('transform', `translate(${trL.x - nudge} ${trL.y})`);
+  rightNode.setAttribute('transform', `translate(${trR.x + nudge} ${trR.y})`);
+  
+  // Track offsets for edge snapping
+  personDxById.set(leftId, -nudge);
+  personDxById.set(rightId, +nudge);
+}
+```
+
+#### Step 4: Re-Snap Edge Endpoints (Critical!)
+Previous attempts failed because moving person cards broke edge endpoints. The fix tracks all person X-offsets and applies them during edge smoothing:
+
+```javascript
+// In convertEdgeElbowsToRoundedPaths() → replaceWithSmoothPath():
+if (personDxById) {
+  const sDx = Number(personDxById.get(sourceId) ?? 0);
+  const tDx = Number(personDxById.get(targetId) ?? 0);
+  if (sDx !== 0) ends.source.x += sDx;
+  if (tDx !== 0) ends.target.x += tDx;
+}
+```
+
+This ensures edge endpoints follow their respective nodes after the nudge.
+
+#### Step 5: Consistent Hub Sizing
+Apply the hub "bump" (slight ellipse enlargement) to **all** hubs uniformly, including special couples:
+
+```javascript
+// Apply to ALL hubs, not just normal couples
+const bump = 2;
+ellipse.setAttribute('rx', String(rx0 + bump));
+ellipse.setAttribute('ry', String(ry0 + bump));
+```
+
+### Key Configuration Values
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `SPECIAL_COUPLE_MIN_SPOUSE_GAP_PX` | 17 | Minimum horizontal gap between spouse cards for special couples |
+| Hub bump | 2 | Pixels added to hub rx/ry for visual tightness |
+
+### Files Modified
+
+1. **`api/static/relchart/js/chart/render.js`**
+   - Added `SPECIAL_COUPLE_MIN_SPOUSE_GAP_PX` constant
+   - Added `personDxById` tracking map
+   - Added spouse nudging logic in `postProcessGraphvizSvg()`
+   - Updated `convertEdgeElbowsToRoundedPaths()` to accept and apply `personDxById`
+   - Made hub bump apply to all hubs uniformly
+
+2. **`api/static/relchart/js/chart/dot.js`**
+   - Narrowed `needsExtraCoupleGap` trigger to only `spouseHasSingleParent` (removed `hasHiddenChildren`)
+   - Set `COUPLE_HUB_SIDE_GAP_IN = 0` (DOT-level gaps proved ineffective)
+
+### Why Previous Approaches Failed
+
+| Approach | Why It Failed |
+|----------|---------------|
+| DOT gap nodes with `shape=point` | Graphviz ignores point width for same-rank spacing |
+| DOT gap nodes with `shape=box` | Still collapsed by layout optimizer with `nodesep=0` |
+| DOT `minlen=1` on ordering edges | Controls rank (vertical) separation, not horizontal |
+| SVG spouse nudge without edge re-snap | Edges originated from mid-gap instead of card edges |
+| Hub bump conditional on `!needsExtraGap` | Made special-couple hubs smaller than others |
+
+### Lessons Learned
+
+1. **DOT is a global optimizer** — local node/edge attributes can be overridden by global constraints or conflicting subgraph pressures.
+
+2. **SVG post-processing is more reliable for fine-tuned spacing** — you have direct control over final positions, but you MUST update dependent geometry (edge endpoints).
+
+3. **Bounding-box math in SVG is tricky** — `getBBox()` ignores transforms; use `getBoundingClientRect()` + `getScreenCTM().inverse()` for accurate user-space coordinates.
+
+4. **Track ALL movements** — any node movement must be recorded and propagated to edge endpoint snapping, or visual artifacts occur.
+
+5. **Test with the specific problematic payload** — generic test cases may not trigger the constraint interference that causes this bug.
+
+### Verification
+
+To verify the fix:
+1. Open `http://127.0.0.1:8080/demo/relationship`
+2. Load neighborhood for `I0063` with `depth=5`
+3. Locate F1592 (`_f917a76c9c06455c6eff63c7646`)
+4. Confirm:
+   - Spouse cards have visible couple-like gap (~17px)
+   - Hub is centered between spouses
+   - Hub size matches other couples
+   - Edges connect properly to card edges (not mid-gap)
+   - Other couples (e.g., F0841 with hidden children) retain tight spacing
