@@ -42,14 +42,48 @@ export function enableSvgPanZoom(svg, { container } = {}) {
 
   const wheel = (e) => {
     e.preventDefault();
-    const rect = (container || svg).getBoundingClientRect();
-    const px = (e.clientX - rect.left) / rect.width;
-    const py = (e.clientY - rect.top) / rect.height;
-    const zoom = Math.exp((e.deltaY > 0 ? 1 : -1) * 0.12);
+
+    // Compute the cursor point in SVG user units using CTM inverse.
+    // This stays correct even with preserveAspectRatio letterboxing.
+    let cursorSvg = null;
+    try {
+      const ctm = svg.getScreenCTM?.();
+      if (ctm && typeof ctm.inverse === 'function') {
+        const inv = ctm.inverse();
+        cursorSvg = new DOMPoint(e.clientX, e.clientY).matrixTransform(inv);
+      }
+    } catch (_) {
+      cursorSvg = null;
+    }
+
+    // Fallback: approximate using container proportions.
+    if (!cursorSvg) {
+      const rect = (container || svg).getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width;
+      const py = (e.clientY - rect.top) / rect.height;
+      cursorSvg = {
+        x: state.x + state.w * px,
+        y: state.y + state.h * py,
+      };
+    }
+
+    // Cursor-centered zoom with the *old* strength (good feel):
+    // one typical wheel notch (~100 deltaY pixels) => exp(±0.12) ≈ 1.13x.
+    // Trackpads produce smaller deltaY => proportionally gentler zoom.
+    let dy = Number(e.deltaY);
+    if (!Number.isFinite(dy)) dy = (e.deltaY > 0 ? 100 : -100);
+    // Normalize line/page deltas into pixels-ish.
+    if (e.deltaMode === 1) dy *= 16; // lines
+    if (e.deltaMode === 2) dy *= 800; // pages (coarse)
+    const step = Math.max(-1, Math.min(1, dy / 100));
+    const zoom = Math.exp(step * 0.12);
+
     const newW = state.w * zoom;
     const newH = state.h * zoom;
-    state.x = state.x + (state.w - newW) * px;
-    state.y = state.y + (state.h - newH) * py;
+
+    // Keep cursorSvg fixed on screen: zoom around that point.
+    state.x = cursorSvg.x - (cursorSvg.x - state.x) * zoom;
+    state.y = cursorSvg.y - (cursorSvg.y - state.y) * zoom;
     state.w = newW;
     state.h = newH;
     apply();
