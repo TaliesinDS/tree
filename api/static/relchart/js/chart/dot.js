@@ -17,6 +17,10 @@ function htmlEsc(s) {
 const PERSON_CARD_WIDTH_IN = 1.60;
 const PERSON_CARD_HEIGHT_IN = 1.10;
 
+// Person-card label padding inside Graphviz's HTML-like table.
+// Increase for more breathing room, decrease for tighter line spacing.
+const PERSON_LABEL_CELL_PADDING = 1;
+
 const HUB_DIAMETER_IN = 0.26;
 const INLAW_GAP_IN = HUB_DIAMETER_IN * 0.50;      // ~half a hub
 const UNRELATED_GAP_IN = HUB_DIAMETER_IN * 1.50;  // ~one and a half hubs
@@ -110,7 +114,7 @@ function personHtmlLabel(p) {
     rows.push(`<TR><TD ALIGN="LEFT">${htmlEsc(gid)}</TD></TR>`);
   }
 
-  return `<<TABLE BORDER="0" CELLBORDER="0" CELLPADDING="1" CELLSPACING="0">${rows.join('')}</TABLE>>`;
+  return `<<TABLE BORDER="0" CELLBORDER="0" CELLPADDING="${PERSON_LABEL_CELL_PADDING}" CELLSPACING="0">${rows.join('')}</TABLE>>`;
 }
 
 export function buildRelationshipDot(payload, { couplePriority = true } = {}) {

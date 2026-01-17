@@ -8,6 +8,20 @@ import { buildRelationshipDot } from './dot.js';
 
 const HUB_EXTRA_LOWER_PX = 6;
 
+// --- Person card typography knobs (tweak by hand) ---
+// Positive values move the block DOWN; negative move UP.
+const PERSON_CARD_TEXT_TOP_SHIFT_PX = 6;
+const PERSON_CARD_TEXT_BOTTOM_SHIFT_PX = 4;
+
+// Rim-safe padding inside the card before text starts.
+const PERSON_CARD_TEXT_PAD_TOP_PX = 10;
+const PERSON_CARD_TEXT_PAD_BOTTOM_PX = 10;
+
+// Line spacing (derived from Graphviz output, then scaled/clamped).
+const PERSON_CARD_TEXT_STEP_SCALE = 0.82;
+const PERSON_CARD_TEXT_STEP_MIN_PX = 12;
+const PERSON_CARD_TEXT_STEP_MAX_PX = 16;
+
 function reorderGraphvizLayers(svg) {
   const containers = Array.from(svg.querySelectorAll('g')).filter(g => {
     const kids = Array.from(g.children);
@@ -253,15 +267,18 @@ function postProcessGraphvizSvg(svg, {
               }
               diffs.sort((a, b) => a - b);
               const typicalStep = diffs.length ? diffs[Math.floor(diffs.length / 2)] : 14;
-              const step = Math.max(10, typicalStep * 0.82);
+              const step = Math.max(
+                PERSON_CARD_TEXT_STEP_MIN_PX,
+                Math.min(PERSON_CARD_TEXT_STEP_MAX_PX, typicalStep * PERSON_CARD_TEXT_STEP_SCALE)
+              );
 
               const nameLines = texts.filter(x => x.isBold && !x.isDate).sort((a, b) => a.y - b.y);
               const dateLines = texts.filter(x => x.isDate).sort((a, b) => a.y - b.y);
               const otherLines = texts.filter(x => !x.isBold && !x.isDate).sort((a, b) => a.y - b.y);
 
               // Rim-safe padding: keep the first line from touching the colored rim.
-              const padTop = Math.max(8, Math.min(14, bb.height * 0.12));
-              const padBot = Math.max(8, Math.min(14, bb.height * 0.12));
+              const padTop = Math.max(6, Math.min(18, PERSON_CARD_TEXT_PAD_TOP_PX));
+              const padBot = Math.max(6, Math.min(18, PERSON_CARD_TEXT_PAD_BOTTOM_PX));
 
               // If no explicit name lines (should be rare), treat everything as name.
               const topBlock = nameLines.length ? nameLines : texts;
@@ -270,7 +287,7 @@ function postProcessGraphvizSvg(svg, {
               const bottomBlock = dateLines.length ? dateLines : otherLines;
 
               // Place top block from the top down.
-              let yTop = bb.y + padTop;
+              let yTop = bb.y + padTop + PERSON_CARD_TEXT_TOP_SHIFT_PX;
               for (let i = 0; i < topBlock.length; i++) {
                 const x = topBlock[i];
                 const y = yTop + (i * step);
@@ -280,7 +297,7 @@ function postProcessGraphvizSvg(svg, {
               // Place bottom block from the bottom up.
               if (bottomBlock.length) {
                 const lastIdx = bottomBlock.length - 1;
-                let yBottomLast = (bb.y + bb.height) - padBot;
+                let yBottomLast = (bb.y + bb.height) - padBot + PERSON_CARD_TEXT_BOTTOM_SHIFT_PX;
                 for (let i = lastIdx; i >= 0; i--) {
                   const x = bottomBlock[i];
                   const y = yBottomLast - ((lastIdx - i) * step);
