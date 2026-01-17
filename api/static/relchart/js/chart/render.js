@@ -358,7 +358,13 @@ function postProcessGraphvizSvg(svg, {
           const click = (e) => {
             e.preventDefault();
             e.stopPropagation();
-            onExpandParents?.({ personId: pid, familyId: parentsFamilyId });
+            onExpandParents?.({
+              personId: pid,
+              familyId: parentsFamilyId,
+              expandKind: 'parents',
+              clientX: e?.clientX,
+              clientY: e?.clientY,
+            });
           };
           tab.addEventListener('click', click);
           hit.addEventListener('click', click);
@@ -429,7 +435,13 @@ function postProcessGraphvizSvg(svg, {
           const click = (e) => {
             e.preventDefault();
             e.stopPropagation();
-            onExpandChildren?.({ personId: pid, familyId: childrenFamilyId });
+            onExpandChildren?.({
+              personId: pid,
+              familyId: childrenFamilyId,
+              expandKind: 'children',
+              clientX: e?.clientX,
+              clientY: e?.clientY,
+            });
           };
           tab.addEventListener('click', click);
           hit.addEventListener('click', click);

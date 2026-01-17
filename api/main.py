@@ -966,6 +966,11 @@ def graph_neighborhood(
 
             family_ids: list[str] = []
             for fid, fgid, father_id, mother_id, is_private_flag in fam_rows:
+                # Filter out "ghost" families: families with no parents.
+                # These can be left behind by Gramps merges and only contain a child link,
+                # which creates confusing bare hubs and duplicate parent connections.
+                if not father_id and not mother_id:
+                    continue
                 family_ids.append(fid)
                 parents_total = int(bool(father_id)) + int(bool(mother_id))
                 nodes.append(
@@ -1095,6 +1100,10 @@ def graph_family_parents(
 
         fid, fgid, father_id, mother_id, is_private_flag = tuple(fam)
 
+        # Ghost family: nothing meaningful to expand.
+        if not father_id and not mother_id:
+            raise HTTPException(status_code=404, detail="family has no parents")
+
         parent_ids = [pid for pid in (father_id, mother_id) if pid]
 
         # Determine whether this family has more children than we are returning.
@@ -1167,6 +1176,9 @@ def graph_family_parents(
                 children_total_by_family2 = {fid3: int(cnt or 0) for (fid3, cnt) in counts2}
 
                 for bf_id, bf_gid, bf_father_id, bf_mother_id, bf_private in fam2_rows:
+                    # Filter out ghost families when returning stubs.
+                    if not bf_father_id and not bf_mother_id:
+                        continue
                     nodes.append(
                         {
                             "id": bf_id,

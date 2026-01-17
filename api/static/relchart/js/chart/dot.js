@@ -241,6 +241,17 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
   }
 
   for (const [fid, f] of familiesById.entries()) {
+    const pt0 = Number(f?.parents_total);
+    if (Number.isFinite(pt0) && pt0 <= 0) {
+      // Ghost / parentless family: treat as layout-only junction.
+      lines.push(
+        `  ${dotId(fid)} [` +
+        `shape=point, width=0.01, height=0.01, fixedsize=true, style=invis, label=""` +
+        `];`
+      );
+      continue;
+    }
+
     if (cutoffParentFamilyIds.has(fid)) {
       // Layout-only node (do not render a visible hub)
       lines.push(

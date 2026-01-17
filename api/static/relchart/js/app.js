@@ -162,6 +162,219 @@ function createSelectionStore() {
 
 const selection = createSelectionStore();
 
+function _normalizeGraphvizTitleToId(title) {
+  const t = String(title || '').trim();
+  if (!t) return '';
+  return t.replace(/^node\s+/i, '').trim();
+}
+
+function _findPersonNodeElement(svg, personId) {
+  const pid = String(personId || '').trim();
+  if (!svg || !pid) return null;
+  const nodes = svg.querySelectorAll('g.node');
+  for (const node of nodes) {
+    try {
+      if (node.querySelector('ellipse')) continue; // family hub
+      const id = _normalizeGraphvizTitleToId(node.querySelector('title')?.textContent?.trim());
+      if (id === pid) return node;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function _findExpandTabElement(svg, personId, expandKind) {
+  const pid = String(personId || '').trim();
+  const kind = String(expandKind || '').trim().toLowerCase();
+  if (!svg || !pid) return null;
+
+  const attr = (kind === 'children') ? 'data-hidden-children-for' : 'data-hidden-parents-for';
+  const els = Array.from(svg.querySelectorAll(`polygon[${attr}="${pid}"]`));
+  if (!els.length) return null;
+
+  // Prefer the visible tab (it contains a <title>).
+  const withTitle = els.find(el => !!el.querySelector('title'));
+  return withTitle || els[0] || null;
+}
+
+function _getPersonNodeCenterSvg(svg, personId) {
+  const node = _findPersonNodeElement(svg, personId);
+  if (!node) return null;
+  const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+  if (!shape || typeof shape.getBBox !== 'function') return null;
+  const bb = shape.getBBox();
+  if (!bb || !Number.isFinite(bb.x) || !Number.isFinite(bb.y) || !Number.isFinite(bb.width) || !Number.isFinite(bb.height)) return null;
+  return { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
+}
+
+function _captureViewAnchorForPerson(personId, { clientX, clientY, expandKind } = {}) {
+  const svg = els.chart?.querySelector('svg');
+  if (!svg) return null;
+
+  const vb = (state.panZoom?.getViewBox?.() || null);
+  const viewBox = vb && Number.isFinite(vb.w) && Number.isFinite(vb.h)
+    ? vb
+    : (() => {
+        const b = svg.viewBox?.baseVal;
+        if (!b) return null;
+        return { x: b.x, y: b.y, w: b.width, h: b.height };
+      })();
+  if (!viewBox || !Number.isFinite(viewBox.w) || !Number.isFinite(viewBox.h) || viewBox.w <= 0 || viewBox.h <= 0) return null;
+
+  const containerRect = els.chart.getBoundingClientRect();
+  if (!containerRect || !Number.isFinite(containerRect.width) || !Number.isFinite(containerRect.height) || containerRect.width <= 0 || containerRect.height <= 0) return null;
+
+  // Preferred: anchor to the actual click location (expand arrow).
+  let desiredClient = null;
+  const cx = Number(clientX);
+  const cy = Number(clientY);
+  if (Number.isFinite(cx) && Number.isFinite(cy)) {
+    const rx = cx - containerRect.left;
+    const ry = cy - containerRect.top;
+    if (Number.isFinite(rx) && Number.isFinite(ry)) desiredClient = { x: rx, y: ry };
+  }
+
+  // If this came from an expand click, also capture the offset within the tab
+  // so we can keep the exact clicked point stable (not just the tab center).
+  let anchorOffset = { x: 0, y: 0 };
+  const kind = String(expandKind || '').trim().toLowerCase();
+  if (desiredClient && (kind === 'parents' || kind === 'children')) {
+    const tabEl = _findExpandTabElement(svg, personId, kind);
+    if (tabEl && typeof tabEl.getBoundingClientRect === 'function') {
+      try {
+        const tr = tabEl.getBoundingClientRect();
+        const tc = {
+          x: (tr.left + tr.width / 2) - containerRect.left,
+          y: (tr.top + tr.height / 2) - containerRect.top,
+        };
+        if (Number.isFinite(tc.x) && Number.isFinite(tc.y)) {
+          anchorOffset = {
+            x: desiredClient.x - tc.x,
+            y: desiredClient.y - tc.y,
+          };
+        }
+      } catch (_) {}
+    }
+  }
+
+  // Fallback: anchor to the card center.
+  if (!desiredClient) {
+    const nodeEl = _findPersonNodeElement(svg, personId);
+    if (!nodeEl || typeof nodeEl.getBoundingClientRect !== 'function') return null;
+    const r = nodeEl.getBoundingClientRect();
+    desiredClient = {
+      x: (r.left + r.width / 2) - containerRect.left,
+      y: (r.top + r.height / 2) - containerRect.top,
+    };
+    if (!Number.isFinite(desiredClient.x) || !Number.isFinite(desiredClient.y)) return null;
+  }
+
+  return {
+    personId: String(personId),
+    expandKind: kind || null,
+    viewBox,
+    desiredClient,
+    anchorOffset,
+  };
+}
+
+function _restoreViewAnchorForPerson(anchor) {
+  if (!anchor) return;
+  const svg = els.chart?.querySelector('svg');
+  if (!svg) return;
+
+  const viewBox = anchor.viewBox;
+  const desiredClient = anchor.desiredClient;
+  const anchorOffset = anchor.anchorOffset || { x: 0, y: 0 };
+  const containerRect = els.chart.getBoundingClientRect();
+  if (!containerRect || !Number.isFinite(containerRect.width) || !Number.isFinite(containerRect.height) || containerRect.width <= 0 || containerRect.height <= 0) return;
+
+  const clientDeltaToSvgDelta = (dxPx, dyPx) => {
+    const dx = Number(dxPx);
+    const dy = Number(dyPx);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null;
+    try {
+      const m = svg.getScreenCTM?.();
+      if (!m || typeof m.inverse !== 'function') return null;
+      const inv = m.inverse();
+      // Transform as a vector by subtracting two transformed points.
+      const p0 = new DOMPoint(0, 0).matrixTransform(inv);
+      const p1 = new DOMPoint(dx, dy).matrixTransform(inv);
+      const dxSvg = p1.x - p0.x;
+      const dySvg = p1.y - p0.y;
+      if (!Number.isFinite(dxSvg) || !Number.isFinite(dySvg)) return null;
+      return { dxSvg, dySvg };
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const measureCurrentCenter = () => {
+    const kind = String(anchor.expandKind || '').trim().toLowerCase();
+    const tabEl = (kind === 'parents' || kind === 'children')
+      ? _findExpandTabElement(svg, anchor.personId, kind)
+      : null;
+    const el = tabEl || _findPersonNodeElement(svg, anchor.personId);
+    if (!el || typeof el.getBoundingClientRect !== 'function') return null;
+    const r = el.getBoundingClientRect();
+    return {
+      x: (r.left + r.width / 2) - containerRect.left,
+      y: (r.top + r.height / 2) - containerRect.top,
+    };
+  };
+
+  const desiredCenter = {
+    x: desiredClient.x - Number(anchorOffset.x || 0),
+    y: desiredClient.y - Number(anchorOffset.y || 0),
+  };
+
+  const computeAndApplyOnce = () => {
+    // Start from the pre-expand viewBox (preserve zoom level exactly).
+    state.panZoom?.setViewBox?.(viewBox);
+
+    const current = measureCurrentCenter();
+    if (!current) return;
+    if (!Number.isFinite(current.x) || !Number.isFinite(current.y)) return;
+
+    // How far did the card drift on-screen? Convert that pixel drift back to
+    // SVG units and pan by the same amount so the card returns to its old
+    // screen position.
+    const dxPx = current.x - desiredCenter.x;
+    const dyPx = current.y - desiredCenter.y;
+    if (!Number.isFinite(dxPx) || !Number.isFinite(dyPx)) return;
+
+    const vbNow = state.panZoom?.getViewBox?.() || viewBox;
+    if (!vbNow || !Number.isFinite(vbNow.w) || !Number.isFinite(vbNow.h) || vbNow.w <= 0 || vbNow.h <= 0) return;
+
+    const del = clientDeltaToSvgDelta(dxPx, dyPx);
+    // Fallback if CTM isn't available.
+    const dxSvg = del ? del.dxSvg : (dxPx * (vbNow.w / containerRect.width));
+    const dySvg = del ? del.dySvg : (dyPx * (vbNow.h / containerRect.height));
+
+    const corrected = {
+      x: vbNow.x + dxSvg,
+      y: vbNow.y + dySvg,
+      w: vbNow.w,
+      h: vbNow.h,
+    };
+
+    state.panZoom?.setViewBox?.(corrected);
+  };
+
+  // Two frames: first after SVG insertion, second after fonts/layout settle.
+  try {
+    requestAnimationFrame(() => {
+      computeAndApplyOnce();
+      requestAnimationFrame(() => {
+        // One more correction pass if needed (crowded relayout can shift late).
+        computeAndApplyOnce();
+        requestAnimationFrame(computeAndApplyOnce);
+      });
+    });
+  } catch (_) {
+    computeAndApplyOnce();
+  }
+}
+
 function setStatus(msg, isError = false) {
   els.status.textContent = String(msg ?? '');
   els.status.title = String(msg ?? '');
@@ -257,19 +470,23 @@ async function rerender() {
         if (ok) setStatus(msg + ' (copied)');
       });
     },
-    onExpandParents: async ({ personId, familyId }) => {
+    onExpandParents: async ({ personId, familyId, expandKind, clientX, clientY }) => {
       if (!familyId) return;
+      const anchor = _captureViewAnchorForPerson(personId, { clientX, clientY, expandKind });
       setStatus(`Expanding parents: ${familyId} …`);
       const delta = await api.familyParents({ familyId, childId: personId });
       state.payload = mergeGraphPayload(state.payload, delta);
       await rerender();
+      _restoreViewAnchorForPerson(anchor);
     },
-    onExpandChildren: async ({ familyId }) => {
+    onExpandChildren: async ({ personId, familyId, expandKind, clientX, clientY }) => {
       if (!familyId) return;
+      const anchor = _captureViewAnchorForPerson(personId, { clientX, clientY, expandKind });
       setStatus(`Expanding children: ${familyId} …`);
       const delta = await api.familyChildren({ familyId, includeSpouses: true });
       state.payload = mergeGraphPayload(state.payload, delta);
       await rerender();
+      _restoreViewAnchorForPerson(anchor);
     },
     onFit: (fn) => {
       els.fitBtn.onclick = fn;

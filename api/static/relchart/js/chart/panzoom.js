@@ -24,6 +24,22 @@ export function enableSvgPanZoom(svg, { container } = {}) {
     svg.setAttribute('viewBox', `${state.x} ${state.y} ${state.w} ${state.h}`);
   };
 
+  const getViewBox = () => ({ x: state.x, y: state.y, w: state.w, h: state.h });
+
+  const setViewBox = ({ x, y, w, h } = {}) => {
+    const nx = Number(x);
+    const ny = Number(y);
+    const nw = Number(w);
+    const nh = Number(h);
+    if (![nx, ny, nw, nh].every(Number.isFinite)) return;
+    if (nw <= 0 || nh <= 0) return;
+    state.x = nx;
+    state.y = ny;
+    state.w = nw;
+    state.h = nh;
+    apply();
+  };
+
   const wheel = (e) => {
     e.preventDefault();
     const rect = (container || svg).getBoundingClientRect();
@@ -89,5 +105,7 @@ export function enableSvgPanZoom(svg, { container } = {}) {
       state.h = state.orig.h;
       apply();
     },
+    getViewBox,
+    setViewBox,
   };
 }
