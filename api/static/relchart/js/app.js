@@ -28,6 +28,140 @@ const state = {
   nodeById: new Map(),
 };
 
+function _setSidebarActiveTab(tabName) {
+  const name = String(tabName || '').trim();
+  if (!name) return;
+
+  const tabButtons = Array.from(document.querySelectorAll('.tabbtn[data-tab]'));
+  const tabPanels = Array.from(document.querySelectorAll('.tabpanel[data-panel]'));
+  for (const b of tabButtons) {
+    const active = b.dataset.tab === name;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-selected', active ? 'true' : 'false');
+  }
+  for (const p of tabPanels) {
+    p.classList.toggle('active', p.dataset.panel === name);
+  }
+}
+
+function _cssEscape(s) {
+  const v = String(s ?? '');
+  try {
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(v);
+  } catch (_) {}
+  return v.replace(/[^a-zA-Z0-9_-]/g, (m) => `\\${m}`);
+}
+
+function _getPeopleOpenGroups() {
+  const open = new Set();
+  if (!els.peopleList) return open;
+  for (const d of els.peopleList.querySelectorAll('details.peopleGroup[open]')) {
+    const k = String(d.dataset.groupName || '').trim();
+    if (k) {
+      open.add(k);
+      continue;
+    }
+    const txt = String(d.querySelector('summary')?.textContent || '').trim();
+    const m = txt.match(/^(.*?)(?:\s*\(\d+\)\s*)?$/);
+    if (m && m[1]) open.add(m[1].trim());
+  }
+  return open;
+}
+
+function _applyPeopleSelectionToDom({ scroll = true } = {}) {
+  if (!els.peopleList) return;
+  const key = String(state.peopleSelected || '').trim();
+
+  for (const el of els.peopleList.querySelectorAll('.peopleItem.selected')) {
+    el.classList.remove('selected');
+  }
+
+  if (!key) return;
+  const sel = els.peopleList.querySelector(`.peopleItem[data-person-key="${_cssEscape(key)}"]`);
+  if (!sel) return;
+
+  sel.classList.add('selected');
+  const group = sel.closest('details.peopleGroup');
+  if (group) group.open = true;
+
+  if (!scroll) return;
+
+  const scrollContainer = (els.peopleList.closest('.sidebarPanel') || els.peopleList);
+  const centerSelected = () => {
+    try {
+      const c = scrollContainer;
+      const cRect = c.getBoundingClientRect();
+      const eRect = sel.getBoundingClientRect();
+      if (!cRect || !eRect) return;
+      const desiredCenter = cRect.top + (cRect.height / 2);
+      const currentCenter = eRect.top + (eRect.height / 2);
+      const delta = currentCenter - desiredCenter;
+      if (!Number.isFinite(delta)) return;
+      // Positive delta means the element is below center: scroll down.
+      c.scrollTop += delta;
+    } catch (_) {
+      // Fallback: at least bring it into view.
+      try { sel.scrollIntoView({ block: 'center' }); } catch (_) {
+        try { sel.scrollIntoView(); } catch (_) {}
+      }
+    }
+  };
+
+  // Let layout settle (opening <details>, rendering list) before centering.
+  try {
+    requestAnimationFrame(() => {
+      centerSelected();
+      requestAnimationFrame(centerSelected);
+    });
+  } catch (_) {
+    centerSelected();
+  }
+}
+
+function setSelectedPersonKey(key, { source = 'unknown', scrollPeople = true } = {}) {
+  const k = String(key || '').trim();
+  if (k && state.peopleSelected === k) return;
+  state.peopleSelected = k || null;
+
+  // Keep the people list selection in sync without rebuilding the list.
+  _applyPeopleSelectionToDom({ scroll: scrollPeople });
+}
+
+function createSelectionStore() {
+  let current = { apiId: null, grampsId: null, key: null };
+  const listeners = new Set();
+
+  const notify = (next, meta) => {
+    for (const fn of listeners) {
+      try { fn(next, meta); } catch (_) {}
+    }
+  };
+
+  return {
+    get() { return current; },
+    subscribe(fn) {
+      if (typeof fn !== 'function') return () => {};
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    selectPerson({ apiId, grampsId } = {}, { source = 'unknown', scrollPeople = true, updateInput = true } = {}) {
+      const a = String(apiId || '').trim() || null;
+      const g = String(grampsId || '').trim() || null;
+      const key = (g || a || '').trim() || null;
+      const next = { apiId: a, grampsId: g, key };
+      const same = (current.apiId === next.apiId) && (current.grampsId === next.grampsId) && (current.key === next.key);
+      current = next;
+      if (updateInput && next.grampsId) {
+        els.personId.value = next.grampsId;
+      }
+      if (next.key) setSelectedPersonKey(next.key, { source, scrollPeople });
+      if (!same) notify(next, { source });
+    },
+  };
+}
+
+const selection = createSelectionStore();
+
 function setStatus(msg, isError = false) {
   els.status.textContent = String(msg ?? '');
   els.status.title = String(msg ?? '');
@@ -91,6 +225,10 @@ async function rerender() {
     onSelectPerson: (pid) => {
       state.selectedPersonId = pid;
       const node = state.nodeById.get(String(pid)) || null;
+      // Graph click should behave like a global selection: switch to People and center-scroll.
+      _setSidebarActiveTab('people');
+      ensurePeopleLoaded();
+      selection.selectPerson({ apiId: pid, grampsId: node?.gramps_id }, { source: 'graph', scrollPeople: true, updateInput: true });
       const msg = formatIdStatus({
         kind: 'Person',
         apiId: pid,
@@ -197,6 +335,8 @@ function _surnameGroupLabel(p) {
 function _renderPeopleList(people, query) {
   if (!els.peopleList) return;
 
+  const openGroups = _getPeopleOpenGroups();
+
   const q = _normKey(query);
   const filtered = q
     ? people.filter((p) => _normKey(_displayPersonLabel(p)).includes(q))
@@ -224,11 +364,21 @@ function _renderPeopleList(people, query) {
     const peopleInGroup = groups.get(groupName) || [];
     const details = document.createElement('details');
     details.className = 'peopleGroup';
-    details.open = false;
+    details.dataset.groupName = groupName;
 
     const summary = document.createElement('summary');
     summary.textContent = `${groupName} (${peopleInGroup.length})`;
     details.appendChild(summary);
+
+    let groupHasSelection = false;
+    for (const p of peopleInGroup) {
+      const key = String(p?.gramps_id || p?.id || '').trim();
+      if (key && state.peopleSelected && key === state.peopleSelected) {
+        groupHasSelection = true;
+        break;
+      }
+    }
+    details.open = openGroups.has(groupName) || groupHasSelection;
 
     for (const p of peopleInGroup) {
       const btn = document.createElement('button');
@@ -255,10 +405,8 @@ function _renderPeopleList(people, query) {
       btn.addEventListener('click', async () => {
         const ref = String(p?.gramps_id || p?.id || '').trim();
         if (!ref) return;
-        state.peopleSelected = ref;
-        els.personId.value = ref;
+        selection.selectPerson({ grampsId: ref }, { source: 'people-list', scrollPeople: false, updateInput: true });
         await loadNeighborhood();
-        _renderPeopleList(state.people || [], els.peopleSearch?.value || '');
       });
 
       details.appendChild(btn);
@@ -268,6 +416,10 @@ function _renderPeopleList(people, query) {
   }
 
   frag && els.peopleList.appendChild(frag);
+
+  // Ensure the DOM reflects the current selection and expands the selected group
+  // (without collapsing any other groups the user opened).
+  _applyPeopleSelectionToDom({ scroll: false });
 
   if (els.peopleStatus) {
     els.peopleStatus.textContent = `Showing ${filtered.length} of ${people.length}.`;
@@ -288,6 +440,8 @@ async function ensurePeopleLoaded() {
     state.people = results;
     state.peopleLoaded = true;
     _renderPeopleList(results, els.peopleSearch?.value || '');
+    // In case a person was selected from the graph before the People tab loaded.
+    _applyPeopleSelectionToDom({ scroll: true });
   } catch (e) {
     els.peopleStatus.textContent = `Failed to load people: ${e?.message || e}`;
   }
