@@ -14,7 +14,7 @@ function htmlEsc(s) {
     .replaceAll('"', '&quot;');
 }
 
-const PERSON_CARD_WIDTH_IN = 1.60;
+const PERSON_CARD_WIDTH_IN = 1.80;
 const PERSON_CARD_HEIGHT_IN = 1.10;
 
 // Person-card label padding inside Graphviz's HTML-like table.

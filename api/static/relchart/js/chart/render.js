@@ -14,8 +14,12 @@ const PERSON_CARD_TEXT_TOP_SHIFT_PX = 6;
 const PERSON_CARD_TEXT_BOTTOM_SHIFT_PX = 4;
 
 // Rim-safe padding inside the card before text starts.
-const PERSON_CARD_TEXT_PAD_TOP_PX = 10;
+const PERSON_CARD_TEXT_PAD_TOP_PX = 14;
 const PERSON_CARD_TEXT_PAD_BOTTOM_PX = 10;
+
+// Horizontal alignment ("book-like" left align).
+// This is the x-position (in SVG units) from the left edge of the card.
+const PERSON_CARD_TEXT_LEFT_PAD_PX = 12;
 
 // Line spacing (derived from Graphviz output, then scaled/clamped).
 const PERSON_CARD_TEXT_STEP_SCALE = 0.82;
@@ -259,6 +263,15 @@ function postProcessGraphvizSvg(svg, {
               .filter(x => Number.isFinite(x.y));
 
             if (texts.length >= 2) {
+              // Align text to the left edge of the card.
+              const xLeft = bb.x + PERSON_CARD_TEXT_LEFT_PAD_PX;
+              for (const item of texts) {
+                try {
+                  item.t.setAttribute('text-anchor', 'start');
+                  item.t.setAttribute('x', String(xLeft));
+                } catch (_) {}
+              }
+
               const ys = texts.map(x => x.y).sort((a, b) => a - b);
               const diffs = [];
               for (let i = 1; i < ys.length; i++) {

@@ -11,6 +11,8 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   --card-font: "Crimson Pro", "Times New Roman", Times, serif;
+  --card-name-weight: 700;
+  --card-date-weight: 500;
   --sidebar-w: 340px;
   --sidebar-w-wide: 440px;
 }
@@ -18,11 +20,12 @@
 /* Person cards (Graphviz SVG) typography */
 .chart svg g.node.personNode text {
   font-family: var(--card-font) !important;
-  font-weight: 500 !important; /* date lines */
+  font-optical-sizing: auto;
+  font-weight: var(--card-date-weight) !important; /* date lines */
 }
 
 .chart svg g.node.personNode text[font-weight="bold"] {
-  font-weight: 600 !important; /* name lines */
+  font-weight: var(--card-name-weight) !important; /* name lines */
 }
 
 html[data-people-wide="true"] {
