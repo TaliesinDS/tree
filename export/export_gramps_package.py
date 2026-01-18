@@ -130,6 +130,68 @@ def _truthy_int(val: str | None) -> bool:
     return val.strip() in {"1", "true", "True", "yes", "Y"}
 
 
+def _extract_surnames_from_name(name_el: Any) -> list[str]:
+    """Extract one or more surnames from a Gramps <name> element.
+
+    Gramps can store multiple surnames per name. We want a deterministic
+    "display surname" that matches Gramps' primary/ordering behavior as closely
+    as possible (e.g. "van Hofland van Velsen").
+    """
+
+    candidates: list[tuple[bool, int, str]] = []
+    order_fallback = 0
+
+    for nch in name_el.iter():
+        ntag = _strip_ns(nch.tag)
+        if ntag not in {"surname", "last"}:
+            continue
+
+        base = (nch.text or nch.get("surn") or nch.get("surname") or "").strip()
+        if not base:
+            continue
+
+        prefix = (nch.get("prefix") or "").strip()
+        if prefix and base:
+            low = base.lower()
+            plow = prefix.lower()
+            if low == plow or low.startswith(plow + " "):
+                full = base
+            else:
+                full = f"{prefix} {base}".strip()
+        else:
+            full = base
+
+        is_primary = _truthy_int(nch.get("prim") or nch.get("primary"))
+
+        order_raw = (
+            nch.get("order")
+            or nch.get("idx")
+            or nch.get("index")
+            or nch.get("pos")
+            or nch.get("sort")
+        )
+        try:
+            order_key = int(str(order_raw)) if order_raw is not None else order_fallback
+        except ValueError:
+            order_key = order_fallback
+        candidates.append((is_primary, order_key, full))
+        order_fallback += 1
+
+    if not candidates:
+        return []
+
+    # Prefer primary surname(s) first, but preserve relative order.
+    candidates_sorted = sorted(candidates, key=lambda t: (not t[0], t[1]))
+    out: list[str] = []
+    seen: set[str] = set()
+    for _is_primary, _i, s in candidates_sorted:
+        if s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
 def read_gramps_xml_bytes(path: Path) -> bytes:
     """Read a Gramps export.
 
@@ -443,24 +505,13 @@ def export_from_xml(
                 elif ctag == "name":
                     # Try common patterns: <first>, <surname>, or attrs
                     first = None
-                    last = None
                     for nch in ch.iter():
                         ntag = _strip_ns(nch.tag)
                         if ntag in {"first", "given"} and nch.text:
                             first = nch.text
-                        if ntag in {"surname", "last"} and (nch.text or nch.get("surn") or nch.get("surname")):
-                            base = (nch.text or nch.get("surn") or nch.get("surname") or "").strip()
-                            prefix = (nch.get("prefix") or "").strip()
-                            if prefix and base:
-                                # Avoid double-prefixing if the base already includes it.
-                                low = base.lower()
-                                plow = prefix.lower()
-                                if low == plow or low.startswith(plow + " "):
-                                    last = base
-                                else:
-                                    last = f"{prefix} {base}".strip()
-                            else:
-                                last = base or None
+
+                    surnames = _extract_surnames_from_name(ch)
+                    last = " ".join(surnames).strip() if surnames else None
                     if first and not given:
                         given = first.strip()
                     if last and not surname:

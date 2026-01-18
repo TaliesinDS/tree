@@ -963,11 +963,12 @@ function _wireRelationsClicks(hostEl) {
       const ref = gid || apiId;
       if (!ref) return;
 
-      // Behave like a global person selection.
-      try { _setSidebarActiveTab('people'); } catch (_) {}
-      try { ensurePeopleLoaded(); } catch (_) {}
-
-      selection.selectPerson({ apiId: apiId || null, grampsId: gid || null }, { source: 'relations', scrollPeople: true, updateInput: true });
+      // Behave like a global person selection, but do not force sidebar tab switches.
+      const activeTab = _getSidebarActiveTab();
+      selection.selectPerson(
+        { apiId: apiId || null, grampsId: gid || null },
+        { source: 'relations', scrollPeople: activeTab === 'people', updateInput: true },
+      );
       if (!gid && apiId) {
         try { els.personId.value = apiId; } catch (_) {}
       }
@@ -1188,6 +1189,73 @@ function _setSidebarActiveTab(tabName) {
   for (const p of tabPanels) {
     p.classList.toggle('active', p.dataset.panel === name);
   }
+
+  // Lazy-load + scroll-to-selection on explicit tab open.
+  // (Selection changes elsewhere should not force the sidebar to switch tabs.)
+  try {
+    if (name === 'people') {
+      Promise.resolve(ensurePeopleLoaded()).then(() => {
+        try { _applyPeopleSelectionToDom({ scroll: true }); } catch (_) {}
+      });
+    }
+    if (name === 'families') {
+      Promise.resolve(ensureFamiliesLoaded()).then(() => {
+        // Fresh page loads often have a selected person but no selected family yet.
+        // When opening Families, pick a relevant family for the selected person so
+        // the list highlights immediately.
+        try {
+          if (!state.familiesSelected) {
+            const cur = selection?.get?.() || {};
+            if (cur?.apiId) _selectParentFamilyForPersonInSidebar(cur.apiId);
+          }
+        } catch (_) {}
+        try { _applyFamiliesSelectionToDom({ scroll: true }); } catch (_) {}
+      });
+    }
+  } catch (_) {}
+}
+
+function _getSidebarActiveTab() {
+  const b = document.querySelector('.tabbtn.active[data-tab]');
+  const t = String(b?.dataset?.tab || '').trim();
+  return t || null;
+}
+
+function _selectParentFamilyForPersonInSidebar(personApiId) {
+  const pid = String(personApiId || '').trim();
+  if (!pid) return;
+  if (_getSidebarActiveTab() !== 'families') return;
+
+  const edges = Array.isArray(state.payload?.edges) ? state.payload.edges : [];
+  let familyId = null;
+  for (const e of edges) {
+    if (e?.type !== 'parent') continue;
+    if (String(e?.from || '') !== pid) continue;
+    const fid = String(e?.to || '').trim();
+    if (!fid) continue;
+    familyId = fid;
+    break;
+  }
+  // Fallback: if they are not a visible parent/spouse in any family, select their
+  // parent family (i.e., the family where they appear as a child).
+  if (!familyId) {
+    for (const e of edges) {
+      if (e?.type !== 'child') continue;
+      if (String(e?.to || '') !== pid) continue;
+      const fid = String(e?.from || '').trim();
+      if (!fid) continue;
+      familyId = fid;
+      break;
+    }
+  }
+  if (!familyId) return;
+
+  const famNode = state.nodeById?.get?.(String(familyId)) || null;
+  const key = String(famNode?.gramps_id || familyId || '').trim();
+  if (!key) return;
+
+  try { ensureFamiliesLoaded(); } catch (_) {}
+  try { setSelectedFamilyKey(key, { source: 'person-parent', scrollFamilies: true }); } catch (_) {}
 }
 
 function _cssEscape(s) {
@@ -1320,6 +1388,11 @@ selection.subscribe((next) => {
   // If the panel is closed, keep the peek tab visible and updated.
   if (!state.detailPanel.open) {
     try { _setDetailPeekVisible(true); } catch (_) {}
+  }
+
+  // If the user is viewing Families, prefer selecting a family where this person is a parent.
+  if (_getSidebarActiveTab() === 'families' && next?.apiId) {
+    try { _selectParentFamilyForPersonInSidebar(next.apiId); } catch (_) {}
   }
 
   // Avoid redundant fetches.
@@ -1787,10 +1860,14 @@ async function rerender() {
       try { loadPersonDetailsIntoPanel(pid, { openPanel: state.detailPanel.open }); } catch (_) {}
 
       const node = state.nodeById.get(String(pid)) || null;
-      // Graph click should behave like a global selection: switch to People and center-scroll.
-      _setSidebarActiveTab('people');
-      ensurePeopleLoaded();
-      selection.selectPerson({ apiId: pid, grampsId: node?.gramps_id }, { source: 'graph', scrollPeople: true, updateInput: true });
+      // Graph click behaves like a global selection, but should not force sidebar tab switches.
+      const activeTab = _getSidebarActiveTab();
+      selection.selectPerson(
+        { apiId: pid, grampsId: node?.gramps_id },
+        { source: 'graph', scrollPeople: activeTab === 'people', updateInput: true },
+      );
+      // If the user is currently viewing Families, prefer selecting a family where this person is a parent.
+      try { _selectParentFamilyForPersonInSidebar(pid); } catch (_) {}
       const msg = formatIdStatus({
         kind: 'Person',
         apiId: pid,
@@ -1896,12 +1973,13 @@ async function loadNeighborhood() {
 
     // Finally, make the selection store reflect what we just loaded.
     // Prefer gramps id for keying the People list; always include api id when known.
+    const activeTab = _getSidebarActiveTab();
     selection.selectPerson(
       {
         apiId: state.selectedPersonId || null,
         grampsId: resolvedGrampsId || (looksLikeGrampsId ? requested : null),
       },
-      { source: 'load', scrollPeople: true, updateInput: true },
+      { source: 'load', scrollPeople: activeTab === 'people', updateInput: true },
     );
 
     setStatus(`Loaded ${state.payload.nodes?.length || 0} nodes, ${state.payload.edges?.length || 0} edges.`);
@@ -2195,7 +2273,7 @@ async function ensureFamiliesLoaded() {
 const peopleTabBtn = document.querySelector('.tabbtn[data-tab="people"]');
 if (peopleTabBtn) {
   peopleTabBtn.addEventListener('click', () => {
-    ensurePeopleLoaded();
+    try { _setSidebarActiveTab('people'); } catch (_) {}
   });
 }
 
@@ -2203,7 +2281,7 @@ if (peopleTabBtn) {
 const familiesTabBtn = document.querySelector('.tabbtn[data-tab="families"]');
 if (familiesTabBtn) {
   familiesTabBtn.addEventListener('click', () => {
-    ensureFamiliesLoaded();
+    try { _setSidebarActiveTab('families'); } catch (_) {}
   });
 }
 
