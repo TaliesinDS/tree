@@ -1,6 +1,7 @@
 import * as api from './api.js';
 import { renderRelationshipChart } from './chart/render.js';
 import { mergeGraphPayload } from './chart/payload.js';
+import { formatGrampsDateEnglish } from './util/date.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -97,6 +98,8 @@ function _escapeHtml(s) {
   }[c]));
 }
 
+
+
 function _renderPersonDetailPanelSkeleton() {
   const host = els.personDetailPanel;
   if (!host) return;
@@ -106,7 +109,10 @@ function _renderPersonDetailPanelSkeleton() {
       <div class="personDetailTitle">
         <div class="personDetailAvatar" data-person-avatar="1"></div>
         <div class="personDetailTitleText">
-          <div class="personDetailName" data-person-name="1">Person <span class="personDetailGender" data-person-gender="1" aria-hidden="true"></span></div>
+          <div class="personDetailName" data-person-name="1">
+            <span class="personDetailNameText" data-person-name-text="1">Person</span>
+            <span class="personDetailGender" data-person-gender="1" aria-hidden="true"></span>
+          </div>
           <div class="personDetailMeta" data-person-meta="1"></div>
         </div>
       </div>
@@ -193,18 +199,13 @@ function hidePersonDetailPanel() {
   host.hidden = true;
 }
 
-function _setPanelHeader({ name, meta, portraitUrl } = {}) {
+function _setPanelHeader({ name, meta, portraitUrl, gender } = {}) {
   const host = els.personDetailPanel;
   if (!host) return;
-  const nameEl = host.querySelector('[data-person-name="1"]');
+  const nameTextEl = host.querySelector('[data-person-name-text="1"]');
   const metaEl = host.querySelector('[data-person-meta="1"]');
   const avEl = host.querySelector('[data-person-avatar="1"]');
-  // Name element contains an embedded gender span.
-  if (nameEl) {
-    const gEl = nameEl.querySelector('[data-person-gender="1"]');
-    nameEl.textContent = String(name || 'Person') + ' ';
-    if (gEl) nameEl.appendChild(gEl);
-  }
+  if (nameTextEl) nameTextEl.textContent = String(name || 'Person');
   if (metaEl) metaEl.textContent = String(meta || '');
 
   if (avEl) {
@@ -220,13 +221,24 @@ function _setPanelHeader({ name, meta, portraitUrl } = {}) {
       avEl.appendChild(img);
     }
   }
+
+  // Gender icon (keep visible even when name is long)
+  try {
+    const gEl = host.querySelector('[data-person-gender="1"]');
+    const icon = _genderIcon(gender);
+    if (gEl) {
+      gEl.textContent = icon.text;
+      if (icon.title) gEl.setAttribute('title', icon.title);
+      else gEl.removeAttribute('title');
+    }
+  } catch (_) {}
 }
 
 function _genderIcon(genderRaw) {
   const g = String(genderRaw || '').trim().toUpperCase();
-  if (g === 'M') return { text: '♂', title: 'Male' };
-  if (g === 'F') return { text: '♀', title: 'Female' };
-  if (!g || g === 'U' || g === '?') return { text: '', title: '' };
+  if (!g || g === 'U' || g === 'UNKNOWN' || g === '?') return { text: '', title: '' };
+  if (g === 'M' || g === 'MALE') return { text: '♂', title: 'Male' };
+  if (g === 'F' || g === 'FEMALE') return { text: '♀', title: 'Female' };
   // Any other value (custom/unknown): show a neutral marker.
   return { text: '•', title: 'Gender' };
 }
@@ -249,13 +261,13 @@ function _renderEvent(ev) {
   const role = String(ev?.role || '').trim();
   const dateText = String(ev?.date_text || '').trim();
   const dateIso = String(ev?.date || '').trim();
+  const dateUi = formatGrampsDateEnglish(dateIso || dateText);
   const placeName = String(ev?.place?.name || '').trim();
   const desc = String(ev?.description || '').trim();
 
   const metaParts = [];
   if (role) metaParts.push(role);
-  if (dateText) metaParts.push(dateText);
-  else if (dateIso) metaParts.push(dateIso);
+  if (dateUi) metaParts.push(dateUi);
   if (placeName) metaParts.push(placeName);
   const meta = metaParts.join(' · ');
 
@@ -337,7 +349,7 @@ async function loadPersonDetailsIntoPanel(personApiId) {
   state.detailPanel.lastPersonId = pid;
   state.detailPanel.data = null;
 
-  _setPanelHeader({ name: 'Loading…', meta: pid });
+  _setPanelHeader({ name: 'Loading…', meta: pid, gender: null });
   _renderPersonDetailPanelBody();
 
   try {
@@ -351,24 +363,12 @@ async function loadPersonDetailsIntoPanel(personApiId) {
     const name = String(p.display_name || 'Person');
     const metaParts = [];
     if (p.gramps_id) metaParts.push(String(p.gramps_id));
-    _setPanelHeader({ name, meta: metaParts.join(' · '), portraitUrl: p.portrait_url });
-
-    // Gender icon in title bar
-    try {
-      const host = els.personDetailPanel;
-      const gEl = host?.querySelector('[data-person-gender="1"]');
-      const icon = _genderIcon(p.gender);
-      if (gEl) {
-        gEl.textContent = icon.text;
-        if (icon.title) gEl.setAttribute('title', icon.title);
-        else gEl.removeAttribute('title');
-      }
-    } catch (_) {}
+    _setPanelHeader({ name, meta: metaParts.join(' · '), portraitUrl: p.portrait_url, gender: p.gender });
     _renderPersonDetailPanelBody();
   } catch (e) {
     if (state.detailPanel.lastReqSeq !== seq) return;
     state.detailPanel.data = { person: { display_name: 'Error' } };
-    _setPanelHeader({ name: 'Failed to load', meta: String(e?.message || e) });
+    _setPanelHeader({ name: 'Failed to load', meta: String(e?.message || e), gender: null });
     _renderPersonDetailPanelBody();
   }
 }

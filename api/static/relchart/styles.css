@@ -130,18 +130,28 @@ html[data-theme="light"] .personDetailAvatar {
 }
 
 .personDetailName {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   font-weight: 800;
-  font-size: 14px;
+  font-size: 20px;
+  min-width: 0;
+}
+
+.personDetailNameText {
+  min-width: 0;
+  flex: 1 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .personDetailGender {
+  flex: 0 0 auto;
   display: inline-block;
-  margin-left: 6px;
-  font-size: 14px;
-  color: var(--muted);
+  font-size: 18px;
+  /* EB Garamond may not contain ♂/♀; force a symbol-capable font for this span. */
+  font-family: "Segoe UI Symbol", "Segoe UI Emoji", "Apple Symbols", "Noto Sans Symbols 2", "Noto Sans Symbols", var(--panel-font), sans-serif;
 }
 
 .personDetailMeta {
