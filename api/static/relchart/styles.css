@@ -11,6 +11,7 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   --card-font: "Crimson Pro", "Times New Roman", Times, serif;
+  --panel-font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   --card-name-weight: 700;
   --card-date-weight: 500;
   --sidebar-w: 340px;
@@ -20,6 +21,48 @@
   --detail-panel-w: 520px;
   --detail-panel-h: 620px;
   --detail-panel-z: 50;
+}
+
+/* Self-hosted Garamond (EB Garamond) for the person detail panel.
+   Files live under api/static/relchart/fonts/ (see fonts/README.md). */
+@font-face {
+  font-family: 'TreeEBGaramond';
+  src:
+    url('/static/relchart/fonts/EBGaramond-Regular.woff2') format('woff2'),
+    url('/static/relchart/fonts/EBGaramond-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TreeEBGaramond';
+  src:
+    url('/static/relchart/fonts/EBGaramond-Italic.woff2') format('woff2'),
+    url('/static/relchart/fonts/EBGaramond-Italic.woff') format('woff');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TreeEBGaramond';
+  src:
+    url('/static/relchart/fonts/EBGaramond-Bold.woff2') format('woff2'),
+    url('/static/relchart/fonts/EBGaramond-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TreeEBGaramond';
+  src:
+    url('/static/relchart/fonts/EBGaramond-BoldItalic.woff2') format('woff2'),
+    url('/static/relchart/fonts/EBGaramond-BoldItalic.woff') format('woff');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
 }
 
 .personDetailPanel {
@@ -38,6 +81,7 @@
   display: grid;
   grid-template-rows: auto auto 1fr;
   user-select: none;
+  font-family: 'TreeEBGaramond', Garamond, 'EB Garamond', 'Cormorant Garamond', var(--panel-font), serif;
 }
 
 html[data-theme="light"] .personDetailPanel {
@@ -141,6 +185,7 @@ html[data-theme="light"] .personDetailClose {
 
 .personDetailTab {
   flex: 0 0 auto;
+  font-family: inherit;
   border: 1px solid rgba(255,255,255,0.16);
   background: rgba(255,255,255,0.06);
   color: var(--text);
