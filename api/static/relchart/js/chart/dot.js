@@ -246,7 +246,7 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
   lines.push(`  ranksep=${RANKSEP_IN};`);
   lines.push('  pad=0.05;');
   lines.push('  graph [fontname="Inter, Segoe UI, Arial"];');
-  lines.push('  node [fontname="Inter, Segoe UI, Arial", fontsize=10, color="#2a3446"];');
+  lines.push('  node [fontname="Inter, Segoe UI, Arial", fontsize=12, color="#2a3446"];');
   lines.push('  edge [color="#556277", arrowsize=0.7, penwidth=1.6, arrowhead=none];');
   lines.push('  ordering=out;');
 

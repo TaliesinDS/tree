@@ -4,9 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Relationship Chart</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:opsz,wght@8..72,200..900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/relchart/styles.css" />
 </head>
 <body>
@@ -24,6 +21,7 @@
       <div class="tabs" role="tablist" aria-label="Viewer tabs">
         <button class="tabbtn active" type="button" data-tab="graph" role="tab" aria-selected="true">Graph</button>
         <button class="tabbtn" type="button" data-tab="people" role="tab" aria-selected="false">People</button>
+        <button class="tabbtn" type="button" data-tab="families" role="tab" aria-selected="false">Families</button>
         <button class="tabbtn" type="button" data-tab="events" role="tab" aria-selected="false">Events</button>
         <button class="tabbtn" type="button" data-tab="map" role="tab" aria-selected="false">Map</button>
       </div>
@@ -32,7 +30,7 @@
         <div class="tabpanel active" data-panel="graph" role="tabpanel">
           <h2>Graph</h2>
 
-          <div class="muted">Controls are in the top bar. Shortcuts: <span class="kbd">g</span>raph, <span class="kbd">p</span>eople, <span class="kbd">e</span>vents, <span class="kbd">m</span>ap.</div>
+          <div class="muted">Controls are in the top bar. Shortcuts: <span class="kbd">g</span>raph, <span class="kbd">p</span>eople, <span class="kbd">f</span>amilies, <span class="kbd">e</span>vents, <span class="kbd">m</span>ap.</div>
         </div>
 
         <div class="tabpanel" data-panel="people" role="tabpanel">
@@ -55,6 +53,23 @@
             <div id="peopleStatus" class="muted">Open this tab to load people.</div>
           </div>
           <div id="peopleList" class="peopleList" aria-label="People list"></div>
+        </div>
+
+        <div class="tabpanel" data-panel="families" role="tabpanel">
+          <h2>Families</h2>
+          <div class="peopleTools">
+            <label>
+              Search
+              <div class="inputWithClear">
+                <input id="familiesSearch" placeholder="Type a family id or name…" />
+                <button id="familiesSearchClear" class="inputClearBtn" type="button" aria-label="Clear families search" title="Clear">
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+            </label>
+            <div id="familiesStatus" class="muted">Open this tab to load families.</div>
+          </div>
+          <div id="familiesList" class="peopleList" aria-label="Families list"></div>
         </div>
 
         <div class="tabpanel" data-panel="events" role="tabpanel">
@@ -173,6 +188,7 @@
         const k = String(e.key || '').toLowerCase();
         if (k === 'g') setActiveTab('graph');
         if (k === 'p') setActiveTab('people');
+        if (k === 'f') setActiveTab('families');
         if (k === 'e') setActiveTab('events');
         if (k === 'm') setActiveTab('map');
       });
