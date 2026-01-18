@@ -641,6 +641,261 @@ def get_person_details(person_id: str) -> dict[str, Any]:
     return _compact_json(out) or {"person": person_core}
 
 
+def _people_core_many(conn: psycopg.Connection, person_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Fetch privacy-redacted core person payloads for many internal person ids."""
+
+    if not person_ids:
+        return {}
+
+    rows = conn.execute(
+        """
+        SELECT id, gramps_id, display_name, given_name, surname, gender,
+               birth_text, death_text, birth_date, death_date,
+               is_living, is_private, is_living_override
+        FROM person
+        WHERE id = ANY(%s)
+        """.strip(),
+        (person_ids,),
+    ).fetchall()
+
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        (
+            pid,
+            gid,
+            display_name,
+            given_name,
+            surname,
+            gender,
+            birth_text,
+            death_text,
+            birth_date,
+            death_date,
+            is_living_flag,
+            is_private_flag,
+            is_living_override,
+        ) = tuple(r)
+
+        should_redact = _is_effectively_private(
+            is_private=is_private_flag,
+            is_living_override=is_living_override,
+            is_living=is_living_flag,
+            birth_date=birth_date,
+            death_date=death_date,
+        )
+
+        if should_redact:
+            living_effective = _is_effectively_living(
+                is_living_override=is_living_override,
+                is_living=is_living_flag,
+                death_date=death_date,
+            )
+            out[str(pid)] = {
+                "id": pid,
+                "gramps_id": gid,
+                "display_name": "Private",
+                "given_name": None,
+                "surname": None,
+                "gender": None,
+                "birth": None,
+                "death": None,
+                "is_living": True if living_effective is None else bool(living_effective),
+                "is_private": True,
+            }
+            continue
+
+        given_name_out, surname_out = _normalize_public_name_fields(
+            display_name=display_name,
+            given_name=given_name,
+            surname=surname,
+        )
+
+        out[str(pid)] = {
+            "id": pid,
+            "gramps_id": gid,
+            "display_name": display_name,
+            "given_name": given_name_out,
+            "surname": surname_out,
+            "gender": gender,
+            "birth": birth_text,
+            "death": death_text,
+            "is_living": bool(is_living_flag) if is_living_flag is not None else None,
+            "is_private": bool(is_private_flag),
+        }
+
+    return out
+
+
+@app.get("/people/{person_id}/relations")
+def get_person_relations(person_id: str) -> dict[str, Any]:
+    """Relationship-style payload for the UI Relations tab (Gramps-like).
+
+    Returns:
+    - person: same privacy-redacted core as /people/{id}
+    - parents: list[person]
+    - siblings: list[person]
+    - families: list[{ id, gramps_id, spouse: person|null, children: list[person] }]
+    """
+
+    if not person_id:
+        raise HTTPException(status_code=400, detail="missing person_id")
+
+    resolved_id = _resolve_person_id(person_id)
+    person_core = get_person(resolved_id)
+
+    # If person is private/redacted, don't leak relationship graph.
+    if bool(person_core.get("is_private")) or person_core.get("display_name") == "Private":
+        out = {
+            "person": person_core,
+            "parents": [],
+            "siblings": [],
+            "families": [],
+        }
+        return _compact_json(out) or {"person": person_core}
+
+    with db_conn() as conn:
+        # Parents from person_parent (direct edges)
+        parent_ids_pp = [str(r[0]) for r in conn.execute(
+            "SELECT parent_id FROM person_parent WHERE child_id = %s",
+            (resolved_id,),
+        ).fetchall()]
+
+        # Families where person is a child
+        fam_as_child = [str(r[0]) for r in conn.execute(
+            "SELECT family_id FROM family_child WHERE child_id = %s",
+            (resolved_id,),
+        ).fetchall()]
+
+        parent_ids_family: list[str] = []
+        sibling_ids_family: list[str] = []
+        if fam_as_child:
+            fam_rows = conn.execute(
+                """
+                SELECT id, father_id, mother_id, is_private
+                FROM family
+                WHERE id = ANY(%s)
+                """.strip(),
+                (fam_as_child,),
+            ).fetchall()
+
+            # Parents via family father/mother, and siblings via family children.
+            for fid, fa, mo, fam_is_private in fam_rows:
+                if bool(fam_is_private):
+                    continue
+                if fa:
+                    parent_ids_family.append(str(fa))
+                if mo:
+                    parent_ids_family.append(str(mo))
+
+            sib_rows = conn.execute(
+                """
+                SELECT family_id, child_id
+                FROM family_child
+                WHERE family_id = ANY(%s)
+                """.strip(),
+                (fam_as_child,),
+            ).fetchall()
+            for fid, cid in sib_rows:
+                if str(cid) != str(resolved_id):
+                    sibling_ids_family.append(str(cid))
+
+        # Siblings via shared parents (person_parent) as a fallback / for half-siblings.
+        parent_ids_all = set(parent_ids_pp) | set(parent_ids_family)
+        sibling_ids_pp: list[str] = []
+        if parent_ids_all:
+            sib_pp_rows = conn.execute(
+                """
+                SELECT DISTINCT child_id
+                FROM person_parent
+                WHERE parent_id = ANY(%s)
+                """.strip(),
+                (list(parent_ids_all),),
+            ).fetchall()
+            for (cid,) in sib_pp_rows:
+                if str(cid) != str(resolved_id):
+                    sibling_ids_pp.append(str(cid))
+
+        # Families where person is a parent
+        fam_as_parent_rows = conn.execute(
+            """
+            SELECT id, gramps_id, father_id, mother_id, is_private
+            FROM family
+            WHERE father_id = %s OR mother_id = %s
+            ORDER BY gramps_id NULLS LAST, id
+            """.strip(),
+            (resolved_id, resolved_id),
+        ).fetchall()
+
+        fam_ids_as_parent = [str(r[0]) for r in fam_as_parent_rows if not bool(r[4])]
+        children_by_family: dict[str, list[str]] = {}
+        if fam_ids_as_parent:
+            fc_rows = conn.execute(
+                """
+                SELECT family_id, child_id
+                FROM family_child
+                WHERE family_id = ANY(%s)
+                ORDER BY family_id, child_id
+                """.strip(),
+                (fam_ids_as_parent,),
+            ).fetchall()
+            for fid, cid in fc_rows:
+                children_by_family.setdefault(str(fid), []).append(str(cid))
+
+        # Gather all referenced people ids for one bulk privacy-redacted fetch.
+        parent_ids = sorted({*parent_ids_all} - {str(resolved_id)})
+        sibling_ids = sorted({*sibling_ids_family, *sibling_ids_pp} - {str(resolved_id)})
+
+        spouse_ids: set[str] = set()
+        child_ids: set[str] = set()
+        for fid, gid, fa, mo, fam_is_private in fam_as_parent_rows:
+            if bool(fam_is_private):
+                continue
+            other = None
+            if fa and str(fa) != str(resolved_id):
+                other = str(fa)
+            if mo and str(mo) != str(resolved_id):
+                other = str(mo)
+            if other:
+                spouse_ids.add(other)
+            for cid in children_by_family.get(str(fid), []):
+                child_ids.add(str(cid))
+
+        all_people_ids = sorted({*parent_ids, *sibling_ids, *spouse_ids, *child_ids})
+        people_by_id = _people_core_many(conn, all_people_ids)
+
+        parents_out = [people_by_id[i] for i in parent_ids if i in people_by_id]
+        siblings_out = [people_by_id[i] for i in sibling_ids if i in people_by_id]
+
+        families_out: list[dict[str, Any]] = []
+        for fid, gid, fa, mo, fam_is_private in fam_as_parent_rows:
+            if bool(fam_is_private):
+                continue
+            fid_s = str(fid)
+            spouse_id = None
+            if fa and str(fa) != str(resolved_id):
+                spouse_id = str(fa)
+            if mo and str(mo) != str(resolved_id):
+                spouse_id = str(mo)
+            spouse_out = people_by_id.get(spouse_id) if spouse_id else None
+            kids = [people_by_id[cid] for cid in children_by_family.get(fid_s, []) if cid in people_by_id]
+            families_out.append(
+                {
+                    "id": fid_s,
+                    "gramps_id": gid,
+                    "spouse": spouse_out,
+                    "children": kids,
+                }
+            )
+
+    out = {
+        "person": person_core,
+        "parents": parents_out,
+        "siblings": siblings_out,
+        "families": families_out,
+    }
+    return _compact_json(out) or {"person": person_core}
+
+
 @app.get("/people/search")
 def search_people(q: str = Query(min_length=1, max_length=200)) -> dict[str, Any]:
     q_like = f"%{q}%"
@@ -888,6 +1143,103 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
         "death": death_text,
         "distance": distance,
     }
+
+
+def _fetch_family_marriage_date_map(
+    conn: psycopg.Connection,
+    family_ids: list[str],
+) -> dict[str, str]:
+    """Return a best-effort marriage date/text for each family id.
+
+    Output value is either an ISO date (YYYY-MM-DD) from event.event_date,
+    or a raw Gramps date text from event.event_date_text.
+
+    Privacy: only returns dates for non-private events (event.is_private = false).
+    Callers should still avoid attaching this to private families.
+    """
+
+    if not family_ids:
+        return {}
+
+    # Use parameterized ILIKE patterns so psycopg doesn't treat literal '%' as placeholders.
+    pat_marriage = "%marriage%"
+    pat_wedding = "%wedding%"
+
+    rows = conn.execute(
+        """
+        SELECT DISTINCT ON (fe.family_id)
+               fe.family_id,
+               e.event_date,
+               e.event_date_text
+        FROM family_event fe
+        JOIN event e ON e.id = fe.event_id
+        WHERE fe.family_id = ANY(%s)
+          AND COALESCE(e.is_private, FALSE) = FALSE
+          AND (
+            e.event_type ILIKE %s
+            OR e.event_type ILIKE %s
+          )
+        ORDER BY fe.family_id,
+                 e.event_date NULLS LAST,
+                 e.event_date_text NULLS LAST,
+                 e.id
+        """.strip(),
+        (family_ids, pat_marriage, pat_wedding),
+    ).fetchall()
+
+    out: dict[str, str] = {}
+    for fid, ev_date, ev_text in rows:
+        if ev_date is not None:
+            out[str(fid)] = ev_date.isoformat()
+        elif ev_text:
+            out[str(fid)] = str(ev_text)
+
+    # Fallback: some DBs may not have family_event populated.
+    # In that case, Gramps often links the marriage event to both spouses as person_event.
+    missing = [str(fid) for fid in family_ids if str(fid) not in out]
+    if missing:
+        # Fallback: infer “marriage” as any shared marriage-type event between the two parents
+        # of the family (since this dataset has 0 rows in family_event).
+        rows2 = conn.execute(
+            """
+            WITH fam AS (
+              SELECT id, father_id, mother_id
+              FROM family
+              WHERE id = ANY(%s)
+                AND father_id IS NOT NULL
+                AND mother_id IS NOT NULL
+            )
+            SELECT DISTINCT ON (fam.id)
+                   fam.id,
+                   e.event_date,
+                   e.event_date_text
+            FROM fam
+            JOIN person_event pe_fa ON pe_fa.person_id = fam.father_id
+            JOIN person_event pe_mo ON pe_mo.person_id = fam.mother_id
+                                 AND pe_mo.event_id = pe_fa.event_id
+            JOIN event e ON e.id = pe_fa.event_id
+            WHERE COALESCE(e.is_private, FALSE) = FALSE
+              AND (
+                e.event_type ILIKE %s
+                OR e.event_type ILIKE %s
+              )
+            ORDER BY fam.id,
+                     e.event_date NULLS LAST,
+                     e.event_date_text NULLS LAST,
+                     e.id
+            """.strip(),
+            (missing, pat_marriage, pat_wedding),
+        ).fetchall()
+
+        for fid, ev_date, ev_text in rows2:
+            if str(fid) in out:
+                continue
+            if ev_date is not None:
+                out[str(fid)] = ev_date.isoformat()
+            elif ev_text:
+                out[str(fid)] = str(ev_text)
+
+    return out
 
 
 def _year_hint_from_fields(
@@ -1220,6 +1572,8 @@ def graph_neighborhood(
                     )
 
             if family_ids:
+                marriage_by_family = _fetch_family_marriage_date_map(conn, family_ids)
+
                 # Total children counts for each family.
                 counts = conn.execute(
                     """
@@ -1258,6 +1612,10 @@ def graph_neighborhood(
                     present = int(child_edge_count_by_family.get(str(fid2), 0))
                     n["children_total"] = total
                     n["has_more_children"] = bool(total > present)
+                    if not bool(n.get("is_private")):
+                        mv = marriage_by_family.get(str(fid2))
+                        if mv:
+                            n["marriage"] = mv
 
         else:
             # parent edges
@@ -1348,6 +1706,11 @@ def graph_family_parents(
             }
         ]
 
+        if not bool(is_private_flag):
+            mv = _fetch_family_marriage_date_map(conn, [fid]).get(str(fid))
+            if mv:
+                nodes[0]["marriage"] = mv
+
         birth_links: list[tuple[str, str]] = []
 
         if parent_ids:
@@ -1413,6 +1776,16 @@ def graph_family_parents(
                             "has_more_children": bool(children_total_by_family2.get(bf_id, 0) > 0),
                         }
                     )
+
+                # Attach marriage date metadata for non-private stub families.
+                public_birth_families = [str(n.get("id")) for n in nodes if n.get("type") == "family" and not bool(n.get("is_private"))]
+                marriage_by_family2 = _fetch_family_marriage_date_map(conn, public_birth_families)
+                for n in nodes:
+                    if n.get("type") != "family" or bool(n.get("is_private")):
+                        continue
+                    mv2 = marriage_by_family2.get(str(n.get("id")))
+                    if mv2:
+                        n["marriage"] = mv2
 
         edges: list[dict[str, Any]] = []
         if father_id:
@@ -1498,6 +1871,11 @@ def graph_family_children(
                 "children_total": total_children_int,
             }
         ]
+
+        if not bool(is_private_flag):
+            mv = _fetch_family_marriage_date_map(conn, [fid]).get(str(fid))
+            if mv:
+                nodes[0]["marriage"] = mv
 
         edges: list[dict[str, Any]] = []
         if father_id:
@@ -1601,6 +1979,16 @@ def graph_family_children(
                     if fid3 in spouse_family_ids:
                         n["children_total"] = int(counts_by_family.get(fid3, 0))
                         n["has_more_children"] = bool(counts_by_family.get(fid3, 0) > 0)
+
+            # Attach marriage date metadata for non-private families in this payload.
+            public_family_ids = [str(n.get("id")) for n in nodes if n.get("type") == "family" and not bool(n.get("is_private"))]
+            marriage_by_family3 = _fetch_family_marriage_date_map(conn, public_family_ids)
+            for n in nodes:
+                if n.get("type") != "family" or bool(n.get("is_private")):
+                    continue
+                mv3 = marriage_by_family3.get(str(n.get("id")))
+                if mv3:
+                    n["marriage"] = mv3
 
     return {
         "family_id": family_id,

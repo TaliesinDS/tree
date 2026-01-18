@@ -1,7 +1,7 @@
 import * as api from './api.js';
 import { renderRelationshipChart } from './chart/render.js';
 import { mergeGraphPayload } from './chart/payload.js';
-import { formatGrampsDateEnglish } from './util/date.js';
+import { formatGrampsDateEnglish, formatGrampsDateEnglishCard } from './util/date.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -122,6 +122,7 @@ function _renderPersonDetailPanelSkeleton() {
     </div>
     <div class="personDetailTabs" role="tablist" aria-label="Person detail tabs">
       <button class="personDetailTab" type="button" data-tab="details">Details</button>
+      <button class="personDetailTab" type="button" data-tab="relations">Relations</button>
       <button class="personDetailTab" type="button" data-tab="gramps_notes">Gramps Notes</button>
       <button class="personDetailTab" type="button" data-tab="user_notes">User Notes</button>
       <button class="personDetailTab" type="button" data-tab="media">Media</button>
@@ -266,7 +267,6 @@ function _renderEvent(ev) {
   const desc = String(ev?.description || '').trim();
 
   const metaParts = [];
-  if (role) metaParts.push(role);
   if (dateUi) metaParts.push(dateUi);
   if (placeName) metaParts.push(placeName);
   const meta = metaParts.join(' · ');
@@ -278,12 +278,231 @@ function _renderEvent(ev) {
 
   return `
     <div class="eventItem">
-      <div class="eventTitle">${_escapeHtml(t)}</div>
+      <div class="eventHeader">
+        <div class="eventTitle">${_escapeHtml(t)}</div>
+        ${role ? `<div class="eventRole">${_escapeHtml(role)}</div>` : ''}
+      </div>
       ${meta ? `<div class="eventMeta">${_escapeHtml(meta)}</div>` : ''}
       ${desc ? `<div class="eventDesc">${_escapeHtml(desc)}</div>` : ''}
       ${notesHtml}
     </div>
   `;
+}
+
+function _resolveRelationsRootPersonId() {
+  const direct = String(state.selectedPersonId || '').trim();
+  if (direct) return direct;
+  return _resolveSelectedPersonIdFromPayload(state.payload, selection);
+}
+
+function _formatBirthDeathLine(p) {
+  const birth = formatGrampsDateEnglishCard((p?.birth || '').trim());
+  const death = formatGrampsDateEnglishCard((p?.death || '').trim());
+  const parts = [];
+  if (birth) parts.push(`* ${birth}`);
+  if (death) parts.push(`† ${death}`);
+  return parts.join(' · ');
+}
+
+function _renderRelPersonButton(p, { roleLabel = '' } = {}) {
+  if (!p?.id) return '';
+  const apiId = String(p.id);
+  const gid = String(p?.gramps_id || '').trim();
+  const name = String(p?.display_name || gid || apiId || 'Person');
+  const dates = _formatBirthDeathLine(p);
+  const role = String(roleLabel || '').trim();
+  return `
+    <button class="relPerson" type="button" data-rel-api="${_escapeHtml(apiId)}" data-rel-gramps="${_escapeHtml(gid)}">
+      <div class="relPersonTop">
+        <div class="relPersonName">${_escapeHtml(name)}</div>
+        ${role ? `<div class="relPersonRole">${_escapeHtml(role)}</div>` : ''}
+      </div>
+      ${dates ? `<div class="relPersonDates">${_escapeHtml(dates)}</div>` : ''}
+    </button>
+  `;
+}
+
+function _buildRelationsFromPayload(personApiId) {
+  const pid = String(personApiId || '').trim();
+  const payload = state.payload;
+  if (!pid || !payload) return null;
+
+  const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+  const edges = Array.isArray(payload.edges) ? payload.edges : [];
+  const peopleById = new Map(nodes.filter(n => n?.type === 'person' && n?.id).map(n => [String(n.id), n]));
+  const familyById = new Map(nodes.filter(n => n?.type === 'family' && n?.id).map(n => [String(n.id), n]));
+  const parentsByFamily = new Map(); // fid -> [pid]
+  const childrenByFamily = new Map(); // fid -> [pid]
+  const originFamilyIds = new Set();
+  const spouseFamilyIds = new Set();
+
+  for (const e of edges) {
+    const t = String(e?.type || '').trim();
+    if (t === 'parent') {
+      const from = String(e?.from || '').trim();
+      const to = String(e?.to || '').trim();
+      if (!from || !to) continue;
+      if (!parentsByFamily.has(to)) parentsByFamily.set(to, []);
+      parentsByFamily.get(to).push(from);
+      if (from === pid) spouseFamilyIds.add(to);
+    } else if (t === 'child') {
+      const from = String(e?.from || '').trim();
+      const to = String(e?.to || '').trim();
+      if (!from || !to) continue;
+      if (!childrenByFamily.has(from)) childrenByFamily.set(from, []);
+      childrenByFamily.get(from).push(to);
+      if (to === pid) originFamilyIds.add(from);
+    }
+  }
+
+  const uniq = (arr) => {
+    const out = [];
+    const seen = new Set();
+    for (const x of arr || []) {
+      const k = String(x || '').trim();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      out.push(k);
+    }
+    return out;
+  };
+
+  const parents = [];
+  for (const fid of originFamilyIds) {
+    for (const parentId of (parentsByFamily.get(fid) || [])) {
+      if (!parentId || parentId === pid) continue;
+      const p = peopleById.get(String(parentId));
+      if (p) parents.push(p);
+    }
+  }
+
+  const siblings = [];
+  for (const fid of originFamilyIds) {
+    for (const sibId of (childrenByFamily.get(fid) || [])) {
+      if (!sibId || sibId === pid) continue;
+      const p = peopleById.get(String(sibId));
+      if (p) siblings.push(p);
+    }
+  }
+
+  const families = [];
+  for (const fid of spouseFamilyIds) {
+    const spouseIds = (parentsByFamily.get(fid) || []).filter(x => String(x) !== pid);
+    const childIds = childrenByFamily.get(fid) || [];
+    const famNode = familyById.get(String(fid)) || null;
+    families.push({
+      familyId: fid,
+      marriage: famNode ? (String(famNode?.marriage || '').trim() || null) : null,
+      spouses: uniq(spouseIds).map(id => peopleById.get(String(id))).filter(Boolean),
+      children: uniq(childIds).map(id => peopleById.get(String(id))).filter(Boolean),
+    });
+  }
+
+  const sortPeople = (arr) => {
+    const a = Array.isArray(arr) ? arr.slice() : [];
+    a.sort((p1, p2) => {
+      const n1 = String(p1?.display_name || '').toLowerCase();
+      const n2 = String(p2?.display_name || '').toLowerCase();
+      return n1.localeCompare(n2);
+    });
+    return a;
+  };
+
+  return {
+    person: peopleById.get(pid) || null,
+    parents: sortPeople(uniq(parents.map(p => String(p.id))).map(id => peopleById.get(id)).filter(Boolean)),
+    siblings: sortPeople(uniq(siblings.map(p => String(p.id))).map(id => peopleById.get(id)).filter(Boolean)),
+    families: families.map(f => ({
+      ...f,
+      spouses: sortPeople(f.spouses),
+      children: sortPeople(f.children),
+    })),
+  };
+}
+
+function _renderRelationsTab() {
+  const pid = _resolveRelationsRootPersonId();
+  if (!pid || !state.payload) {
+    return '<div class="muted">Load a graph to view relations.</div>';
+  }
+
+  const rel = _buildRelationsFromPayload(pid);
+  if (!rel) return '<div class="muted">No relations available.</div>';
+
+  const originHtml = `
+    <div class="personDetailSectionTitle">Parents & Siblings</div>
+    <div class="relBox">
+      <div class="relBoxHeader">
+        <div class="relBoxTitle">Parents</div>
+      </div>
+      ${rel.parents?.length
+        ? `<div class="relList">${rel.parents.map(p => _renderRelPersonButton(p, { roleLabel: 'parent' })).join('')}</div>`
+        : `<div class="muted">None in view.</div>`}
+
+      <div class="relIndented">
+        <div class="relIndentedHeader">Siblings</div>
+        ${rel.siblings?.length
+          ? `<div class="relList">${rel.siblings.map(p => _renderRelPersonButton(p, { roleLabel: 'sibling' })).join('')}</div>`
+          : `<div class="muted">None in view.</div>`}
+      </div>
+    </div>
+  `;
+
+  const famHtml = rel.families?.length
+    ? `<div class="personDetailSectionTitle">Families</div>${rel.families.map((f) => {
+        const spouses = (f.spouses || []);
+        const kids = (f.children || []);
+        const spousesHtml = spouses.length
+          ? `<div class="relList relSpouseList">${spouses.map(s => _renderRelPersonButton(s, { roleLabel: 'spouse' })).join('')}</div>`
+          : `<div class="muted">No partner in view.</div>`;
+
+        const kidsHtml = kids.length
+          ? `<div class="relList">${kids.map(c => _renderRelPersonButton(c, { roleLabel: 'child' })).join('')}</div>`
+          : `<div class="muted">No children in view.</div>`;
+        return `
+          <div class="relFamily">
+            <div class="relFamilyHeader">
+              <div class="relFamilyTitle">${(() => {
+                const m = String(f?.marriage || '').trim();
+                const dm = m ? formatGrampsDateEnglishCard(m) : '';
+                return _escapeHtml(dm ? `Spouse · ${dm}` : 'Spouse');
+              })()}</div>
+              <div class="relFamilyMeta">${_escapeHtml(String(f.familyId || ''))}</div>
+            </div>
+            ${spousesHtml}
+            <div class="relChildrenIndented">
+              <div class="relChildrenHeader">Children</div>
+              ${kidsHtml}
+            </div>
+          </div>
+        `;
+      }).join('')}`
+    : `<div class="personDetailSectionTitle">Families</div><div class="muted">None in view.</div>`;
+
+  return `${originHtml}${famHtml}`;
+}
+
+function _wireRelationsClicks(hostEl) {
+  const host = hostEl;
+  if (!host) return;
+  for (const btn of host.querySelectorAll('button.relPerson[data-rel-api]')) {
+    btn.addEventListener('click', async () => {
+      const apiId = String(btn.dataset.relApi || '').trim();
+      const gid = String(btn.dataset.relGramps || '').trim();
+      const ref = gid || apiId;
+      if (!ref) return;
+
+      // Behave like a global person selection.
+      try { _setSidebarActiveTab('people'); } catch (_) {}
+      try { ensurePeopleLoaded(); } catch (_) {}
+
+      selection.selectPerson({ apiId: apiId || null, grampsId: gid || null }, { source: 'relations', scrollPeople: true, updateInput: true });
+      if (!gid && apiId) {
+        try { els.personId.value = apiId; } catch (_) {}
+      }
+      await loadNeighborhood();
+    });
+  }
 }
 
 function _eventTypeRank(typeRaw) {
@@ -332,6 +551,12 @@ function _renderPersonDetailPanelBody() {
     body.innerHTML = `
       ${evHtml || '<div class="muted">No events available.</div>'}
     `;
+    return;
+  }
+
+  if (tab === 'relations') {
+    body.innerHTML = _renderRelationsTab();
+    try { _wireRelationsClicks(body); } catch (_) {}
     return;
   }
 
@@ -616,7 +841,8 @@ const selection = createSelectionStore();
 selection.subscribe((next) => {
   // Selection can be set from the graph (apiId) or from the People list (grampsId).
   // Backend endpoints accept either, so use whichever is available.
-  const ref = String(next?.apiId || next?.grampsId || next?.key || '').trim();
+  // Prefer grampsId when present: it's what the user typed/selected.
+  const ref = String(next?.grampsId || next?.apiId || next?.key || '').trim();
   if (!ref) return;
   // Avoid redundant fetches.
   if (state.detailPanel.lastPersonId && state.detailPanel.lastPersonId === ref && state.detailPanel.open) return;
@@ -1165,6 +1391,7 @@ async function loadNeighborhood() {
     // global selection so the People list + detail panel stay in sync.
     const requested = String(personId || '').trim();
     const nodes = Array.isArray(state.payload?.nodes) ? state.payload.nodes : [];
+    const looksLikeGrampsId = /^I\d+$/i.test(requested);
     const directHit = nodes.find(n => {
       if (n?.type !== 'person') return false;
       const apiId = String(n?.id || '').trim();
@@ -1175,9 +1402,9 @@ async function loadNeighborhood() {
     let resolvedApiId = directHit?.id ? String(directHit.id) : null;
     let resolvedGrampsId = String(directHit?.gramps_id || '').trim() || null;
 
-    // Latch chart selection to the selection store (people list or prior graph click).
-    // If that doesn't resolve, fall back to the requested id.
-    state.selectedPersonId = _resolveSelectedPersonIdFromPayload(state.payload, selection) || resolvedApiId;
+    // For a manual Load, prefer the requested person (so we don't keep a stale
+    // prior selection like I0001 when the user loads I0022).
+    state.selectedPersonId = resolvedApiId || _resolveSelectedPersonIdFromPayload(state.payload, selection);
     if (state.selectedPersonId && !resolvedGrampsId) {
       const byApi = nodes.find(n => n?.type === 'person' && String(n?.id || '').trim() === String(state.selectedPersonId)) || null;
       resolvedGrampsId = String(byApi?.gramps_id || '').trim() || null;
@@ -1186,7 +1413,10 @@ async function loadNeighborhood() {
     // Finally, make the selection store reflect what we just loaded.
     // Prefer gramps id for keying the People list; always include api id when known.
     selection.selectPerson(
-      { apiId: state.selectedPersonId || null, grampsId: resolvedGrampsId || requested || null },
+      {
+        apiId: state.selectedPersonId || null,
+        grampsId: resolvedGrampsId || (looksLikeGrampsId ? requested : null),
+      },
       { source: 'load', scrollPeople: true, updateInput: true },
     );
 
