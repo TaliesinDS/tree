@@ -286,6 +286,28 @@ function _renderEvent(ev) {
   `;
 }
 
+function _eventTypeRank(typeRaw) {
+  const t = String(typeRaw || '').trim().toLowerCase();
+  if (!t) return 99;
+  // Preferred order: birth, baptism, death, burial, marriage.
+  // Use word-ish matching to handle common variants.
+  if (/\bbirth\b/.test(t)) return 0;
+  if (/\bbaptis|\bchristen/.test(t)) return 1;
+  if (/\bdeath\b/.test(t)) return 2;
+  if (/\bburial\b|\bbury\b|\bcremat/.test(t)) return 3;
+  if (/\bmarriage\b|\bwedding\b/.test(t)) return 4;
+  return 99;
+}
+
+function _sortEventsForPanel(events) {
+  const src = Array.isArray(events) ? events : [];
+  // Stable: keep original order within the same rank.
+  return src
+    .map((ev, idx) => ({ ev, idx, rank: _eventTypeRank(ev?.type) }))
+    .sort((a, b) => (a.rank - b.rank) || (a.idx - b.idx))
+    .map(x => x.ev);
+}
+
 function _renderPersonDetailPanelBody() {
   const host = els.personDetailPanel;
   if (!host) return;
@@ -302,8 +324,9 @@ function _renderPersonDetailPanelBody() {
   if (tab === 'details') {
     const p = data.person || {};
     const events = Array.isArray(data.events) ? data.events : [];
+    const eventsSorted = _sortEventsForPanel(events);
     const evHtml = events.length
-      ? `<div class="personDetailSectionTitle">Events</div><div class="eventList">${events.map(_renderEvent).join('')}</div>`
+      ? `<div class="personDetailSectionTitle">Events</div><div class="eventList">${eventsSorted.map(_renderEvent).join('')}</div>`
       : '';
 
     body.innerHTML = `
