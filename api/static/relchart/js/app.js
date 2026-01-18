@@ -590,11 +590,13 @@ const selection = createSelectionStore();
 
 // Keep the floating detail panel in sync with selection.
 selection.subscribe((next) => {
-  const pid = String(next?.apiId || '').trim();
-  if (!pid) return;
+  // Selection can be set from the graph (apiId) or from the People list (grampsId).
+  // Backend endpoints accept either, so use whichever is available.
+  const ref = String(next?.apiId || next?.grampsId || next?.key || '').trim();
+  if (!ref) return;
   // Avoid redundant fetches.
-  if (state.detailPanel.lastPersonId && state.detailPanel.lastPersonId === pid && state.detailPanel.open) return;
-  try { loadPersonDetailsIntoPanel(pid); } catch (_) {}
+  if (state.detailPanel.lastPersonId && state.detailPanel.lastPersonId === ref && state.detailPanel.open) return;
+  try { loadPersonDetailsIntoPanel(ref); } catch (_) {}
 });
 
 function _normalizeGraphvizTitleToId(title) {
