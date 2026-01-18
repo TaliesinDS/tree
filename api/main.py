@@ -622,6 +622,185 @@ def list_families(
     return out
 
 
+@app.get("/events")
+def list_events(
+    limit: int = Query(default=5000, ge=1, le=50_000),
+    offset: int = Query(default=0, ge=0, le=5_000_000),
+    include_total: bool = False,
+) -> dict[str, Any]:
+    """List events in the database (privacy-safe).
+
+    Notes:
+    - Events with `event.is_private` are always hidden.
+    - Additionally, events connected to any effectively-private person (or to any
+      family that is private / has an effectively-private parent) are omitted.
+    - Places that are private are redacted (place=null).
+
+    This endpoint exists to power a global Events index in the UI.
+    """
+
+    with db_conn() as conn:
+        total = None
+        if include_total:
+            total = conn.execute("SELECT COUNT(*) FROM event WHERE is_private = FALSE").fetchone()[0]
+
+        rows = conn.execute(
+            """
+            SELECT
+              e.id,
+              e.event_type,
+              e.description,
+              e.event_date_text,
+              e.event_date,
+              pl.id as place_id,
+              pl.name as place_name,
+              pl.is_private as place_is_private,
+              (
+                SELECT array_agg(pe.person_id)
+                FROM person_event pe
+                WHERE pe.event_id = e.id
+              ) as person_ids,
+              (
+                SELECT array_agg(fe.family_id)
+                FROM family_event fe
+                WHERE fe.event_id = e.id
+              ) as family_ids
+            FROM event e
+            LEFT JOIN place pl ON pl.id = e.place_id
+            WHERE e.is_private = FALSE
+            ORDER BY e.event_date NULLS LAST, e.event_date_text NULLS LAST, e.event_type NULLS LAST, e.id
+            LIMIT %s OFFSET %s
+            """.strip(),
+            (limit, offset),
+        ).fetchall()
+
+        # Gather referenced ids for bulk privacy checks.
+        person_ids: set[str] = set()
+        family_ids: set[str] = set()
+        for r in rows:
+            pe_ids = r[8] or []
+            fe_ids = r[9] or []
+            for pid in pe_ids:
+                if pid:
+                    person_ids.add(str(pid))
+            for fid in fe_ids:
+                if fid:
+                    family_ids.add(str(fid))
+
+        families_by_id: dict[str, dict[str, Any]] = {}
+        family_parent_ids: set[str] = set()
+        if family_ids:
+            fam_rows = conn.execute(
+                """
+                SELECT id, father_id, mother_id, is_private
+                FROM family
+                WHERE id = ANY(%s)
+                """.strip(),
+                (list(family_ids),),
+            ).fetchall()
+            for fid, fa, mo, fam_is_private in fam_rows:
+                fid_s = str(fid)
+                families_by_id[fid_s] = {
+                    "id": fid_s,
+                    "father_id": str(fa) if fa else None,
+                    "mother_id": str(mo) if mo else None,
+                    "is_private": bool(fam_is_private),
+                }
+                if fa:
+                    family_parent_ids.add(str(fa))
+                if mo:
+                    family_parent_ids.add(str(mo))
+
+        all_people_ids = set(person_ids) | set(family_parent_ids)
+        person_private_by_id: dict[str, bool] = {}
+        if all_people_ids:
+            pr = conn.execute(
+                """
+                SELECT id, birth_text, death_text, birth_date, death_date,
+                       is_living, is_private, is_living_override
+                FROM person
+                WHERE id = ANY(%s)
+                """.strip(),
+                (list(all_people_ids),),
+            ).fetchall()
+            for (pid, birth_text, death_text, birth_date, death_date, is_living_flag, is_private_flag, is_living_override) in pr:
+                person_private_by_id[str(pid)] = _is_effectively_private(
+                    is_private=is_private_flag,
+                    is_living_override=is_living_override,
+                    is_living=is_living_flag,
+                    birth_date=birth_date,
+                    death_date=death_date,
+                    birth_text=birth_text,
+                    death_text=death_text,
+                )
+
+    results: list[dict[str, Any]] = []
+    for r in rows:
+        (
+            eid,
+            event_type,
+            description,
+            event_date_text,
+            event_date,
+            place_id,
+            place_name,
+            place_is_private,
+            pe_ids,
+            fe_ids,
+        ) = tuple(r)
+
+        # Omit events connected to any private person.
+        pe_list = [str(x) for x in (pe_ids or []) if x]
+        if any(person_private_by_id.get(pid, False) for pid in pe_list):
+            continue
+
+        # Omit events connected to private families or to families with private parents.
+        fe_list = [str(x) for x in (fe_ids or []) if x]
+        family_ok = True
+        for fid in fe_list:
+            fam = families_by_id.get(fid)
+            if not fam:
+                # Conservative: if we can't resolve the family, hide.
+                family_ok = False
+                break
+            if bool(fam.get("is_private")):
+                family_ok = False
+                break
+            fa = fam.get("father_id")
+            mo = fam.get("mother_id")
+            if (fa and person_private_by_id.get(str(fa), False)) or (mo and person_private_by_id.get(str(mo), False)):
+                family_ok = False
+                break
+        if not family_ok:
+            continue
+
+        place_out = None
+        if place_id and not bool(place_is_private):
+            place_out = {"id": place_id, "name": place_name}
+
+        results.append(
+            {
+                "id": eid,
+                "type": event_type,
+                "date": event_date.isoformat() if isinstance(event_date, date) else None,
+                "date_text": event_date_text,
+                "description": description,
+                "place": place_out,
+                "people_total": len(pe_list),
+                "families_total": len(fe_list),
+            }
+        )
+
+    out: dict[str, Any] = {
+        "offset": offset,
+        "limit": limit,
+        "results": results,
+    }
+    if include_total:
+        out["total"] = int(total or 0)
+    return _compact_json(out) or {"results": results}
+
+
 def _resolve_person_id(person_ref: str) -> str:
     """Resolve either an internal handle (_abc...) or a Gramps ID (I0001) to the internal handle."""
 

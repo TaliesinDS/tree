@@ -74,7 +74,19 @@
 
         <div class="tabpanel" data-panel="events" role="tabpanel">
           <h2>Events</h2>
-          <div class="muted">Coming next: timeline/search filters.</div>
+          <div class="peopleTools">
+            <label>
+              Search
+              <div class="inputWithClear">
+                <input id="eventsSearch" placeholder="Type an event type, place, or year…" />
+                <button id="eventsSearchClear" class="inputClearBtn" type="button" aria-label="Clear events search" title="Clear">
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+            </label>
+            <div id="eventsStatus" class="muted">Open this tab to load events.</div>
+          </div>
+          <div id="eventsList" class="peopleList" aria-label="Events list"></div>
         </div>
 
         <div class="tabpanel" data-panel="map" role="tabpanel">

@@ -23,6 +23,10 @@ const els = {
   familiesSearchClear: $('familiesSearchClear'),
   familiesStatus: $('familiesStatus'),
   familiesList: $('familiesList'),
+  eventsSearch: $('eventsSearch'),
+  eventsSearchClear: $('eventsSearchClear'),
+  eventsStatus: $('eventsStatus'),
+  eventsList: $('eventsList'),
   optPeopleWidePx: $('optPeopleWidePx'),
   optionsMenu: $('optionsMenu'),
   personDetailPanel: $('personDetailPanel'),
@@ -40,6 +44,9 @@ const state = {
   familiesLoaded: false,
   familiesSelected: null,
   familiesClicksWired: false,
+  events: null,
+  eventsLoaded: false,
+  eventsSelected: null,
   nodeById: new Map(),
   detailPanel: {
     open: false,
@@ -53,6 +60,94 @@ const state = {
     peek: { url: '', name: '', loading: false },
   },
 };
+
+function _formatEventTitle(ev) {
+  const t = String(ev?.type || ev?.event_type || 'Event').trim();
+  return t || 'Event';
+}
+
+function _formatEventSubLine(ev) {
+  const dateText = String(ev?.date || ev?.date_text || ev?.event_date || ev?.event_date_text || '').trim();
+  const dateUi = dateText ? formatGrampsDateEnglish(dateText) : '';
+  const placeName = String(ev?.place?.name || '').trim();
+  const parts = [];
+  if (dateUi) parts.push(dateUi);
+  if (placeName) parts.push(placeName);
+  return parts.join(' · ');
+}
+
+function _renderEventsList(events, query) {
+  if (!els.eventsList) return;
+  const qn = _normKey(query);
+  const src = Array.isArray(events) ? events : [];
+  const filtered = qn
+    ? src.filter((ev) => {
+        const title = _formatEventTitle(ev);
+        const sub = _formatEventSubLine(ev);
+        const desc = String(ev?.description || '').trim();
+        const id = String(ev?.id || '').trim();
+        return _normKey(`${title} ${sub} ${desc} ${id}`).includes(qn);
+      })
+    : src;
+
+  els.eventsList.innerHTML = '';
+  const frag = document.createDocumentFragment();
+
+  for (const ev of filtered) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'peopleItem eventsItem';
+    const id = String(ev?.id || '').trim();
+    btn.dataset.eventId = id;
+    if (state.eventsSelected && id && state.eventsSelected === id) {
+      btn.classList.add('selected');
+    }
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'name';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'eventTitleLine';
+    titleEl.textContent = _formatEventTitle(ev);
+    nameEl.appendChild(titleEl);
+
+    const sub = _formatEventSubLine(ev);
+    if (sub) {
+      const subEl = document.createElement('div');
+      subEl.className = 'eventSubLine';
+      subEl.textContent = sub;
+      nameEl.appendChild(subEl);
+    }
+
+    const metaEl = document.createElement('span');
+    metaEl.className = 'meta';
+    metaEl.textContent = id;
+
+    btn.appendChild(nameEl);
+    btn.appendChild(metaEl);
+
+    btn.addEventListener('click', () => {
+      if (!id) return;
+      state.eventsSelected = id;
+      try {
+        for (const el of els.eventsList.querySelectorAll('.peopleItem.selected')) el.classList.remove('selected');
+        btn.classList.add('selected');
+      } catch (_) {}
+      const msg = `Event: id=${id}`;
+      setStatus(msg);
+      copyToClipboard(`event_id=${id}`).then((ok) => {
+        if (ok) setStatus(msg + ' (copied)');
+      });
+    });
+
+    frag.appendChild(btn);
+  }
+
+  els.eventsList.appendChild(frag);
+  if (els.eventsStatus) {
+    els.eventsStatus.textContent = `Showing ${filtered.length} of ${src.length}.`;
+  }
+}
 
 let _detailPeekTabEl = null;
 
@@ -1226,6 +1321,12 @@ function _setSidebarActiveTab(tabName) {
         try { _applyFamiliesSelectionToDom({ scroll: true }); } catch (_) {}
       });
     }
+
+    if (name === 'events') {
+      Promise.resolve(ensureEventsLoaded()).then(() => {
+        // Nothing else to sync yet.
+      });
+    }
   } catch (_) {}
 }
 
@@ -2283,6 +2384,39 @@ async function ensureFamiliesLoaded() {
   }
 }
 
+async function ensureEventsLoaded() {
+  if (state.eventsLoaded) return;
+  if (!els.eventsStatus || !els.eventsList) return;
+
+  els.eventsStatus.textContent = 'Loading events…';
+  try {
+    const r = await fetch('/events?limit=50000&offset=0');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const results = Array.isArray(data?.results) ? data.results : [];
+
+    // Prefer stable ordering like the SQL: date, text date, type, id.
+    results.sort((a, b) => {
+      const da = String(a?.date || '').trim();
+      const db = String(b?.date || '').trim();
+      if (da !== db) return da.localeCompare(db);
+      const dta = String(a?.date_text || '').trim();
+      const dtb = String(b?.date_text || '').trim();
+      if (dta !== dtb) return dta.localeCompare(dtb);
+      const ta = String(a?.type || '').trim();
+      const tb = String(b?.type || '').trim();
+      if (ta !== tb) return ta.localeCompare(tb);
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+
+    state.events = results;
+    state.eventsLoaded = true;
+    _renderEventsList(results, els.eventsSearch?.value || '');
+  } catch (e) {
+    els.eventsStatus.textContent = `Failed to load events: ${e?.message || e}`;
+  }
+}
+
 // Load people list lazily when the People tab is opened.
 const peopleTabBtn = document.querySelector('.tabbtn[data-tab="people"]');
 if (peopleTabBtn) {
@@ -2296,6 +2430,14 @@ const familiesTabBtn = document.querySelector('.tabbtn[data-tab="families"]');
 if (familiesTabBtn) {
   familiesTabBtn.addEventListener('click', () => {
     try { _setSidebarActiveTab('families'); } catch (_) {}
+  });
+}
+
+// Load events list lazily when the Events tab is opened.
+const eventsTabBtn = document.querySelector('.tabbtn[data-tab="events"]');
+if (eventsTabBtn) {
+  eventsTabBtn.addEventListener('click', () => {
+    try { _setSidebarActiveTab('events'); } catch (_) {}
   });
 }
 
@@ -2380,6 +2522,49 @@ if (els.familiesSearch) {
       updateClearVisibility();
       doRerender();
       try { els.familiesSearch.focus(); } catch (_) {}
+    });
+  }
+
+  updateClearVisibility();
+}
+
+if (els.eventsSearch) {
+  const updateClearVisibility = () => {
+    if (!els.eventsSearchClear) return;
+    const has = String(els.eventsSearch.value || '').length > 0;
+    els.eventsSearchClear.style.display = has ? 'inline-flex' : 'none';
+  };
+
+  const doRerender = () => {
+    if (!state.eventsLoaded || !state.events) return;
+    _renderEventsList(state.events, els.eventsSearch.value);
+  };
+
+  els.eventsSearch.addEventListener('input', () => {
+    updateClearVisibility();
+    doRerender();
+  });
+
+  els.eventsSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (!els.eventsSearch.value) return;
+      els.eventsSearch.value = '';
+      updateClearVisibility();
+      doRerender();
+      try { els.eventsSearch.focus(); } catch (_) {}
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+
+  if (els.eventsSearchClear) {
+    els.eventsSearchClear.addEventListener('click', () => {
+      if (!els.eventsSearch) return;
+      if (!els.eventsSearch.value) return;
+      els.eventsSearch.value = '';
+      updateClearVisibility();
+      doRerender();
+      try { els.eventsSearch.focus(); } catch (_) {}
     });
   }
 

@@ -1033,7 +1033,6 @@ html[data-theme="light"] .optionsSection {
 
 /* Non-people panels can scroll as a whole if needed */
 .tabpanel.active[data-panel="graph"],
-.tabpanel.active[data-panel="events"],
 .tabpanel.active[data-panel="map"] {
   overflow: auto;
 }
@@ -1046,6 +1045,39 @@ html[data-theme="light"] .optionsSection {
 /* Families panel: only the list scrolls */
 .tabpanel.active[data-panel="families"] {
   overflow: hidden;
+}
+
+/* Events panel: only the list scrolls */
+.tabpanel.active[data-panel="events"] {
+  overflow: hidden;
+}
+
+.peopleItem.eventsItem {
+  align-items: flex-start;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.peopleItem.eventsItem .name {
+  display: grid;
+  gap: 2px;
+}
+
+.eventTitleLine {
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eventSubLine {
+  line-height: 1.15;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .peopleTools {
