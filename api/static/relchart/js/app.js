@@ -47,9 +47,88 @@ const state = {
     lastPersonId: null,
     lastReqSeq: 0,
     drag: { active: false, dx: 0, dy: 0 },
+    resize: { active: false, startY: 0, startH: 0 },
     pos: { left: 48, top: 72 },
+    size: { h: null },
+    peek: { url: '', name: '' },
   },
 };
+
+let _detailPeekTabEl = null;
+
+function _ensureDetailPeekTab() {
+  if (_detailPeekTabEl && _detailPeekTabEl.isConnected) return _detailPeekTabEl;
+  const existing = document.getElementById('detailPeekTab');
+  if (existing) {
+    _detailPeekTabEl = existing;
+    return existing;
+  }
+  const btn = document.createElement('button');
+  btn.id = 'detailPeekTab';
+  btn.type = 'button';
+  btn.className = 'detailPeekTab';
+  btn.hidden = true;
+  btn.title = 'Show person details';
+  btn.setAttribute('aria-label', 'Show person details');
+
+  const imgWrap = document.createElement('div');
+  imgWrap.className = 'detailPeekImg';
+  imgWrap.dataset.peekImg = '1';
+  btn.appendChild(imgWrap);
+
+  btn.addEventListener('click', () => {
+    showPersonDetailPanel();
+  });
+
+  try { document.body.appendChild(btn); } catch (_) {}
+  _detailPeekTabEl = btn;
+  return btn;
+}
+
+function _positionDetailPeekTab() {
+  const el = _ensureDetailPeekTab();
+  if (!el || !els.chart) return;
+  try {
+    const r = els.chart.getBoundingClientRect();
+    // Place near the top-right corner of the chart area.
+    const top = Math.max(8, (r.top || 0) + 10);
+    el.style.top = `${top}px`;
+  } catch (_) {}
+}
+
+function _updateDetailPeekTab() {
+  const el = _ensureDetailPeekTab();
+  if (!el) return;
+  const imgHost = el.querySelector('[data-peek-img="1"]');
+  if (!imgHost) return;
+  imgHost.innerHTML = '';
+  const url = String(state.detailPanel.peek?.url || '').trim();
+  const name = String(state.detailPanel.peek?.name || '').trim();
+  el.title = name ? `Show details: ${name}` : 'Show person details';
+  if (url) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = name ? `${name} portrait` : 'Portrait';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    imgHost.appendChild(img);
+  } else {
+    const ph = document.createElement('div');
+    ph.className = 'detailPeekPlaceholder';
+    ph.textContent = name ? name.trim().slice(0, 1).toUpperCase() : '•';
+    imgHost.appendChild(ph);
+  }
+}
+
+function _setDetailPeekVisible(visible) {
+  const el = _ensureDetailPeekTab();
+  if (!el) return;
+  el.hidden = !visible;
+  if (visible) {
+    _updateDetailPeekTab();
+    _positionDetailPeekTab();
+  }
+}
 
 function _formatFamilyLabel(f) {
   const fa = f?.father || null;
@@ -358,6 +437,9 @@ function _wireFamiliesClicks() {
 const DETAIL_PANEL_POS_KEY = 'tree_relchart_person_panel_pos_v1';
 const DETAIL_PANEL_DEFAULT_POS = { left: 48, top: 72 };
 
+const DETAIL_PANEL_SIZE_KEY = 'tree_relchart_person_panel_size_v1';
+const DETAIL_PANEL_DEFAULT_SIZE = { h: 620 };
+
 function _clamp(n, lo, hi) {
   const x = Number(n);
   if (!Number.isFinite(x)) return lo;
@@ -396,6 +478,37 @@ function _applyDetailPanelPos() {
   state.detailPanel.pos = { left, top };
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
+}
+
+function _loadDetailPanelSize() {
+  let size = { ...DETAIL_PANEL_DEFAULT_SIZE };
+  try {
+    const raw = String(localStorage.getItem(DETAIL_PANEL_SIZE_KEY) || '').trim();
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const h = Number(parsed?.h);
+      if (Number.isFinite(h) && h > 0) size = { h };
+    }
+  } catch (_) {}
+  state.detailPanel.size = size;
+}
+
+function _saveDetailPanelSize() {
+  try {
+    localStorage.setItem(DETAIL_PANEL_SIZE_KEY, JSON.stringify(state.detailPanel.size));
+  } catch (_) {}
+}
+
+function _applyDetailPanelSize() {
+  const el = els.personDetailPanel;
+  if (!el) return;
+  const vh = window.innerHeight || 800;
+  const minH = 320;
+  const maxH = Math.max(minH, vh - 16);
+  const rawH = Number(state.detailPanel.size?.h ?? DETAIL_PANEL_DEFAULT_SIZE.h);
+  const h = _clamp(rawH, minH, maxH);
+  state.detailPanel.size.h = h;
+  el.style.height = `${h}px`;
 }
 
 function _escapeHtml(s) {
@@ -440,6 +553,7 @@ function _renderPersonDetailPanelSkeleton() {
       <button class="personDetailTab" type="button" data-tab="user_notes">User Notes</button>
     </div>
     <div class="personDetailBody" data-panel-body="1"></div>
+    <div class="personDetailResizeHandle" data-panel-resize="1" title="Drag to resize"></div>
   `;
 
   const setActiveTab = (name) => {
@@ -458,8 +572,15 @@ function _renderPersonDetailPanelSkeleton() {
     b.addEventListener('click', () => setActiveTab(b.dataset.tab));
   }
 
-  host.querySelector('[data-panel-close="1"]')?.addEventListener('click', () => {
+  // Close button (use delegation so it still works if the click target is a text node)
+  host.addEventListener('click', (e) => {
+    const t = e?.target;
+    const el = (t && t.nodeType === 1) ? t : t?.parentElement;
+    const closeBtn = el && el.closest ? el.closest('[data-panel-close="1"]') : null;
+    if (!closeBtn) return;
     hidePersonDetailPanel();
+    e.preventDefault();
+    e.stopPropagation();
   });
 
   // Drag behavior
@@ -467,7 +588,9 @@ function _renderPersonDetailPanelSkeleton() {
   if (header) {
     header.addEventListener('pointerdown', (e) => {
       // Avoid starting a drag when clicking the close button.
-      if (e.target && e.target.closest && e.target.closest('[data-panel-close="1"]')) return;
+      const t = e?.target;
+      const el = (t && t.nodeType === 1) ? t : t?.parentElement;
+      if (el && el.closest && el.closest('[data-panel-close="1"]')) return;
       state.detailPanel.drag.active = true;
       const rect = host.getBoundingClientRect();
       state.detailPanel.drag.dx = (e.clientX - rect.left);
@@ -492,6 +615,34 @@ function _renderPersonDetailPanelSkeleton() {
     header.addEventListener('pointercancel', endDrag);
   }
 
+  // Resize behavior (height)
+  const resizeHandle = host.querySelector('[data-panel-resize="1"]');
+  if (resizeHandle) {
+    resizeHandle.addEventListener('pointerdown', (e) => {
+      state.detailPanel.resize.active = true;
+      state.detailPanel.resize.startY = e.clientY;
+      state.detailPanel.resize.startH = host.offsetHeight || DETAIL_PANEL_DEFAULT_SIZE.h;
+      try { resizeHandle.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+
+    resizeHandle.addEventListener('pointermove', (e) => {
+      if (!state.detailPanel.resize.active) return;
+      const dy = e.clientY - state.detailPanel.resize.startY;
+      state.detailPanel.size.h = state.detailPanel.resize.startH + dy;
+      _applyDetailPanelSize();
+      _applyDetailPanelPos();
+    });
+
+    const endResize = () => {
+      if (!state.detailPanel.resize.active) return;
+      state.detailPanel.resize.active = false;
+      _saveDetailPanelSize();
+    };
+    resizeHandle.addEventListener('pointerup', endResize);
+    resizeHandle.addEventListener('pointercancel', endResize);
+  }
+
   setActiveTab(state.detailPanel.activeTab || 'details');
 }
 
@@ -500,6 +651,8 @@ function showPersonDetailPanel() {
   if (!host) return;
   state.detailPanel.open = true;
   host.hidden = false;
+  _setDetailPeekVisible(false);
+  _applyDetailPanelSize();
   _applyDetailPanelPos();
 }
 
@@ -508,6 +661,7 @@ function hidePersonDetailPanel() {
   if (!host) return;
   state.detailPanel.open = false;
   host.hidden = true;
+  _setDetailPeekVisible(true);
 }
 
 function _setPanelHeader({ name, meta, portraitUrl, gender } = {}) {
@@ -522,6 +676,12 @@ function _setPanelHeader({ name, meta, portraitUrl, gender } = {}) {
   if (avEl) {
     avEl.innerHTML = '';
     const url = String(portraitUrl || '').trim();
+    // Keep a copy for the hidden-panel peek tab.
+    state.detailPanel.peek.url = url;
+    state.detailPanel.peek.name = String(name || '').trim();
+    if (!state.detailPanel.open) {
+      try { _updateDetailPeekTab(); } catch (_) {}
+    }
     if (url) {
       const img = document.createElement('img');
       img.src = url;
@@ -1762,8 +1922,20 @@ setStatus('Ready.');
 _initPeopleExpanded();
 
 _loadDetailPanelPos();
+_loadDetailPanelSize();
 _renderPersonDetailPanelSkeleton();
+try { _ensureDetailPeekTab(); } catch (_) {}
+try { _positionDetailPeekTab(); } catch (_) {}
+try { _applyDetailPanelSize(); } catch (_) {}
 try { _applyDetailPanelPos(); } catch (_) {}
+
+try {
+  window.addEventListener('resize', () => {
+    _applyDetailPanelSize();
+    _applyDetailPanelPos();
+    _positionDetailPeekTab();
+  });
+} catch (_) {}
 
 // Auto-load the graph on first page load (using the current form values).
 try { loadNeighborhood(); } catch (_) {}

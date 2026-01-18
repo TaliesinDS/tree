@@ -123,6 +123,93 @@
   font-family: 'TreeEBGaramond', Garamond, 'EB Garamond', 'Cormorant Garamond', var(--panel-font), serif;
 }
 
+.personDetailResizeHandle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 12px;
+  cursor: ns-resize;
+  touch-action: none;
+  /* subtle grip */
+  background: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,0.20));
+}
+
+.personDetailResizeHandle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.22);
+}
+
+/* Hidden detail-panel peek tab (right edge) */
+.detailPeekTab {
+  position: fixed;
+  right: -6px; /* slight "stick out" */
+  top: 90px; /* JS will refine */
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--border);
+  border-right: 0;
+  border-radius: 16px 0 0 16px;
+  background: rgba(15, 22, 34, 0.72);
+  box-shadow: var(--shadow);
+  z-index: calc(var(--detail-panel-z) - 1);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+html[data-theme="light"] .detailPeekTab {
+  background: rgba(255,255,255,0.94);
+}
+
+.detailPeekImg {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(0,0,0,0.18);
+}
+
+html[data-theme="light"] .detailPeekImg {
+  border-color: rgba(0,0,0,0.12);
+  background: rgba(0,0,0,0.06);
+}
+
+.detailPeekImg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.detailPeekPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  font-family: var(--card-font);
+  font-weight: 700;
+  color: var(--text);
+  opacity: 0.8;
+}
+
+html[data-theme="light"] .personDetailResizeHandle {
+  background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(0,0,0,0.06));
+}
+
+html[data-theme="light"] .personDetailResizeHandle::before {
+  background: rgba(0,0,0,0.18);
+}
+
 html[data-theme="light"] .personDetailPanel {
   background: rgba(255,255,255,0.94);
   backdrop-filter: none;
@@ -270,7 +357,7 @@ html[data-theme="light"] .personDetailTab.active {
 }
 
 .personDetailBody {
-  padding: 0 12px;
+  padding: 0 12px 12px 12px;
   overflow: auto;
   user-select: text;
 }
@@ -523,6 +610,9 @@ html[data-theme="light"] {
 
 * { box-sizing: border-box; }
 
+/* Ensure the standard `hidden` attribute always wins over component display rules. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   margin: 0;
@@ -589,6 +679,7 @@ html[data-theme="light"] .sidebar {
   display: flex;
   gap: 0;
   padding: 0;
+  border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   overflow: hidden;
 }
