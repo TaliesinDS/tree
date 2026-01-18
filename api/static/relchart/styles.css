@@ -539,6 +539,47 @@ input {
   min-width: 140px;
 }
 
+.inputWithClear {
+  position: relative;
+  display: block;
+}
+
+/* Make room for the clear button. */
+.inputWithClear > input {
+  width: 100%;
+  padding-right: 34px;
+}
+
+.inputClearBtn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 22px;
+  width: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 18px;
+  user-select: none;
+}
+
+.inputClearBtn:hover {
+  background: rgba(255,255,255,0.10);
+  color: var(--text);
+}
+
+html[data-theme="light"] .inputClearBtn:hover {
+  background: rgba(0,0,0,0.06);
+}
+
 html[data-theme="light"] input {
   background: rgba(255,255,255,0.90);
   color: var(--text);

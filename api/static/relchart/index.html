@@ -45,7 +45,12 @@
           <div class="peopleTools">
             <label>
               Search
-              <input id="peopleSearch" placeholder="Type a name…" />
+              <div class="inputWithClear">
+                <input id="peopleSearch" placeholder="Type a name…" />
+                <button id="peopleSearchClear" class="inputClearBtn" type="button" aria-label="Clear people search" title="Clear">
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
             </label>
             <div id="peopleStatus" class="muted">Open this tab to load people.</div>
           </div>

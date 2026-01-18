@@ -14,6 +14,7 @@ const els = {
   status: $('status'),
   chart: $('chart'),
   peopleSearch: $('peopleSearch'),
+  peopleSearchClear: $('peopleSearchClear'),
   peopleStatus: $('peopleStatus'),
   peopleList: $('peopleList'),
   peopleExpandToggle: $('peopleExpandToggle'),
@@ -1040,8 +1041,45 @@ if (peopleTabBtn) {
 }
 
 if (els.peopleSearch) {
-  els.peopleSearch.addEventListener('input', () => {
+  const updateClearVisibility = () => {
+    if (!els.peopleSearchClear) return;
+    const has = String(els.peopleSearch.value || '').length > 0;
+    els.peopleSearchClear.style.display = has ? 'inline-flex' : 'none';
+  };
+
+  const doRerender = () => {
     if (!state.peopleLoaded || !state.people) return;
     _renderPeopleList(state.people, els.peopleSearch.value);
+  };
+
+  els.peopleSearch.addEventListener('input', () => {
+    updateClearVisibility();
+    doRerender();
   });
+
+  els.peopleSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (!els.peopleSearch.value) return;
+      els.peopleSearch.value = '';
+      updateClearVisibility();
+      doRerender();
+      try { els.peopleSearch.focus(); } catch (_) {}
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+
+  if (els.peopleSearchClear) {
+    els.peopleSearchClear.addEventListener('click', () => {
+      if (!els.peopleSearch) return;
+      if (!els.peopleSearch.value) return;
+      els.peopleSearch.value = '';
+      updateClearVisibility();
+      doRerender();
+      try { els.peopleSearch.focus(); } catch (_) {}
+    });
+  }
+
+  // Initial state
+  updateClearVisibility();
 }
