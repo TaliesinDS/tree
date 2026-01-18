@@ -20,6 +20,7 @@ const els = {
   peopleExpandToggle: $('peopleExpandToggle'),
   optPeopleWidePx: $('optPeopleWidePx'),
   optionsMenu: $('optionsMenu'),
+  personDetailPanel: $('personDetailPanel'),
 };
 
 const state = {
@@ -31,7 +32,329 @@ const state = {
   peopleSelected: null,
   peopleExpanded: false,
   nodeById: new Map(),
+  detailPanel: {
+    open: false,
+    activeTab: 'details',
+    lastPersonId: null,
+    lastReqSeq: 0,
+    drag: { active: false, dx: 0, dy: 0 },
+    pos: { left: 48, top: 72 },
+  },
 };
+
+// --- Person detail panel (floating + draggable) ---
+// Tweakable values:
+const DETAIL_PANEL_POS_KEY = 'tree_relchart_person_panel_pos_v1';
+const DETAIL_PANEL_DEFAULT_POS = { left: 48, top: 72 };
+
+function _clamp(n, lo, hi) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return lo;
+  return Math.max(lo, Math.min(hi, x));
+}
+
+function _loadDetailPanelPos() {
+  let pos = { ...DETAIL_PANEL_DEFAULT_POS };
+  try {
+    const raw = String(localStorage.getItem(DETAIL_PANEL_POS_KEY) || '').trim();
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const l = Number(parsed?.left);
+      const t = Number(parsed?.top);
+      if (Number.isFinite(l) && Number.isFinite(t)) pos = { left: l, top: t };
+    }
+  } catch (_) {}
+  state.detailPanel.pos = pos;
+}
+
+function _saveDetailPanelPos() {
+  try {
+    localStorage.setItem(DETAIL_PANEL_POS_KEY, JSON.stringify(state.detailPanel.pos));
+  } catch (_) {}
+}
+
+function _applyDetailPanelPos() {
+  const el = els.personDetailPanel;
+  if (!el) return;
+  const vw = window.innerWidth || 1200;
+  const vh = window.innerHeight || 800;
+  const w = el.offsetWidth || 520;
+  const h = el.offsetHeight || 620;
+  const left = _clamp(state.detailPanel.pos.left, 8, Math.max(8, vw - w - 8));
+  const top = _clamp(state.detailPanel.pos.top, 8, Math.max(8, vh - h - 8));
+  state.detailPanel.pos = { left, top };
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+}
+
+function _escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[c]));
+}
+
+function _renderPersonDetailPanelSkeleton() {
+  const host = els.personDetailPanel;
+  if (!host) return;
+
+  host.innerHTML = `
+    <div class="personDetailHeader" data-panel-drag="1">
+      <div class="personDetailTitle">
+        <div class="personDetailAvatar" data-person-avatar="1"></div>
+        <div class="personDetailTitleText">
+          <div class="personDetailName" data-person-name="1">Person</div>
+          <div class="personDetailMeta" data-person-meta="1"></div>
+        </div>
+      </div>
+      <div class="personDetailActions">
+        <button class="personDetailClose" type="button" data-panel-close="1" title="Close">×</button>
+      </div>
+    </div>
+    <div class="personDetailTabs" role="tablist" aria-label="Person detail tabs">
+      <button class="personDetailTab" type="button" data-tab="details">Details</button>
+      <button class="personDetailTab" type="button" data-tab="gramps_notes">Gramps Notes</button>
+      <button class="personDetailTab" type="button" data-tab="user_notes">User Notes</button>
+      <button class="personDetailTab" type="button" data-tab="media">Media</button>
+      <button class="personDetailTab" type="button" data-tab="sources">Sources</button>
+      <button class="personDetailTab" type="button" data-tab="other">Other</button>
+    </div>
+    <div class="personDetailBody" data-panel-body="1"></div>
+  `;
+
+  const setActiveTab = (name) => {
+    const tab = String(name || '').trim();
+    if (!tab) return;
+    state.detailPanel.activeTab = tab;
+    for (const b of host.querySelectorAll('.personDetailTab[data-tab]')) {
+      const active = b.dataset.tab === tab;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-selected', active ? 'true' : 'false');
+    }
+    _renderPersonDetailPanelBody();
+  };
+
+  for (const b of host.querySelectorAll('.personDetailTab[data-tab]')) {
+    b.addEventListener('click', () => setActiveTab(b.dataset.tab));
+  }
+
+  host.querySelector('[data-panel-close="1"]')?.addEventListener('click', () => {
+    hidePersonDetailPanel();
+  });
+
+  // Drag behavior
+  const header = host.querySelector('[data-panel-drag="1"]');
+  if (header) {
+    header.addEventListener('pointerdown', (e) => {
+      // Avoid starting a drag when clicking the close button.
+      if (e.target && e.target.closest && e.target.closest('[data-panel-close="1"]')) return;
+      state.detailPanel.drag.active = true;
+      const rect = host.getBoundingClientRect();
+      state.detailPanel.drag.dx = (e.clientX - rect.left);
+      state.detailPanel.drag.dy = (e.clientY - rect.top);
+      try { header.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+
+    header.addEventListener('pointermove', (e) => {
+      if (!state.detailPanel.drag.active) return;
+      state.detailPanel.pos.left = e.clientX - state.detailPanel.drag.dx;
+      state.detailPanel.pos.top = e.clientY - state.detailPanel.drag.dy;
+      _applyDetailPanelPos();
+    });
+
+    const endDrag = () => {
+      if (!state.detailPanel.drag.active) return;
+      state.detailPanel.drag.active = false;
+      _saveDetailPanelPos();
+    };
+    header.addEventListener('pointerup', endDrag);
+    header.addEventListener('pointercancel', endDrag);
+  }
+
+  setActiveTab(state.detailPanel.activeTab || 'details');
+}
+
+function showPersonDetailPanel() {
+  const host = els.personDetailPanel;
+  if (!host) return;
+  state.detailPanel.open = true;
+  host.hidden = false;
+  _applyDetailPanelPos();
+}
+
+function hidePersonDetailPanel() {
+  const host = els.personDetailPanel;
+  if (!host) return;
+  state.detailPanel.open = false;
+  host.hidden = true;
+}
+
+function _setPanelHeader({ name, meta, portraitUrl } = {}) {
+  const host = els.personDetailPanel;
+  if (!host) return;
+  const nameEl = host.querySelector('[data-person-name="1"]');
+  const metaEl = host.querySelector('[data-person-meta="1"]');
+  const avEl = host.querySelector('[data-person-avatar="1"]');
+  if (nameEl) nameEl.textContent = String(name || 'Person');
+  if (metaEl) metaEl.textContent = String(meta || '');
+
+  if (avEl) {
+    avEl.innerHTML = '';
+    const url = String(portraitUrl || '').trim();
+    if (url) {
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      avEl.appendChild(img);
+    }
+  }
+}
+
+function _renderKv(rows) {
+  if (!rows || !rows.length) return '';
+  const items = rows
+    .filter(([k, v]) => {
+      if (v === null || v === undefined) return false;
+      const s = String(v).trim();
+      return s.length > 0;
+    })
+    .map(([k, v]) => `<div class="k">${_escapeHtml(k)}</div><div class="v">${_escapeHtml(v)}</div>`)
+    .join('');
+  return items ? `<div class="kv">${items}</div>` : '';
+}
+
+function _renderEvent(ev) {
+  const t = String(ev?.type || 'Event');
+  const role = String(ev?.role || '').trim();
+  const dateText = String(ev?.date_text || '').trim();
+  const dateIso = String(ev?.date || '').trim();
+  const placeName = String(ev?.place?.name || '').trim();
+  const desc = String(ev?.description || '').trim();
+
+  const metaParts = [];
+  if (role) metaParts.push(role);
+  if (dateText) metaParts.push(dateText);
+  else if (dateIso) metaParts.push(dateIso);
+  if (placeName) metaParts.push(placeName);
+  const meta = metaParts.join(' · ');
+
+  const notes = Array.isArray(ev?.notes) ? ev.notes : [];
+  const notesHtml = notes.length
+    ? `<div class="personDetailSectionTitle">Event Notes</div><div class="noteList">${notes.map(n => `<div class="noteItem">${_escapeHtml(n?.body || '')}</div>`).join('')}</div>`
+    : '';
+
+  return `
+    <div class="eventItem">
+      <div class="eventTitle">${_escapeHtml(t)}</div>
+      ${meta ? `<div class="eventMeta">${_escapeHtml(meta)}</div>` : ''}
+      ${desc ? `<div class="eventDesc">${_escapeHtml(desc)}</div>` : ''}
+      ${notesHtml}
+    </div>
+  `;
+}
+
+function _renderPersonDetailPanelBody() {
+  const host = els.personDetailPanel;
+  if (!host) return;
+  const body = host.querySelector('[data-panel-body="1"]');
+  if (!body) return;
+
+  const data = state.detailPanel.data || null;
+  const tab = String(state.detailPanel.activeTab || 'details');
+  if (!data) {
+    body.innerHTML = '<div class="muted">Loading…</div>';
+    return;
+  }
+
+  if (tab === 'details') {
+    const p = data.person || {};
+    const events = Array.isArray(data.events) ? data.events : [];
+    const rows = [];
+    if (p.gender) rows.push(['Gender', p.gender]);
+    if (p.birth) rows.push(['Birth', p.birth]);
+    if (p.death) rows.push(['Death', p.death]);
+    const kv = _renderKv(rows);
+
+    const evHtml = events.length
+      ? `<div class="personDetailSectionTitle">Events</div><div class="eventList">${events.map(_renderEvent).join('')}</div>`
+      : '';
+
+    body.innerHTML = `
+      ${kv ? `<div class="personDetailSectionTitle">Primary</div>${kv}` : ''}
+      ${evHtml || '<div class="muted">No events available.</div>'}
+    `;
+    return;
+  }
+
+  if (tab === 'gramps_notes') {
+    const notes = Array.isArray(data.gramps_notes) ? data.gramps_notes : [];
+    body.innerHTML = notes.length
+      ? `<div class="noteList">${notes.map(n => `<div class="noteItem">${_escapeHtml(n?.body || '')}</div>`).join('')}</div>`
+      : '<div class="muted">No Gramps notes.</div>';
+    return;
+  }
+
+  if (tab === 'user_notes') {
+    body.innerHTML = '<div class="muted">User notes coming soon.</div>';
+    return;
+  }
+
+  if (tab === 'media') {
+    body.innerHTML = '<div class="muted">Media list coming soon.</div>';
+    return;
+  }
+
+  if (tab === 'sources') {
+    body.innerHTML = '<div class="muted">Source citations coming soon.</div>';
+    return;
+  }
+
+  body.innerHTML = '<div class="muted">More tabs coming soon.</div>';
+}
+
+async function loadPersonDetailsIntoPanel(personApiId) {
+  const pid = String(personApiId || '').trim();
+  if (!pid) return;
+
+  showPersonDetailPanel();
+
+  const seq = (state.detailPanel.lastReqSeq || 0) + 1;
+  state.detailPanel.lastReqSeq = seq;
+  state.detailPanel.lastPersonId = pid;
+  state.detailPanel.data = null;
+
+  _setPanelHeader({ name: 'Loading…', meta: pid });
+  _renderPersonDetailPanelBody();
+
+  try {
+    const r = await fetch(`/people/${encodeURIComponent(pid)}/details`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    if (state.detailPanel.lastReqSeq !== seq) return;
+    state.detailPanel.data = data;
+
+    const p = data?.person || {};
+    const name = String(p.display_name || 'Person');
+    const metaParts = [];
+    if (p.gramps_id) metaParts.push(String(p.gramps_id));
+    if (p.birth) metaParts.push(String(p.birth));
+    if (p.death) metaParts.push(String(p.death));
+    _setPanelHeader({ name, meta: metaParts.join(' · '), portraitUrl: p.portrait_url });
+    _renderPersonDetailPanelBody();
+  } catch (e) {
+    if (state.detailPanel.lastReqSeq !== seq) return;
+    state.detailPanel.data = { person: { display_name: 'Error' } };
+    _setPanelHeader({ name: 'Failed to load', meta: String(e?.message || e) });
+    _renderPersonDetailPanelBody();
+  }
+}
 
 const PEOPLE_EXPANDED_KEY = 'tree_relchart_people_expanded_v1';
 const PEOPLE_WIDE_PX_KEY = 'tree_relchart_people_wide_px_v1';
@@ -247,6 +570,15 @@ function createSelectionStore() {
 }
 
 const selection = createSelectionStore();
+
+// Keep the floating detail panel in sync with selection.
+selection.subscribe((next) => {
+  const pid = String(next?.apiId || '').trim();
+  if (!pid) return;
+  // Avoid redundant fetches.
+  if (state.detailPanel.lastPersonId && state.detailPanel.lastPersonId === pid && state.detailPanel.open) return;
+  try { loadPersonDetailsIntoPanel(pid); } catch (_) {}
+});
 
 function _normalizeGraphvizTitleToId(title) {
   const t = String(title || '').trim();
@@ -703,6 +1035,10 @@ async function rerender() {
         const svg = els.chart?.querySelector('svg');
         _applyGraphPersonSelection(svg, pid);
       } catch (_) {}
+
+      // Detail panel should open on single-click selection.
+      try { loadPersonDetailsIntoPanel(pid); } catch (_) {}
+
       const node = state.nodeById.get(String(pid)) || null;
       // Graph click should behave like a global selection: switch to People and center-scroll.
       _setSidebarActiveTab('people');
@@ -812,6 +1148,13 @@ els.fitBtn.addEventListener('click', () => {
 // Initial
 setStatus('Ready.');
 _initPeopleExpanded();
+
+_loadDetailPanelPos();
+_renderPersonDetailPanelSkeleton();
+try { _applyDetailPanelPos(); } catch (_) {}
+
+// Auto-load the graph on first page load (using the current form values).
+try { loadNeighborhood(); } catch (_) {}
 
 function _normKey(s) {
   return String(s || '').trim().toLowerCase();

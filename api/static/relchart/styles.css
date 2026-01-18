@@ -15,6 +15,208 @@
   --card-date-weight: 500;
   --sidebar-w: 340px;
   --sidebar-w-wide: 440px;
+
+  /* Person detail panel (tweakable) */
+  --detail-panel-w: 520px;
+  --detail-panel-h: 620px;
+  --detail-panel-z: 50;
+}
+
+.personDetailPanel {
+  position: fixed;
+  left: 48px;
+  top: 72px;
+  width: var(--detail-panel-w);
+  height: var(--detail-panel-h);
+  z-index: var(--detail-panel-z);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  user-select: none;
+}
+
+html[data-theme="light"] .personDetailPanel {
+  background: rgba(255,255,255,0.94);
+  backdrop-filter: none;
+}
+
+.personDetailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+}
+
+.personDetailHeader:active { cursor: grabbing; }
+
+.personDetailTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.personDetailAvatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.10);
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+html[data-theme="light"] .personDetailAvatar {
+  background: rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.10);
+}
+
+.personDetailTitleText {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.personDetailName {
+  font-weight: 800;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.personDetailMeta {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.personDetailActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.personDetailClose {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  cursor: pointer;
+}
+
+html[data-theme="light"] .personDetailClose {
+  border-color: var(--border);
+  background: #ffffff;
+  color: var(--text);
+}
+
+.personDetailTabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.personDetailTab {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.personDetailTab.active {
+  border-color: rgba(122,162,255,0.55);
+  background: rgba(122,162,255,0.16);
+}
+
+html[data-theme="light"] .personDetailTab {
+  border-color: var(--border);
+  background: #ffffff;
+  color: var(--text);
+}
+
+html[data-theme="light"] .personDetailTab.active {
+  border-color: rgba(175,165,143,0.70);
+  background: rgba(175,165,143,0.22);
+}
+
+.personDetailBody {
+  padding: 12px;
+  overflow: auto;
+  user-select: text;
+}
+
+.personDetailSectionTitle {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  margin: 10px 0 6px 0;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 6px 10px;
+  align-items: baseline;
+}
+
+.kv .k {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kv .v {
+  font-size: 13px;
+}
+
+.eventList { display: grid; gap: 8px; }
+.eventItem {
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.14);
+  border-radius: 12px;
+  padding: 10px;
+}
+html[data-theme="light"] .eventItem {
+  background: rgba(0,0,0,0.04);
+  border-color: rgba(0,0,0,0.08);
+}
+.eventTitle { font-weight: 800; font-size: 13px; }
+.eventMeta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.eventDesc { margin-top: 6px; font-size: 13px; }
+
+.noteList { display: grid; gap: 8px; }
+.noteItem {
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.14);
+  border-radius: 12px;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+html[data-theme="light"] .noteItem {
+  background: rgba(0,0,0,0.04);
+  border-color: rgba(0,0,0,0.08);
 }
 
 /* Person cards (Graphviz SVG) typography */
@@ -24,10 +226,7 @@
   font-weight: var(--card-date-weight) !important; /* date lines */
 }
 
-/* Selected person card indicator (simple black border for now). */
-.chart svg g.node.personNode.selected {
-  /* Keep this as a hook for future styling (glow, badge, etc.). */
-}
+
 
 .chart svg g.node.personNode text[font-weight="bold"] {
   font-weight: var(--card-name-weight) !important; /* name lines */

@@ -453,6 +453,194 @@ def get_person(person_id: str) -> dict[str, Any]:
     }
 
 
+def _compact_json(value: Any) -> Any:
+    """Recursively remove null/empty fields from JSON-like structures.
+
+    Rules:
+    - Drop keys with None
+    - Drop keys with empty string (after strip)
+    - Drop keys with empty list/dict
+    - Keep 0/False
+    """
+
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        s = value.strip()
+        return s if s else None
+
+    if isinstance(value, list):
+        out_list = []
+        for item in value:
+            v = _compact_json(item)
+            if v is None:
+                continue
+            out_list.append(v)
+        return out_list if out_list else None
+
+    if isinstance(value, dict):
+        out_dict: dict[str, Any] = {}
+        for k, v in value.items():
+            vv = _compact_json(v)
+            if vv is None:
+                continue
+            out_dict[k] = vv
+        return out_dict if out_dict else None
+
+    return value
+
+
+@app.get("/people/{person_id}/details")
+def get_person_details(person_id: str) -> dict[str, Any]:
+    """Richer person payload for the UI detail panel.
+
+    Returns:
+    - person: same privacy-redacted core as /people/{id}
+    - events: events attached to person (privacy-filtered)
+    - gramps_notes: notes attached to person (privacy-filtered)
+
+    Future tabs (placeholders): user_notes, media, sources, other.
+    """
+
+    if not person_id:
+        raise HTTPException(status_code=400, detail="missing person_id")
+
+    resolved_id = _resolve_person_id(person_id)
+    person_core = get_person(resolved_id)
+
+    # If person is private/redacted, don't leak associated edges/notes.
+    if bool(person_core.get("is_private")) or person_core.get("display_name") == "Private":
+        out = {
+            "person": person_core,
+            "events": [],
+            "gramps_notes": [],
+            "user_notes": [],
+            "media": [],
+            "sources": [],
+            "other": {},
+        }
+        return _compact_json(out) or {"person": person_core}
+
+    with db_conn() as conn:
+        # Person events
+        ev_rows = conn.execute(
+            """
+            SELECT
+              e.id,
+              e.event_type,
+              e.description,
+              e.event_date_text,
+              e.event_date,
+              e.is_private,
+              pe.role,
+              pl.id as place_id,
+              pl.name as place_name,
+              pl.is_private as place_is_private
+            FROM person_event pe
+            JOIN event e ON e.id = pe.event_id
+            LEFT JOIN place pl ON pl.id = e.place_id
+            WHERE pe.person_id = %s
+            ORDER BY e.event_date NULLS LAST, e.event_date_text NULLS LAST, e.event_type NULLS LAST, e.id
+            """.strip(),
+            (resolved_id,),
+        ).fetchall()
+
+        events: list[dict[str, Any]] = []
+        event_ids: list[str] = []
+        for r in ev_rows:
+            (
+                eid,
+                event_type,
+                description,
+                event_date_text,
+                event_date,
+                event_is_private,
+                role,
+                place_id,
+                place_name,
+                place_is_private,
+            ) = tuple(r)
+
+            if bool(event_is_private):
+                continue
+
+            event_ids.append(str(eid))
+            place_out = None
+            if place_id and (not bool(place_is_private)):
+                place_out = {"id": place_id, "name": place_name}
+
+            events.append(
+                {
+                    "id": eid,
+                    "type": event_type,
+                    "role": role,
+                    "date": event_date.isoformat() if isinstance(event_date, date) else None,
+                    "date_text": event_date_text,
+                    "description": description,
+                    "place": place_out,
+                }
+            )
+
+        # Notes attached directly to the person (Gramps Notes tab)
+        note_rows = conn.execute(
+            """
+            SELECT n.id, n.body, n.is_private
+            FROM person_note pn
+            JOIN note n ON n.id = pn.note_id
+            WHERE pn.person_id = %s
+            ORDER BY n.id
+            """.strip(),
+            (resolved_id,),
+        ).fetchall()
+
+        gramps_notes: list[dict[str, Any]] = []
+        for nr in note_rows:
+            nid, body, is_private = tuple(nr)
+            if bool(is_private):
+                continue
+            gramps_notes.append({"id": nid, "body": body})
+
+        # Optional: attach event notes (if present) into the event objects.
+        if event_ids:
+            ev_note_rows = conn.execute(
+                """
+                SELECT en.event_id, n.id, n.body, n.is_private
+                FROM event_note en
+                JOIN note n ON n.id = en.note_id
+                WHERE en.event_id = ANY(%s)
+                ORDER BY en.event_id, n.id
+                """.strip(),
+                (event_ids,),
+            ).fetchall()
+
+            notes_by_event: dict[str, list[dict[str, Any]]] = {}
+            for er in ev_note_rows:
+                ev_id, nid, body, is_private = tuple(er)
+                if bool(is_private):
+                    continue
+                notes_by_event.setdefault(str(ev_id), []).append({"id": nid, "body": body})
+
+            if notes_by_event:
+                for ev in events:
+                    ev_id = str(ev.get("id") or "")
+                    if not ev_id:
+                        continue
+                    if ev_id in notes_by_event:
+                        ev["notes"] = notes_by_event[ev_id]
+
+    out = {
+        "person": person_core,
+        "events": events,
+        "gramps_notes": gramps_notes,
+        "user_notes": [],
+        "media": [],
+        "sources": [],
+        "other": {},
+    }
+    return _compact_json(out) or {"person": person_core}
+
+
 @app.get("/people/search")
 def search_people(q: str = Query(min_length=1, max_length=200)) -> dict[str, Any]:
     q_like = f"%{q}%"
