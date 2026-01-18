@@ -1136,14 +1136,36 @@ async function loadNeighborhood() {
   setStatus('Loading…');
   try {
     state.payload = await api.neighborhood({ personId, depth, maxNodes });
-    // Latch selection to the current selection store (people list or prior graph click).
-    // Fall back to the requested personId if it matches a person node.
-    state.selectedPersonId = _resolveSelectedPersonIdFromPayload(state.payload, selection);
-    if (!state.selectedPersonId) {
-      const fallback = String(personId || '').trim();
-      const hit = (state.payload?.nodes || []).find(n => n?.type === 'person' && String(n?.gramps_id || '').trim() === fallback);
-      if (hit?.id) state.selectedPersonId = String(hit.id);
+
+    // When the user typed a Person ID and clicked Load, treat that as the new
+    // global selection so the People list + detail panel stay in sync.
+    const requested = String(personId || '').trim();
+    const nodes = Array.isArray(state.payload?.nodes) ? state.payload.nodes : [];
+    const directHit = nodes.find(n => {
+      if (n?.type !== 'person') return false;
+      const apiId = String(n?.id || '').trim();
+      const gid = String(n?.gramps_id || '').trim();
+      return (gid && gid === requested) || (apiId && apiId === requested);
+    }) || null;
+
+    let resolvedApiId = directHit?.id ? String(directHit.id) : null;
+    let resolvedGrampsId = String(directHit?.gramps_id || '').trim() || null;
+
+    // Latch chart selection to the selection store (people list or prior graph click).
+    // If that doesn't resolve, fall back to the requested id.
+    state.selectedPersonId = _resolveSelectedPersonIdFromPayload(state.payload, selection) || resolvedApiId;
+    if (state.selectedPersonId && !resolvedGrampsId) {
+      const byApi = nodes.find(n => n?.type === 'person' && String(n?.id || '').trim() === String(state.selectedPersonId)) || null;
+      resolvedGrampsId = String(byApi?.gramps_id || '').trim() || null;
     }
+
+    // Finally, make the selection store reflect what we just loaded.
+    // Prefer gramps id for keying the People list; always include api id when known.
+    selection.selectPerson(
+      { apiId: state.selectedPersonId || null, grampsId: resolvedGrampsId || requested || null },
+      { source: 'load', scrollPeople: true, updateInput: true },
+    );
+
     setStatus(`Loaded ${state.payload.nodes?.length || 0} nodes, ${state.payload.edges?.length || 0} edges.`);
     await rerender();
   } catch (e) {

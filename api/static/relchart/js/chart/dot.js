@@ -1,4 +1,4 @@
-import { formatGrampsDateEnglish } from '../util/date.js';
+import { formatGrampsDateEnglishCard } from '../util/date.js';
 
 function esc(s) {
   return String(s ?? '').replaceAll('\\', '\\\\').replaceAll('"', '\\"');
@@ -93,7 +93,7 @@ function formatNameLines(p) {
 }
 
 function formatCardDateEnglish(raw) {
-  return formatGrampsDateEnglish(raw);
+  return formatGrampsDateEnglishCard(raw);
 }
 
 function personHtmlLabel(p) {

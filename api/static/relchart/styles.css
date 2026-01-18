@@ -511,7 +511,7 @@ html[data-theme="light"] .miniToggle:hover { background: #e0e0e0; }
 .peopleItem .dateBirth {
   display: inline-block;
   width: 4ch;
-  text-align: left;
+  text-align: right;
 }
 
 .peopleItem .dateDash {
@@ -523,7 +523,7 @@ html[data-theme="light"] .miniToggle:hover { background: #e0e0e0; }
 .peopleItem .dateDeath {
   display: inline-block;
   width: 4ch;
-  text-align: left;
+  text-align: right;
 }
 
 .muted {

@@ -33,8 +33,27 @@ function _formatNoQualifier(raw) {
   const s0 = String(raw || '').trim();
   if (!s0) return '';
 
+  // Year range: 0898–0914 / 0898-0914 / 898–914
+  // Normalize leading zeros and use an en dash.
+  {
+    const m = s0.match(/^(\d{1,4})\s*[\u2013\u2014-]\s*(\d{1,4})$/);
+    if (m) {
+      const a = Number(m[1]);
+      const b = Number(m[2]);
+      if (Number.isFinite(a) && Number.isFinite(b)) {
+        return `${a}\u2013${b}`;
+      }
+    }
+  }
+
   // Year-only stays year-only.
-  if (/^\d{4}$/.test(s0)) return s0;
+  if (/^\d{4}$/.test(s0)) {
+    // Avoid showing leading-zero padded years (e.g. "0563" -> "563").
+    // Keep 4-digit years >= 1000 unchanged.
+    const y = Number(s0);
+    if (Number.isFinite(y)) return String(y);
+    return s0;
+  }
 
   // ISO: YYYY-MM-DD (or YYYY-M-D)
   {
@@ -95,7 +114,7 @@ function _formatNoQualifier(raw) {
  * - "estimated before 1920-10-20" -> "estimated before 20 october 1920"
  * - year-only remains unchanged
  */
-export function formatGrampsDateEnglish(raw) {
+export function formatGrampsDateEnglish(raw, { stripEstimated = false } = {}) {
   const s0 = String(raw || '').trim();
   if (!s0) return '';
 
@@ -126,5 +145,12 @@ export function formatGrampsDateEnglish(raw) {
 
   if (!rest) return prefixWords.join(' ').trim();
   const formatted = _formatNoQualifier(rest);
-  return prefixWords.length ? `${prefixWords.join(' ')} ${formatted}` : formatted;
+  const keptPrefixes = stripEstimated ? prefixWords.filter(w => w !== 'estimated') : prefixWords;
+  return keptPrefixes.length ? `${keptPrefixes.join(' ')} ${formatted}` : formatted;
+}
+
+// Person cards should be compact: drop the redundant "estimated" qualifier
+// but keep other qualifiers like before/after/about/calculated.
+export function formatGrampsDateEnglishCard(raw) {
+  return formatGrampsDateEnglish(raw, { stripEstimated: true });
 }
