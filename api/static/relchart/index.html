@@ -73,7 +73,22 @@
         </div>
 
         <div class="tabpanel" data-panel="events" role="tabpanel">
-          <h2>Events</h2>
+          <div class="panelHeaderRow">
+            <h2>Events</h2>
+            <div class="panelHeaderControls">
+              <label class="miniLabel">
+                <span class="srOnly">Sort events</span>
+                <select id="eventsSort" class="miniSelect" aria-label="Sort events">
+                  <option value="type_asc" selected>Type (A→Z)</option>
+                  <option value="type_desc">Type (Z→A)</option>
+                  <option value="year_asc">Year (old→new)</option>
+                  <option value="year_desc">Year (new→old)</option>
+                  <option value="id_asc">ID (A→Z)</option>
+                  <option value="id_desc">ID (Z→A)</option>
+                </select>
+              </label>
+            </div>
+          </div>
           <div class="peopleTools">
             <label>
               Search

@@ -640,14 +640,33 @@ def list_events(
     """
 
     with db_conn() as conn:
+        def _has_col(table: str, col: str) -> bool:
+            try:
+                row = conn.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = %s AND column_name = %s
+                    LIMIT 1
+                    """.strip(),
+                    (table, col),
+                ).fetchone()
+                return bool(row)
+            except Exception:
+                return False
+
+        has_event_gramps_id = _has_col("event", "gramps_id")
+
         total = None
         if include_total:
             total = conn.execute("SELECT COUNT(*) FROM event WHERE is_private = FALSE").fetchone()[0]
 
+        gramps_id_select = "e.gramps_id" if has_event_gramps_id else "NULL"
         rows = conn.execute(
-            """
+            f"""
             SELECT
               e.id,
+              {gramps_id_select} AS gramps_id,
               e.event_type,
               e.description,
               e.event_date_text,
@@ -655,16 +674,29 @@ def list_events(
               pl.id as place_id,
               pl.name as place_name,
               pl.is_private as place_is_private,
-              (
-                SELECT array_agg(pe.person_id)
-                FROM person_event pe
-                WHERE pe.event_id = e.id
-              ) as person_ids,
-              (
-                SELECT array_agg(fe.family_id)
-                FROM family_event fe
-                WHERE fe.event_id = e.id
-              ) as family_ids
+                            (
+                                SELECT array_agg(pe.person_id ORDER BY pe.person_id)
+                                FROM person_event pe
+                                WHERE pe.event_id = e.id
+                            ) as person_ids,
+                            (
+                                SELECT array_agg(COALESCE(pe.role, '') ORDER BY pe.person_id)
+                                FROM person_event pe
+                                WHERE pe.event_id = e.id
+                            ) as person_roles,
+                            (
+                                SELECT array_agg(fe.family_id ORDER BY fe.family_id)
+                                FROM family_event fe
+                                WHERE fe.event_id = e.id
+                            ) as family_ids,
+                            (
+                                SELECT f.father_id
+                                FROM family_event fe
+                                JOIN family f ON f.id = fe.family_id
+                                WHERE fe.event_id = e.id
+                                ORDER BY f.gramps_id NULLS LAST, f.id
+                                LIMIT 1
+                            ) as primary_family_father_id
             FROM event e
             LEFT JOIN place pl ON pl.id = e.place_id
             WHERE e.is_private = FALSE
@@ -678,14 +710,18 @@ def list_events(
         person_ids: set[str] = set()
         family_ids: set[str] = set()
         for r in rows:
-            pe_ids = r[8] or []
-            fe_ids = r[9] or []
+            pe_ids = r[9] or []
+            fe_ids = r[11] or []
             for pid in pe_ids:
                 if pid:
                     person_ids.add(str(pid))
             for fid in fe_ids:
                 if fid:
                     family_ids.add(str(fid))
+
+            pf = r[12]
+            if pf:
+                person_ids.add(str(pf))
 
         families_by_id: dict[str, dict[str, Any]] = {}
         family_parent_ids: set[str] = set()
@@ -713,18 +749,34 @@ def list_events(
 
         all_people_ids = set(person_ids) | set(family_parent_ids)
         person_private_by_id: dict[str, bool] = {}
+        person_public_by_id: dict[str, dict[str, Any]] = {}
         if all_people_ids:
             pr = conn.execute(
                 """
-                SELECT id, birth_text, death_text, birth_date, death_date,
+                SELECT id, gramps_id, display_name, given_name, surname,
+                       birth_text, death_text, birth_date, death_date,
                        is_living, is_private, is_living_override
                 FROM person
                 WHERE id = ANY(%s)
                 """.strip(),
                 (list(all_people_ids),),
             ).fetchall()
-            for (pid, birth_text, death_text, birth_date, death_date, is_living_flag, is_private_flag, is_living_override) in pr:
-                person_private_by_id[str(pid)] = _is_effectively_private(
+            for (
+                pid,
+                gid,
+                display_name,
+                given_name,
+                surname,
+                birth_text,
+                death_text,
+                birth_date,
+                death_date,
+                is_living_flag,
+                is_private_flag,
+                is_living_override,
+            ) in pr:
+                pid_s = str(pid)
+                is_private_eff = _is_effectively_private(
                     is_private=is_private_flag,
                     is_living_override=is_living_override,
                     is_living=is_living_flag,
@@ -734,10 +786,26 @@ def list_events(
                     death_text=death_text,
                 )
 
+                person_private_by_id[pid_s] = bool(is_private_eff)
+                if not bool(is_private_eff):
+                    display_name_out, given_name_out, surname_out = _format_public_person_names(
+                        display_name=display_name,
+                        given_name=given_name,
+                        surname=surname,
+                    )
+                    person_public_by_id[pid_s] = {
+                        "id": pid_s,
+                        "gramps_id": gid,
+                        "display_name": display_name_out,
+                        "given_name": given_name_out,
+                        "surname": surname_out,
+                    }
+
     results: list[dict[str, Any]] = []
     for r in rows:
         (
             eid,
+            e_gramps_id,
             event_type,
             description,
             event_date_text,
@@ -746,7 +814,9 @@ def list_events(
             place_name,
             place_is_private,
             pe_ids,
+            pe_roles,
             fe_ids,
+            primary_family_father_id,
         ) = tuple(r)
 
         # Omit events connected to any private person.
@@ -774,6 +844,32 @@ def list_events(
         if not family_ok:
             continue
 
+        # Determine primary person for selection in UI.
+        primary_pid: str | None = None
+        if primary_family_father_id:
+            primary_pid = str(primary_family_father_id)
+        else:
+            roles = [str(x or '').strip() for x in (pe_roles or [])]
+            pairs = list(zip(pe_list, roles))
+            # Heuristic priority; prefer husband-ish roles for multi-person events.
+            def _role_rank(role_raw: str) -> int:
+                r0 = (role_raw or '').strip().lower()
+                if not r0:
+                    return 50
+                if 'husband' in r0:
+                    return 0
+                if 'father' in r0:
+                    return 1
+                if 'primary' in r0 or 'principal' in r0 or 'main' in r0:
+                    return 2
+                return 10
+
+            pairs.sort(key=lambda pr: (_role_rank(pr[1]), pr[0]))
+            if pairs:
+                primary_pid = pairs[0][0]
+
+        primary_person = person_public_by_id.get(str(primary_pid)) if primary_pid else None
+
         place_out = None
         if place_id and not bool(place_is_private):
             place_out = {"id": place_id, "name": place_name}
@@ -781,6 +877,7 @@ def list_events(
         results.append(
             {
                 "id": eid,
+                "gramps_id": e_gramps_id,
                 "type": event_type,
                 "date": event_date.isoformat() if isinstance(event_date, date) else None,
                 "date_text": event_date_text,
@@ -788,6 +885,7 @@ def list_events(
                 "place": place_out,
                 "people_total": len(pe_list),
                 "families_total": len(fe_list),
+                "primary_person": primary_person,
             }
         )
 
@@ -989,11 +1087,30 @@ def get_person_details(person_id: str) -> dict[str, Any]:
         return _compact_json(out) or {"person": person_core}
 
     with db_conn() as conn:
+        def _has_col(table: str, col: str) -> bool:
+            try:
+                row = conn.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = %s AND column_name = %s
+                    LIMIT 1
+                    """.strip(),
+                    (table, col),
+                ).fetchone()
+                return bool(row)
+            except Exception:
+                return False
+
+        has_event_gramps_id = _has_col("event", "gramps_id")
+
         # Person events
+        gramps_id_select = "e.gramps_id" if has_event_gramps_id else "NULL"
         ev_rows = conn.execute(
-            """
+            f"""
             SELECT
               e.id,
+              {gramps_id_select} AS gramps_id,
               e.event_type,
               e.description,
               e.event_date_text,
@@ -1017,6 +1134,7 @@ def get_person_details(person_id: str) -> dict[str, Any]:
         for r in ev_rows:
             (
                 eid,
+                e_gramps_id,
                 event_type,
                 description,
                 event_date_text,
@@ -1039,6 +1157,7 @@ def get_person_details(person_id: str) -> dict[str, Any]:
             events.append(
                 {
                     "id": eid,
+                    "gramps_id": e_gramps_id,
                     "type": event_type,
                     "role": role,
                     "date": event_date.isoformat() if isinstance(event_date, date) else None,

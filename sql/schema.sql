@@ -50,6 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_place_geom ON place USING GIST (geom);
 -- Events (birth, death, marriage, occupation, etc.)
 CREATE TABLE IF NOT EXISTS event (
   id TEXT PRIMARY KEY,
+  gramps_id TEXT NULL,
   event_type TEXT NULL,
   description TEXT NULL,
   event_date_text TEXT NULL,
@@ -58,8 +59,12 @@ CREATE TABLE IF NOT EXISTS event (
   is_private BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+-- Migrations for existing DBs
+ALTER TABLE event ADD COLUMN IF NOT EXISTS gramps_id TEXT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_event_place ON event(place_id);
 CREATE INDEX IF NOT EXISTS idx_event_type ON event(event_type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_gramps_id ON event(gramps_id);
 
 -- Link events to people
 CREATE TABLE IF NOT EXISTS person_event (

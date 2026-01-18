@@ -239,9 +239,10 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
         with conn.cursor() as cur:
             cur.executemany(
                 """
-                INSERT INTO event (id, event_type, description, event_date_text, event_date, place_id, is_private)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                INSERT INTO event (id, gramps_id, event_type, description, event_date_text, event_date, place_id, is_private)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO UPDATE SET
+                  gramps_id = EXCLUDED.gramps_id,
                   event_type = EXCLUDED.event_type,
                   description = EXCLUDED.description,
                   event_date_text = EXCLUDED.event_date_text,
@@ -252,6 +253,7 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
                 [
                     (
                         r.get("id"),
+                        r.get("gramps_id"),
                         r.get("type"),
                         r.get("description"),
                         r.get("date"),

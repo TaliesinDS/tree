@@ -27,6 +27,7 @@ const els = {
   eventsSearchClear: $('eventsSearchClear'),
   eventsStatus: $('eventsStatus'),
   eventsList: $('eventsList'),
+  eventsSort: $('eventsSort'),
   optPeopleWidePx: $('optPeopleWidePx'),
   optionsMenu: $('optionsMenu'),
   personDetailPanel: $('personDetailPanel'),
@@ -47,6 +48,7 @@ const state = {
   events: null,
   eventsLoaded: false,
   eventsSelected: null,
+  eventsSort: 'type_asc',
   nodeById: new Map(),
   detailPanel: {
     open: false,
@@ -61,15 +63,100 @@ const state = {
   },
 };
 
+function _eventYearHint(ev) {
+  const iso = String(ev?.date || '').trim();
+  if (iso) {
+    const m = iso.match(/^(\d{4})/);
+    if (m) {
+      const y = Number(m[1]);
+      if (Number.isFinite(y)) return y;
+    }
+  }
+
+  const txt = String(ev?.date_text || '').trim();
+  if (txt) {
+    const m = txt.match(/\b(\d{4})\b/);
+    if (m) {
+      const y = Number(m[1]);
+      if (Number.isFinite(y)) return y;
+    }
+  }
+  return null;
+}
+
+function _eventGrampsId(ev) {
+  const g = String(ev?.gramps_id || '').trim();
+  return g || '';
+}
+
+function _sortEventsForSidebar(events, sortModeRaw) {
+  const mode = String(sortModeRaw || 'type_asc').trim().toLowerCase();
+  const src = Array.isArray(events) ? events : [];
+  const out = src.slice();
+
+  const dir = mode.endsWith('_desc') ? -1 : 1;
+  const kind = mode.replace(/_(asc|desc)$/, '');
+
+  const cmpStr = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
+
+  out.sort((a, b) => {
+    if (kind === 'year') {
+      const ya = _eventYearHint(a);
+      const yb = _eventYearHint(b);
+      const ha = (typeof ya === 'number') && Number.isFinite(ya);
+      const hb = (typeof yb === 'number') && Number.isFinite(yb);
+      // Always push unknown years to the bottom.
+      if (ha !== hb) return ha ? -1 : 1;
+      if (ha && hb && ya !== yb) return (ya - yb) * dir;
+      // Tiebreakers for stable ordering.
+      const t = cmpStr(a?.type, b?.type);
+      if (t) return t;
+      const gid = cmpStr(_eventGrampsId(a) || a?.id, _eventGrampsId(b) || b?.id);
+      return gid;
+    }
+
+    if (kind === 'id') {
+      const c = cmpStr(_eventGrampsId(a) || a?.id, _eventGrampsId(b) || b?.id);
+      if (c) return c * dir;
+      const t = cmpStr(a?.type, b?.type);
+      return t;
+    }
+
+    // Default: type
+    const c = cmpStr(a?.type, b?.type);
+    if (c) return c * dir;
+    const y = (_eventYearHint(a) ?? 999999) - (_eventYearHint(b) ?? 999999);
+    if (y) return y;
+    return cmpStr(_eventGrampsId(a) || a?.id, _eventGrampsId(b) || b?.id);
+  });
+
+  return out;
+}
+
 function _formatEventTitle(ev) {
   const t = String(ev?.type || ev?.event_type || 'Event').trim();
   return t || 'Event';
 }
 
+function _formatEventPlaceForSidebar(ev) {
+  const full = String(ev?.place?.name || '').trim();
+  if (!full) return '';
+
+  // Heuristic: if the place ends with "Netherlands"/"Nederland" (or "NL"), hide the country.
+  // If it's outside NL, keep the full place string (which should include the country).
+  const parts = full.split(',').map(s => String(s).trim()).filter(Boolean);
+  if (parts.length < 2) return full;
+  const country = String(parts[parts.length - 1] || '').trim();
+  if (/^(netherlands|nederland|nl)$/i.test(country)) {
+    return parts.slice(0, -1).join(', ');
+  }
+  return full;
+}
+
 function _formatEventSubLine(ev) {
   const dateText = String(ev?.date || ev?.date_text || ev?.event_date || ev?.event_date_text || '').trim();
   const dateUi = dateText ? formatGrampsDateEnglish(dateText) : '';
-  const placeName = String(ev?.place?.name || '').trim();
+  const placeName = _formatEventPlaceForSidebar(ev);
   const parts = [];
   if (dateUi) parts.push(dateUi);
   if (placeName) parts.push(placeName);
@@ -80,15 +167,17 @@ function _renderEventsList(events, query) {
   if (!els.eventsList) return;
   const qn = _normKey(query);
   const src = Array.isArray(events) ? events : [];
+  const ordered = _sortEventsForSidebar(src, state.eventsSort || 'type_asc');
   const filtered = qn
-    ? src.filter((ev) => {
+    ? ordered.filter((ev) => {
         const title = _formatEventTitle(ev);
         const sub = _formatEventSubLine(ev);
         const desc = String(ev?.description || '').trim();
-        const id = String(ev?.id || '').trim();
-        return _normKey(`${title} ${sub} ${desc} ${id}`).includes(qn);
+        const apiId = String(ev?.id || '').trim();
+        const gid = _eventGrampsId(ev);
+        return _normKey(`${title} ${sub} ${desc} ${gid} ${apiId}`).includes(qn);
       })
-    : src;
+    : ordered;
 
   els.eventsList.innerHTML = '';
   const frag = document.createDocumentFragment();
@@ -97,47 +186,91 @@ function _renderEventsList(events, query) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'peopleItem eventsItem';
-    const id = String(ev?.id || '').trim();
-    btn.dataset.eventId = id;
-    if (state.eventsSelected && id && state.eventsSelected === id) {
+    const apiId = String(ev?.id || '').trim();
+    const gid = _eventGrampsId(ev);
+    btn.dataset.eventId = apiId;
+    if (state.eventsSelected && apiId && state.eventsSelected === apiId) {
       btn.classList.add('selected');
     }
 
-    const nameEl = document.createElement('div');
-    nameEl.className = 'name';
+    const grid = document.createElement('div');
+    grid.className = 'eventGrid';
 
-    const titleEl = document.createElement('div');
-    titleEl.className = 'eventTitleLine';
-    titleEl.textContent = _formatEventTitle(ev);
-    nameEl.appendChild(titleEl);
+    // Row 1
+    const r1l = document.createElement('div');
+    r1l.className = 'eventType';
+    r1l.textContent = _formatEventTitle(ev);
 
-    const sub = _formatEventSubLine(ev);
-    if (sub) {
-      const subEl = document.createElement('div');
-      subEl.className = 'eventSubLine';
-      subEl.textContent = sub;
-      nameEl.appendChild(subEl);
+    const primary = ev?.primary_person || null;
+    const primaryName = String(primary?.display_name || '').trim();
+    const r1r = document.createElement('div');
+    r1r.className = 'eventPrimary';
+    r1r.textContent = primaryName || '';
+    if (primaryName) r1r.title = primaryName;
+
+    // Row 2
+    const r2l = document.createElement('div');
+    r2l.className = 'eventMetaLeft';
+    r2l.textContent = _formatEventSubLine(ev);
+
+    const r2r = document.createElement('div');
+    r2r.className = 'eventMetaRight';
+    r2r.textContent = gid || apiId;
+
+    // Row 3 (optional)
+    const desc = String(ev?.description || '').trim();
+    const r3 = document.createElement('div');
+    r3.className = 'eventDescLine';
+    r3.textContent = desc;
+    if (desc) r3.title = desc;
+
+    grid.appendChild(r1l);
+    grid.appendChild(r1r);
+    grid.appendChild(r2l);
+    grid.appendChild(r2r);
+    if (desc) {
+      // span 2 columns
+      r3.style.gridColumn = '1 / -1';
+      grid.appendChild(r3);
     }
 
-    const metaEl = document.createElement('span');
-    metaEl.className = 'meta';
-    metaEl.textContent = id;
-
-    btn.appendChild(nameEl);
-    btn.appendChild(metaEl);
+    btn.appendChild(grid);
 
     btn.addEventListener('click', () => {
-      if (!id) return;
-      state.eventsSelected = id;
+      if (!apiId) return;
+      state.eventsSelected = apiId;
       try {
         for (const el of els.eventsList.querySelectorAll('.peopleItem.selected')) el.classList.remove('selected');
         btn.classList.add('selected');
       } catch (_) {}
-      const msg = `Event: id=${id}`;
-      setStatus(msg);
-      copyToClipboard(`event_id=${id}`).then((ok) => {
-        if (ok) setStatus(msg + ' (copied)');
-      });
+
+      const primary = ev?.primary_person || null;
+      const primaryApiId = String(primary?.id || '').trim();
+      const primaryGrampsId = String(primary?.gramps_id || '').trim();
+
+      if (primaryApiId || primaryGrampsId) {
+        const activeTab = _getSidebarActiveTab();
+        selection.selectPerson(
+          { apiId: primaryApiId || null, grampsId: primaryGrampsId || null },
+          { source: 'events-list', scrollPeople: activeTab === 'people', updateInput: true },
+        );
+
+        // Ensure the form input is usable even if gramps_id is missing.
+        try { els.personId.value = primaryGrampsId || primaryApiId; } catch (_) {}
+
+        // Load the neighborhood for the selected primary person.
+        Promise.resolve().then(loadNeighborhood);
+
+        const name = String(primary?.display_name || '').trim();
+        const who = name || primaryGrampsId || primaryApiId;
+        setStatus(`Event: ${gid || apiId} · selected ${who}`);
+      } else {
+        const msg = `Event: ${gid || apiId} (no primary person)`;
+        setStatus(msg);
+        copyToClipboard(`event_id=${apiId}${gid ? `\ngramps_id=${gid}` : ''}`).then((ok) => {
+          if (ok) setStatus(msg + ' (copied)');
+        });
+      }
     });
 
     frag.appendChild(btn);
@@ -2395,20 +2528,6 @@ async function ensureEventsLoaded() {
     const data = await r.json();
     const results = Array.isArray(data?.results) ? data.results : [];
 
-    // Prefer stable ordering like the SQL: date, text date, type, id.
-    results.sort((a, b) => {
-      const da = String(a?.date || '').trim();
-      const db = String(b?.date || '').trim();
-      if (da !== db) return da.localeCompare(db);
-      const dta = String(a?.date_text || '').trim();
-      const dtb = String(b?.date_text || '').trim();
-      if (dta !== dtb) return dta.localeCompare(dtb);
-      const ta = String(a?.type || '').trim();
-      const tb = String(b?.type || '').trim();
-      if (ta !== tb) return ta.localeCompare(tb);
-      return String(a?.id || '').localeCompare(String(b?.id || ''));
-    });
-
     state.events = results;
     state.eventsLoaded = true;
     _renderEventsList(results, els.eventsSearch?.value || '');
@@ -2569,4 +2688,14 @@ if (els.eventsSearch) {
   }
 
   updateClearVisibility();
+}
+
+if (els.eventsSort) {
+  // Ensure DOM reflects default state.
+  try { els.eventsSort.value = String(state.eventsSort || 'type_asc'); } catch (_) {}
+  els.eventsSort.addEventListener('change', () => {
+    state.eventsSort = String(els.eventsSort.value || 'type_asc');
+    if (!state.eventsLoaded || !state.events) return;
+    _renderEventsList(state.events, els.eventsSearch?.value || '');
+  });
 }

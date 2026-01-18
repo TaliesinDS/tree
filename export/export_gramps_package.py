@@ -384,6 +384,7 @@ def export_from_xml(
             if not handle:
                 continue
 
+            gramps_id = elem.get("id")
             ev_type = None
             desc = None
             place_hlink = None
@@ -406,6 +407,7 @@ def export_from_xml(
 
             events[handle] = {
                 "id": handle,
+                "gramps_id": gramps_id,
                 "type": ev_type,
                 "description": desc,
                 "date": ev_date,
