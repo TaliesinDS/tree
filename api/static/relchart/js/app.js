@@ -49,6 +49,14 @@ const state = {
   eventsLoaded: false,
   eventsSelected: null,
   eventsSort: 'type_asc',
+  eventsQuery: '',
+  eventsOffset: 0,
+  eventsHasMore: false,
+  eventsTotal: null,
+  eventsLoading: false,
+  eventsReqSeq: 0,
+  eventsPageSize: 500,
+  eventsServerMode: true,
   nodeById: new Map(),
   detailPanel: {
     open: false,
@@ -165,9 +173,9 @@ function _formatEventSubLine(ev) {
 
 function _renderEventsList(events, query) {
   if (!els.eventsList) return;
-  const qn = _normKey(query);
   const src = Array.isArray(events) ? events : [];
-  const ordered = _sortEventsForSidebar(src, state.eventsSort || 'type_asc');
+  const ordered = state.eventsServerMode ? src : _sortEventsForSidebar(src, state.eventsSort || 'type_asc');
+  const qn = state.eventsServerMode ? '' : _normKey(query);
   const filtered = qn
     ? ordered.filter((ev) => {
         const title = _formatEventTitle(ev);
@@ -278,7 +286,14 @@ function _renderEventsList(events, query) {
 
   els.eventsList.appendChild(frag);
   if (els.eventsStatus) {
-    els.eventsStatus.textContent = `Showing ${filtered.length} of ${src.length}.`;
+    if (state.eventsServerMode) {
+      const loaded = src.length;
+      const total = Number.isFinite(state.eventsTotal) ? state.eventsTotal : null;
+      const more = state.eventsHasMore ? ' (scroll to load more)' : '';
+      els.eventsStatus.textContent = total != null ? `Showing ${loaded} of ${total}.${more}` : `Showing ${loaded}.${more}`;
+    } else {
+      els.eventsStatus.textContent = `Showing ${filtered.length} of ${src.length}.`;
+    }
   }
 }
 
@@ -2521,18 +2536,81 @@ async function ensureEventsLoaded() {
   if (state.eventsLoaded) return;
   if (!els.eventsStatus || !els.eventsList) return;
 
+  const seq = ++state.eventsReqSeq;
+  state.eventsLoading = true;
+  state.eventsOffset = 0;
+  state.eventsHasMore = false;
+  state.eventsTotal = null;
+  state.events = [];
+
   els.eventsStatus.textContent = 'Loading events…';
   try {
-    const r = await fetch('/events?limit=50000&offset=0');
+    const params = new URLSearchParams();
+    params.set('limit', String(state.eventsPageSize || 500));
+    params.set('offset', '0');
+    params.set('sort', String(state.eventsSort || 'type_asc'));
+    const q = String(state.eventsQuery || '').trim();
+    if (q) params.set('q', q);
+
+    const r = await fetch(`/events?${params.toString()}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
-    const results = Array.isArray(data?.results) ? data.results : [];
+    if (seq !== state.eventsReqSeq) return;
 
+    const results = Array.isArray(data?.results) ? data.results : [];
     state.events = results;
     state.eventsLoaded = true;
-    _renderEventsList(results, els.eventsSearch?.value || '');
+    state.eventsHasMore = Boolean(data?.has_more);
+    state.eventsOffset = Number.isFinite(data?.next_offset) ? data.next_offset : results.length;
+    state.eventsTotal = Number.isFinite(data?.total) ? data.total : null;
+
+    _renderEventsList(state.events, '');
   } catch (e) {
+    if (seq !== state.eventsReqSeq) return;
     els.eventsStatus.textContent = `Failed to load events: ${e?.message || e}`;
+  } finally {
+    if (seq === state.eventsReqSeq) state.eventsLoading = false;
+  }
+}
+
+async function _fetchMoreEventsPage() {
+  if (!state.eventsServerMode) return;
+  if (!state.eventsLoaded) return;
+  if (state.eventsLoading) return;
+  if (!state.eventsHasMore) return;
+  if (!els.eventsList) return;
+
+  const seq = ++state.eventsReqSeq;
+  state.eventsLoading = true;
+  try {
+    const params = new URLSearchParams();
+    params.set('limit', String(state.eventsPageSize || 500));
+    params.set('offset', String(state.eventsOffset || 0));
+    params.set('sort', String(state.eventsSort || 'type_asc'));
+    const q = String(state.eventsQuery || '').trim();
+    if (q) params.set('q', q);
+
+    const r = await fetch(`/events?${params.toString()}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    if (seq !== state.eventsReqSeq) return;
+
+    const results = Array.isArray(data?.results) ? data.results : [];
+    const seen = new Set((state.events || []).map((ev) => String(ev?.id || '')));
+    for (const ev of results) {
+      const id = String(ev?.id || '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      state.events.push(ev);
+    }
+
+    state.eventsHasMore = Boolean(data?.has_more);
+    state.eventsOffset = Number.isFinite(data?.next_offset) ? data.next_offset : (state.eventsOffset + results.length);
+    _renderEventsList(state.events, '');
+  } catch (_) {
+    // Ignore; keep existing results.
+  } finally {
+    if (seq === state.eventsReqSeq) state.eventsLoading = false;
   }
 }
 
@@ -2654,14 +2732,24 @@ if (els.eventsSearch) {
     els.eventsSearchClear.style.display = has ? 'inline-flex' : 'none';
   };
 
-  const doRerender = () => {
-    if (!state.eventsLoaded || !state.events) return;
-    _renderEventsList(state.events, els.eventsSearch.value);
+  let _eventsSearchTimer = null;
+  const scheduleReload = () => {
+    if (_eventsSearchTimer) clearTimeout(_eventsSearchTimer);
+    _eventsSearchTimer = setTimeout(() => {
+      state.eventsQuery = String(els.eventsSearch.value || '').trim();
+      if (state.eventsServerMode) {
+        state.eventsLoaded = false;
+        ensureEventsLoaded();
+      } else {
+        if (!state.eventsLoaded || !state.events) return;
+        _renderEventsList(state.events, els.eventsSearch.value);
+      }
+    }, 250);
   };
 
   els.eventsSearch.addEventListener('input', () => {
     updateClearVisibility();
-    doRerender();
+    scheduleReload();
   });
 
   els.eventsSearch.addEventListener('keydown', (e) => {
@@ -2669,7 +2757,7 @@ if (els.eventsSearch) {
       if (!els.eventsSearch.value) return;
       els.eventsSearch.value = '';
       updateClearVisibility();
-      doRerender();
+      scheduleReload();
       try { els.eventsSearch.focus(); } catch (_) {}
       e.preventDefault();
       e.stopPropagation();
@@ -2682,7 +2770,7 @@ if (els.eventsSearch) {
       if (!els.eventsSearch.value) return;
       els.eventsSearch.value = '';
       updateClearVisibility();
-      doRerender();
+      scheduleReload();
       try { els.eventsSearch.focus(); } catch (_) {}
     });
   }
@@ -2695,7 +2783,29 @@ if (els.eventsSort) {
   try { els.eventsSort.value = String(state.eventsSort || 'type_asc'); } catch (_) {}
   els.eventsSort.addEventListener('change', () => {
     state.eventsSort = String(els.eventsSort.value || 'type_asc');
-    if (!state.eventsLoaded || !state.events) return;
-    _renderEventsList(state.events, els.eventsSearch?.value || '');
+    if (state.eventsServerMode) {
+      state.eventsLoaded = false;
+      ensureEventsLoaded();
+    } else {
+      if (!state.eventsLoaded || !state.events) return;
+      _renderEventsList(state.events, els.eventsSearch?.value || '');
+    }
+  });
+}
+
+// Infinite scroll for server-paged events.
+if (els.eventsList) {
+  let _eventsScrollTimer = null;
+  els.eventsList.addEventListener('scroll', () => {
+    if (!state.eventsServerMode) return;
+    if (_eventsScrollTimer) return;
+    _eventsScrollTimer = setTimeout(() => {
+      _eventsScrollTimer = null;
+      const el = els.eventsList;
+      if (!el) return;
+      const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 240;
+      if (!nearBottom) return;
+      _fetchMoreEventsPage();
+    }, 120);
   });
 }

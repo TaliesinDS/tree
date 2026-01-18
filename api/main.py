@@ -624,9 +624,11 @@ def list_families(
 
 @app.get("/events")
 def list_events(
-    limit: int = Query(default=5000, ge=1, le=50_000),
+    limit: int = Query(default=500, ge=1, le=5_000),
     offset: int = Query(default=0, ge=0, le=5_000_000),
     include_total: bool = False,
+    q: Optional[str] = None,
+    sort: str = "type_asc",
 ) -> dict[str, Any]:
     """List events in the database (privacy-safe).
 
@@ -657,54 +659,146 @@ def list_events(
 
         has_event_gramps_id = _has_col("event", "gramps_id")
 
-        total = None
-        if include_total:
-            total = conn.execute("SELECT COUNT(*) FROM event WHERE is_private = FALSE").fetchone()[0]
+        qn = (q or "").strip()
+        q_like = f"%{qn}%" if qn else None
 
         gramps_id_select = "e.gramps_id" if has_event_gramps_id else "NULL"
+
+        sort_key = (sort or "type_asc").strip().lower()
+        id_expr = f"COALESCE({gramps_id_select}, e.id)"
+        base_order_by = {
+            "type_asc": f"e.event_type NULLS LAST, e.event_date NULLS LAST, e.event_date_text NULLS LAST, {id_expr} NULLS LAST, e.id",
+            "type_desc": f"e.event_type DESC NULLS LAST, e.event_date NULLS LAST, e.event_date_text NULLS LAST, {id_expr} NULLS LAST, e.id",
+            "year_asc": f"(e.event_date IS NULL) ASC, e.event_date ASC, e.event_date_text NULLS LAST, e.event_type NULLS LAST, {id_expr} NULLS LAST, e.id",
+            "year_desc": f"(e.event_date IS NULL) ASC, e.event_date DESC, e.event_date_text NULLS LAST, e.event_type NULLS LAST, {id_expr} NULLS LAST, e.id",
+            "id_asc": f"{id_expr} NULLS LAST, e.id",
+            "id_desc": f"{id_expr} DESC NULLS LAST, e.id",
+        }.get(sort_key, f"e.event_type NULLS LAST, e.event_date NULLS LAST, e.event_date_text NULLS LAST, {id_expr} NULLS LAST, e.id")
+
+        total = None
+        if include_total:
+            if q_like:
+                if has_event_gramps_id:
+                    total = conn.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM event e
+                        LEFT JOIN place pl ON pl.id = e.place_id
+                        WHERE e.is_private = FALSE
+                          AND (
+                            e.event_type ILIKE %s
+                            OR e.description ILIKE %s
+                            OR e.event_date_text ILIKE %s
+                            OR e.gramps_id ILIKE %s
+                            OR pl.name ILIKE %s
+                          )
+                        """.strip(),
+                        (q_like, q_like, q_like, q_like, q_like),
+                    ).fetchone()[0]
+                else:
+                    total = conn.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM event e
+                        LEFT JOIN place pl ON pl.id = e.place_id
+                        WHERE e.is_private = FALSE
+                          AND (
+                            e.event_type ILIKE %s
+                            OR e.description ILIKE %s
+                            OR e.event_date_text ILIKE %s
+                            OR pl.name ILIKE %s
+                          )
+                        """.strip(),
+                        (q_like, q_like, q_like, q_like),
+                    ).fetchone()[0]
+            else:
+                total = conn.execute("SELECT COUNT(*) FROM event WHERE is_private = FALSE").fetchone()[0]
+
+        page_limit = int(limit)
+        page_offset = int(offset)
+        page_plus = page_limit + 1
+
+        base_where = "e.is_private = FALSE"
+        params: list[Any] = []
+        if q_like:
+            if has_event_gramps_id:
+                base_where += " AND (e.event_type ILIKE %s OR e.description ILIKE %s OR e.event_date_text ILIKE %s OR e.gramps_id ILIKE %s OR pl.name ILIKE %s)"
+                params.extend([q_like, q_like, q_like, q_like, q_like])
+            else:
+                base_where += " AND (e.event_type ILIKE %s OR e.description ILIKE %s OR e.event_date_text ILIKE %s OR pl.name ILIKE %s)"
+                params.extend([q_like, q_like, q_like, q_like])
+
         rows = conn.execute(
             f"""
+            WITH base AS (
+              SELECT
+                e.id,
+                {gramps_id_select} AS gramps_id,
+                e.event_type,
+                e.description,
+                e.event_date_text,
+                e.event_date,
+                pl.id as place_id,
+                pl.name as place_name,
+                pl.is_private as place_is_private
+              FROM event e
+              LEFT JOIN place pl ON pl.id = e.place_id
+              WHERE {base_where}
+              ORDER BY {base_order_by}
+              LIMIT %s OFFSET %s
+            ),
+            pe AS (
+              SELECT
+                pe.event_id,
+                array_agg(pe.person_id ORDER BY pe.person_id) AS person_ids,
+                array_agg(COALESCE(pe.role, '') ORDER BY pe.person_id) AS person_roles
+              FROM person_event pe
+              WHERE pe.event_id IN (SELECT id FROM base)
+              GROUP BY pe.event_id
+            ),
+            fe AS (
+              SELECT
+                fe.event_id,
+                array_agg(fe.family_id ORDER BY fe.family_id) AS family_ids
+              FROM family_event fe
+              WHERE fe.event_id IN (SELECT id FROM base)
+              GROUP BY fe.event_id
+            ),
+            pf AS (
+              SELECT DISTINCT ON (fe.event_id)
+                fe.event_id,
+                f.father_id AS primary_family_father_id
+              FROM family_event fe
+              JOIN family f ON f.id = fe.family_id
+              WHERE fe.event_id IN (SELECT id FROM base)
+              ORDER BY fe.event_id, f.gramps_id NULLS LAST, f.id
+            )
             SELECT
-              e.id,
-              {gramps_id_select} AS gramps_id,
-              e.event_type,
-              e.description,
-              e.event_date_text,
-              e.event_date,
-              pl.id as place_id,
-              pl.name as place_name,
-              pl.is_private as place_is_private,
-                            (
-                                SELECT array_agg(pe.person_id ORDER BY pe.person_id)
-                                FROM person_event pe
-                                WHERE pe.event_id = e.id
-                            ) as person_ids,
-                            (
-                                SELECT array_agg(COALESCE(pe.role, '') ORDER BY pe.person_id)
-                                FROM person_event pe
-                                WHERE pe.event_id = e.id
-                            ) as person_roles,
-                            (
-                                SELECT array_agg(fe.family_id ORDER BY fe.family_id)
-                                FROM family_event fe
-                                WHERE fe.event_id = e.id
-                            ) as family_ids,
-                            (
-                                SELECT f.father_id
-                                FROM family_event fe
-                                JOIN family f ON f.id = fe.family_id
-                                WHERE fe.event_id = e.id
-                                ORDER BY f.gramps_id NULLS LAST, f.id
-                                LIMIT 1
-                            ) as primary_family_father_id
-            FROM event e
-            LEFT JOIN place pl ON pl.id = e.place_id
-            WHERE e.is_private = FALSE
-            ORDER BY e.event_date NULLS LAST, e.event_date_text NULLS LAST, e.event_type NULLS LAST, e.id
-            LIMIT %s OFFSET %s
+              b.id,
+              b.gramps_id,
+              b.event_type,
+              b.description,
+              b.event_date_text,
+              b.event_date,
+              b.place_id,
+              b.place_name,
+              b.place_is_private,
+              COALESCE(pe.person_ids, ARRAY[]::text[]) AS person_ids,
+              COALESCE(pe.person_roles, ARRAY[]::text[]) AS person_roles,
+              COALESCE(fe.family_ids, ARRAY[]::text[]) AS family_ids,
+              pf.primary_family_father_id
+            FROM base b
+            LEFT JOIN pe ON pe.event_id = b.id
+            LEFT JOIN fe ON fe.event_id = b.id
+            LEFT JOIN pf ON pf.event_id = b.id
+            ORDER BY {base_order_by.replace('e.', 'b.')}
             """.strip(),
-            (limit, offset),
+            [*params, page_plus, page_offset],
         ).fetchall()
+
+        has_more = len(rows) > page_limit
+        if has_more:
+            rows = rows[:page_limit]
 
         # Gather referenced ids for bulk privacy checks.
         person_ids: set[str] = set()
@@ -718,10 +812,9 @@ def list_events(
             for fid in fe_ids:
                 if fid:
                     family_ids.add(str(fid))
-
-            pf = r[12]
-            if pf:
-                person_ids.add(str(pf))
+            pf0 = r[12]
+            if pf0:
+                person_ids.add(str(pf0))
 
         families_by_id: dict[str, dict[str, Any]] = {}
         family_parent_ids: set[str] = set()
@@ -819,18 +912,15 @@ def list_events(
             primary_family_father_id,
         ) = tuple(r)
 
-        # Omit events connected to any private person.
         pe_list = [str(x) for x in (pe_ids or []) if x]
         if any(person_private_by_id.get(pid, False) for pid in pe_list):
             continue
 
-        # Omit events connected to private families or to families with private parents.
         fe_list = [str(x) for x in (fe_ids or []) if x]
         family_ok = True
         for fid in fe_list:
             fam = families_by_id.get(fid)
             if not fam:
-                # Conservative: if we can't resolve the family, hide.
                 family_ok = False
                 break
             if bool(fam.get("is_private")):
@@ -844,23 +934,22 @@ def list_events(
         if not family_ok:
             continue
 
-        # Determine primary person for selection in UI.
         primary_pid: str | None = None
         if primary_family_father_id:
             primary_pid = str(primary_family_father_id)
         else:
-            roles = [str(x or '').strip() for x in (pe_roles or [])]
+            roles = [str(x or "").strip() for x in (pe_roles or [])]
             pairs = list(zip(pe_list, roles))
-            # Heuristic priority; prefer husband-ish roles for multi-person events.
+
             def _role_rank(role_raw: str) -> int:
-                r0 = (role_raw or '').strip().lower()
+                r0 = (role_raw or "").strip().lower()
                 if not r0:
                     return 50
-                if 'husband' in r0:
+                if "husband" in r0:
                     return 0
-                if 'father' in r0:
+                if "father" in r0:
                     return 1
-                if 'primary' in r0 or 'principal' in r0 or 'main' in r0:
+                if "primary" in r0 or "principal" in r0 or "main" in r0:
                     return 2
                 return 10
 
@@ -889,14 +978,17 @@ def list_events(
             }
         )
 
+    next_offset = (page_offset + page_limit) if has_more else None
     out: dict[str, Any] = {
         "offset": offset,
         "limit": limit,
         "results": results,
+        "has_more": bool(has_more),
+        "next_offset": next_offset,
     }
     if include_total:
         out["total"] = int(total or 0)
-    return _compact_json(out) or {"results": results}
+    return _compact_json(out) or out
 
 
 def _resolve_person_id(person_ref: str) -> str:
