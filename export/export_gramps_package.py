@@ -358,22 +358,33 @@ def export_from_xml(
             handle = elem.get("handle")
             if not handle:
                 continue
+            gramps_id = elem.get("id")
             title = None
             lat = None
             lon = None
+            place_type = None
+            enclosed_by_hlink = None
 
             # Common patterns: <ptitle value="..."/>, <pname value="..."/>, <coord long=".." lat=".."/>
             for ch in elem:
                 ctag = _strip_ns(ch.tag)
                 if ctag in {"ptitle", "pname"}:
                     title = ch.get("value") or title
+                elif ctag in {"ptype", "type"}:
+                    place_type = (ch.get("value") or (ch.text or "")).strip() or place_type
+                elif ctag == "placeref" and ch.get("hlink"):
+                    # In Gramps XML, placeref points at an enclosing place.
+                    enclosed_by_hlink = enclosed_by_hlink or ch.get("hlink")
                 elif ctag in {"coord", "coordinates"}:
                     lat = ch.get("lat") or lat
                     lon = ch.get("long") or ch.get("lon") or lon
 
             places[handle] = {
                 "id": handle,
+                "gramps_id": gramps_id,
                 "name": title,
+                "type": place_type,
+                "enclosed_by": enclosed_by_hlink,
                 "lat": float(lat) if lat and lat.strip() else None,
                 "lon": float(lon) if lon and lon.strip() else None,
                 "is_private": _truthy_int(elem.get("priv")) or _truthy_int(elem.get("private")),

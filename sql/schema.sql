@@ -38,14 +38,24 @@ CREATE TABLE IF NOT EXISTS person_parent (
 -- Places
 CREATE TABLE IF NOT EXISTS place (
   id TEXT PRIMARY KEY,
+  gramps_id TEXT NULL,
   name TEXT NULL,
+  place_type TEXT NULL,
+  enclosed_by_id TEXT NULL REFERENCES place(id),
   lat DOUBLE PRECISION NULL,
   lon DOUBLE PRECISION NULL,
   geom GEOGRAPHY(Point, 4326) NULL,
   is_private BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+-- Migrations for existing DBs
+ALTER TABLE place ADD COLUMN IF NOT EXISTS gramps_id TEXT NULL;
+ALTER TABLE place ADD COLUMN IF NOT EXISTS place_type TEXT NULL;
+ALTER TABLE place ADD COLUMN IF NOT EXISTS enclosed_by_id TEXT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_place_geom ON place USING GIST (geom);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_place_gramps_id ON place(gramps_id);
+CREATE INDEX IF NOT EXISTS idx_place_enclosed_by ON place(enclosed_by_id);
 
 -- Events (birth, death, marriage, occupation, etc.)
 CREATE TABLE IF NOT EXISTS event (

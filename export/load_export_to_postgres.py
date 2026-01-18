@@ -94,14 +94,17 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
         with conn.cursor() as cur:
             cur.executemany(
                 """
-                INSERT INTO place (id, name, lat, lon, geom, is_private)
-                VALUES (%s, %s, %s, %s,
+                INSERT INTO place (id, gramps_id, name, place_type, enclosed_by_id, lat, lon, geom, is_private)
+                VALUES (%s, %s, %s, %s, %s, %s, %s,
                         CASE WHEN %s::double precision IS NOT NULL AND %s::double precision IS NOT NULL
                             THEN ST_SetSRID(ST_MakePoint(%s::double precision, %s::double precision), 4326)::geography
                              ELSE NULL END,
                         %s)
                 ON CONFLICT (id) DO UPDATE SET
+                  gramps_id = EXCLUDED.gramps_id,
                   name = EXCLUDED.name,
+                  place_type = EXCLUDED.place_type,
+                  enclosed_by_id = EXCLUDED.enclosed_by_id,
                   lat = EXCLUDED.lat,
                   lon = EXCLUDED.lon,
                   geom = EXCLUDED.geom,
@@ -110,7 +113,10 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
                 [
                     (
                         r.get("id"),
+                        r.get("gramps_id"),
                         r.get("name"),
+                        r.get("type") or r.get("place_type"),
+                        r.get("enclosed_by") or r.get("enclosed_by_id"),
                         r.get("lat"),
                         r.get("lon"),
                         r.get("lat"),

@@ -106,7 +106,19 @@
 
         <div class="tabpanel" data-panel="map" role="tabpanel">
           <h2>Map</h2>
-          <div class="muted">Coming next: map markers from event locations.</div>
+          <div class="peopleTools">
+            <label>
+              Search
+              <div class="inputWithClear">
+                <input id="placesSearch" placeholder="Type a place name or P0001…" />
+                <button id="placesSearchClear" class="inputClearBtn" type="button" aria-label="Clear places search" title="Clear">
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+            </label>
+            <div id="placesStatus" class="muted">Open this tab to load places.</div>
+          </div>
+          <div id="placesList" class="peopleList placesList" aria-label="Places list"></div>
         </div>
       </div>
     </aside>
@@ -196,6 +208,14 @@
       const themeToggleEl = document.getElementById('themeToggle');
 
       function setActiveTab(tabName) {
+        // Delegate to app.js when available (it also triggers lazy-loading).
+        try {
+          if (typeof window.relchartSetSidebarActiveTab === 'function') {
+            window.relchartSetSidebarActiveTab(tabName);
+            return;
+          }
+        } catch (_) {}
+
         for (const b of tabButtons) {
           const active = b.dataset.tab === tabName;
           b.classList.toggle('active', active);

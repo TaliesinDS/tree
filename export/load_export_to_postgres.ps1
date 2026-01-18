@@ -8,7 +8,7 @@ param(
   [switch]$Truncate
 )
 
-$repoRoot = Split-Path -Parent $PSScriptRoot | Split-Path -Parent
+$repoRoot = Split-Path -Parent $PSScriptRoot
 $venvPy = Join-Path $repoRoot ".venv\Scripts\python.exe"
 $python = if (Test-Path $venvPy) { $venvPy } else { "python" }
 

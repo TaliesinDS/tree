@@ -28,6 +28,10 @@ const els = {
   eventsStatus: $('eventsStatus'),
   eventsList: $('eventsList'),
   eventsSort: $('eventsSort'),
+  placesSearch: $('placesSearch'),
+  placesSearchClear: $('placesSearchClear'),
+  placesStatus: $('placesStatus'),
+  placesList: $('placesList'),
   optPeopleWidePx: $('optPeopleWidePx'),
   optionsMenu: $('optionsMenu'),
   personDetailPanel: $('personDetailPanel'),
@@ -57,6 +61,10 @@ const state = {
   eventsReqSeq: 0,
   eventsPageSize: 500,
   eventsServerMode: true,
+  places: null,
+  placesLoaded: false,
+  placesSelected: null,
+  placesQuery: '',
   nodeById: new Map(),
   detailPanel: {
     open: false,
@@ -1475,13 +1483,325 @@ function _setSidebarActiveTab(tabName) {
         // Nothing else to sync yet.
       });
     }
+
+    if (name === 'map') {
+      Promise.resolve(ensurePlacesLoaded()).then(() => {
+        // Nothing else to sync yet.
+      });
+    }
   } catch (_) {}
 }
+
+// Allow the HTML shell to delegate tab switching to app.js so lazy-loading
+// (people/families/events/places) actually triggers.
+try {
+  window.relchartSetSidebarActiveTab = _setSidebarActiveTab;
+  window.relchartGetSidebarActiveTab = _getSidebarActiveTab;
+} catch (_) {}
 
 function _getSidebarActiveTab() {
   const b = document.querySelector('.tabbtn.active[data-tab]');
   const t = String(b?.dataset?.tab || '').trim();
   return t || null;
+}
+
+function _normPlaceType(raw) {
+  const s = String(raw || '').trim();
+  return s;
+}
+
+function _placeLabel(p) {
+  return String(p?.name || '').trim() || '(unnamed place)';
+}
+
+function _placeMeta(p) {
+  const t = _normPlaceType(p?.type);
+  const gid = String(p?.gramps_id || '').trim();
+  const parts = [];
+  if (t) parts.push(t);
+  if (gid) parts.push(gid);
+  return parts.join(', ');
+}
+
+function _isCountryPlace(p) {
+  const t = _normPlaceType(p?.type).toLowerCase();
+  if (!t) return false;
+  return t === 'country' || t === 'land' || t === 'nation';
+}
+
+function _isLikelyCountryName(name) {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return false;
+  // Small pragmatic list: keep other countries top-level even if place_type is missing.
+  // (Common in exports where only name + coordinates were filled.)
+  const known = new Set([
+    'netherlands',
+    'nederland',
+    'belgium',
+    'belgië',
+    'belgie',
+    'germany',
+    'duitsland',
+    'france',
+    'frankrijk',
+    'england',
+    'united kingdom',
+    'uk',
+    'scotland',
+    'ireland',
+    'united states',
+    'usa',
+    'indonesia',
+    'nederlands-indie',
+    'nederlands-indië',
+  ]);
+  return known.has(n);
+}
+
+function _isCountryPlaceRobust(p) {
+  if (_isCountryPlace(p)) return true;
+  const parent = String(p?.enclosed_by_id || '').trim();
+  if (parent) return false;
+  return _isLikelyCountryName(p?.name);
+}
+
+function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
+  const { depth, queryNorm, matchedIds, onSelect } = opts;
+  const children = childrenByParent.get(node.id) || [];
+  const hasChildren = children.length > 0;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'peopleItem placesItem';
+  btn.dataset.placeId = String(node.id || '');
+  if (state.placesSelected && String(state.placesSelected) === String(node.id)) btn.classList.add('selected');
+
+  const grid = document.createElement('div');
+  grid.className = 'placeGrid';
+
+  const left = document.createElement('div');
+  left.className = 'placeName';
+  left.textContent = _placeLabel(node);
+  left.title = left.textContent;
+  if (depth > 0) left.classList.add('placesIndent');
+
+  const right = document.createElement('div');
+  right.className = 'placeMetaRight';
+  right.textContent = _placeMeta(node);
+
+  grid.appendChild(left);
+  grid.appendChild(right);
+  btn.appendChild(grid);
+
+  const enclosure = Array.isArray(node?.enclosure) ? node.enclosure : [];
+  if (enclosure.length) {
+    const line = document.createElement('div');
+    line.className = 'placeEnclosureLine';
+    // Show nearest parent first, then farther.
+    const names = enclosure
+      .map((e) => String(e?.name || '').trim())
+      .filter((s) => s);
+    line.textContent = names.join(' · ');
+    btn.appendChild(line);
+  }
+
+  btn.addEventListener('click', () => {
+    const pid = String(node.id || '').trim();
+    if (!pid) return;
+    state.placesSelected = pid;
+    try {
+      if (els.placesList) {
+        for (const el of els.placesList.querySelectorAll('.peopleItem.selected')) el.classList.remove('selected');
+      }
+      btn.classList.add('selected');
+    } catch (_) {}
+    try { setStatus(`Place: ${_placeMeta(node) || pid} · ${_placeLabel(node)}`); } catch (_) {}
+    try { onSelect && onSelect(node); } catch (_) {}
+  });
+
+  if (!hasChildren) return btn;
+
+  const details = document.createElement('details');
+  details.className = 'placesGroup';
+
+  const summary = document.createElement('summary');
+  summary.appendChild(btn);
+
+  // Default open when searching and the subtree contains a match.
+  if (queryNorm) {
+    const open = matchedIds.has(String(node.id)) || children.some((c) => matchedIds.has(String(c.id)));
+    if (open) details.open = true;
+  }
+
+  const childrenWrap = document.createElement('div');
+  childrenWrap.className = 'placesChildren';
+  for (const ch of children) {
+    childrenWrap.appendChild(
+      _renderPlacesTreeNode(byId.get(ch.id) || ch, byId, childrenByParent, {
+        depth: depth + 1,
+        queryNorm,
+        matchedIds,
+        onSelect,
+      })
+    );
+  }
+
+  details.appendChild(summary);
+  details.appendChild(childrenWrap);
+  return details;
+}
+
+function _computePlaceMatches(roots, byId, childrenByParent, queryNorm) {
+  const matched = new Set();
+  if (!queryNorm) return matched;
+
+  const selfMatches = (p) => {
+    const name = _placeLabel(p);
+    const gid = String(p?.gramps_id || '').trim();
+    const t = _normPlaceType(p?.type);
+    return _normKey(`${name} ${gid} ${t}`).includes(queryNorm);
+  };
+
+  const walk = (nodeId) => {
+    const node = byId.get(nodeId);
+    if (!node) return false;
+    let any = selfMatches(node);
+    const kids = childrenByParent.get(nodeId) || [];
+    for (const k of kids) {
+      if (walk(k.id)) any = true;
+    }
+    if (any) matched.add(String(nodeId));
+    return any;
+  };
+
+  for (const r of roots) walk(r.id);
+  return matched;
+}
+
+function _renderPlacesList(allPlaces) {
+  if (!els.placesList || !els.placesStatus) return;
+
+  const places = Array.isArray(allPlaces) ? allPlaces : [];
+  const byId = new Map(places.map((p) => [String(p.id), p]));
+
+  // Build child map.
+  const childrenByParent = new Map();
+  const roots = [];
+  for (const p of places) {
+    const pid = String(p?.id || '').trim();
+    if (!pid) continue;
+    const parent = String(p?.enclosed_by_id || '').trim();
+    if (parent && byId.has(parent)) {
+      if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+      childrenByParent.get(parent).push({ id: pid });
+    } else {
+      roots.push({ id: pid });
+    }
+  }
+
+  // Stable ordering by Gramps P#### where available.
+  const sortKey = (p) => {
+    const gid = String(p?.gramps_id || '').trim();
+    if (gid) return gid;
+    const name = _placeLabel(p);
+    return `ZZZ_${name}`;
+  };
+  const sortChildren = (parentId) => {
+    const kids = childrenByParent.get(parentId) || [];
+    kids.sort((a, b) => sortKey(byId.get(a.id)).localeCompare(sortKey(byId.get(b.id))));
+    for (const k of kids) sortChildren(k.id);
+  };
+
+  // Netherlands normalization: create/choose a top-level Netherlands country node
+  // and move any non-country roots under it (preserving their order).
+  const rootsResolved = roots.map((r) => byId.get(r.id)).filter(Boolean);
+  const rootCountries = rootsResolved.filter(_isCountryPlaceRobust);
+  const rootNonCountries = rootsResolved.filter((p) => !_isCountryPlaceRobust(p));
+
+  const nl = rootCountries.find((p) => {
+    const n = _placeLabel(p).toLowerCase();
+    return n === 'netherlands' || n === 'nederland';
+  });
+  const nlId = nl ? String(nl.id) : '__nl__';
+  if (!nl) {
+    byId.set(nlId, { id: nlId, gramps_id: null, name: 'Netherlands', type: 'Country', enclosed_by_id: null });
+    rootCountries.unshift(byId.get(nlId));
+  }
+
+  if (rootNonCountries.length) {
+    if (!childrenByParent.has(nlId)) childrenByParent.set(nlId, []);
+    const list = childrenByParent.get(nlId);
+    // Preserve original order among non-country roots by current root ordering.
+    for (const p of rootNonCountries) {
+      list.push({ id: String(p.id) });
+    }
+    // Remove those from roots.
+  }
+
+  const finalRoots = [];
+  for (const c of rootCountries) finalRoots.push({ id: String(c.id) });
+
+  // Sort roots by gid/name, but keep Netherlands first if present.
+  finalRoots.sort((a, b) => {
+    if (String(a.id) === nlId) return -1;
+    if (String(b.id) === nlId) return 1;
+    return sortKey(byId.get(a.id)).localeCompare(sortKey(byId.get(b.id)));
+  });
+
+  for (const r of finalRoots) sortChildren(r.id);
+
+  const q = String(state.placesQuery || '').trim();
+  const queryNorm = q ? _normKey(q) : '';
+  const matchedIds = _computePlaceMatches(finalRoots, byId, childrenByParent, queryNorm);
+
+  els.placesList.innerHTML = '';
+  const frag = document.createDocumentFragment();
+
+  // Basic "select on map" hook (map itself can come later).
+  const onSelect = (node) => {
+    try {
+      window.dispatchEvent(new CustomEvent('relchart:place-selected', { detail: node }));
+    } catch (_) {}
+    // Future: center/zoom map to node.lat/node.lon.
+  };
+
+  for (const r of finalRoots) {
+    const node = byId.get(r.id);
+    if (!node) continue;
+    // When searching, hide unrelated trees.
+    if (queryNorm && !matchedIds.has(String(node.id))) continue;
+    frag.appendChild(
+      _renderPlacesTreeNode(node, byId, childrenByParent, {
+        depth: 0,
+        queryNorm,
+        matchedIds,
+        onSelect,
+      })
+    );
+  }
+
+  els.placesList.appendChild(frag);
+  const total = places.length;
+  const shown = els.placesList.querySelectorAll('.peopleItem.placesItem').length;
+  els.placesStatus.textContent = queryNorm ? `Showing ${shown} of ${total}.` : `Showing ${total}.`;
+}
+
+async function ensurePlacesLoaded() {
+  if (state.placesLoaded) return;
+  if (!els.placesStatus || !els.placesList) return;
+
+  els.placesStatus.textContent = 'Loading places…';
+  try {
+    const r = await fetch('/places?limit=50000&offset=0');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const results = Array.isArray(data?.results) ? data.results : [];
+    state.places = results;
+    state.placesLoaded = true;
+    _renderPlacesList(results);
+  } catch (e) {
+    els.placesStatus.textContent = `Failed to load places: ${e?.message || e}`;
+  }
 }
 
 function _selectParentFamilyForPersonInSidebar(personApiId) {
@@ -2791,6 +3111,54 @@ if (els.eventsSort) {
       _renderEventsList(state.events, els.eventsSearch?.value || '');
     }
   });
+}
+
+if (els.placesSearch) {
+  const updateClearVisibility = () => {
+    if (!els.placesSearchClear) return;
+    const has = String(els.placesSearch.value || '').length > 0;
+    els.placesSearchClear.style.display = has ? 'inline-flex' : 'none';
+  };
+
+  let _placesSearchTimer = null;
+  const scheduleRerender = () => {
+    if (_placesSearchTimer) clearTimeout(_placesSearchTimer);
+    _placesSearchTimer = setTimeout(() => {
+      state.placesQuery = String(els.placesSearch.value || '').trim();
+      if (!state.placesLoaded || !state.places) return;
+      _renderPlacesList(state.places);
+    }, 120);
+  };
+
+  els.placesSearch.addEventListener('input', () => {
+    updateClearVisibility();
+    scheduleRerender();
+  });
+
+  els.placesSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (!els.placesSearch.value) return;
+      els.placesSearch.value = '';
+      updateClearVisibility();
+      scheduleRerender();
+      try { els.placesSearch.focus(); } catch (_) {}
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+
+  if (els.placesSearchClear) {
+    els.placesSearchClear.addEventListener('click', () => {
+      if (!els.placesSearch) return;
+      if (!els.placesSearch.value) return;
+      els.placesSearch.value = '';
+      updateClearVisibility();
+      scheduleRerender();
+      try { els.placesSearch.focus(); } catch (_) {}
+    });
+  }
+
+  updateClearVisibility();
 }
 
 // Infinite scroll for server-paged events.
