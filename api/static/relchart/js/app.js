@@ -106,7 +106,7 @@ function _renderPersonDetailPanelSkeleton() {
       <div class="personDetailTitle">
         <div class="personDetailAvatar" data-person-avatar="1"></div>
         <div class="personDetailTitleText">
-          <div class="personDetailName" data-person-name="1">Person</div>
+          <div class="personDetailName" data-person-name="1">Person <span class="personDetailGender" data-person-gender="1" aria-hidden="true"></span></div>
           <div class="personDetailMeta" data-person-meta="1"></div>
         </div>
       </div>
@@ -199,7 +199,12 @@ function _setPanelHeader({ name, meta, portraitUrl } = {}) {
   const nameEl = host.querySelector('[data-person-name="1"]');
   const metaEl = host.querySelector('[data-person-meta="1"]');
   const avEl = host.querySelector('[data-person-avatar="1"]');
-  if (nameEl) nameEl.textContent = String(name || 'Person');
+  // Name element contains an embedded gender span.
+  if (nameEl) {
+    const gEl = nameEl.querySelector('[data-person-gender="1"]');
+    nameEl.textContent = String(name || 'Person') + ' ';
+    if (gEl) nameEl.appendChild(gEl);
+  }
   if (metaEl) metaEl.textContent = String(meta || '');
 
   if (avEl) {
@@ -215,6 +220,15 @@ function _setPanelHeader({ name, meta, portraitUrl } = {}) {
       avEl.appendChild(img);
     }
   }
+}
+
+function _genderIcon(genderRaw) {
+  const g = String(genderRaw || '').trim().toUpperCase();
+  if (g === 'M') return { text: '♂', title: 'Male' };
+  if (g === 'F') return { text: '♀', title: 'Female' };
+  if (!g || g === 'U' || g === '?') return { text: '', title: '' };
+  // Any other value (custom/unknown): show a neutral marker.
+  return { text: '•', title: 'Gender' };
 }
 
 function _renderKv(rows) {
@@ -276,18 +290,11 @@ function _renderPersonDetailPanelBody() {
   if (tab === 'details') {
     const p = data.person || {};
     const events = Array.isArray(data.events) ? data.events : [];
-    const rows = [];
-    if (p.gender) rows.push(['Gender', p.gender]);
-    if (p.birth) rows.push(['Birth', p.birth]);
-    if (p.death) rows.push(['Death', p.death]);
-    const kv = _renderKv(rows);
-
     const evHtml = events.length
       ? `<div class="personDetailSectionTitle">Events</div><div class="eventList">${events.map(_renderEvent).join('')}</div>`
       : '';
 
     body.innerHTML = `
-      ${kv ? `<div class="personDetailSectionTitle">Primary</div>${kv}` : ''}
       ${evHtml || '<div class="muted">No events available.</div>'}
     `;
     return;
@@ -344,9 +351,19 @@ async function loadPersonDetailsIntoPanel(personApiId) {
     const name = String(p.display_name || 'Person');
     const metaParts = [];
     if (p.gramps_id) metaParts.push(String(p.gramps_id));
-    if (p.birth) metaParts.push(String(p.birth));
-    if (p.death) metaParts.push(String(p.death));
     _setPanelHeader({ name, meta: metaParts.join(' · '), portraitUrl: p.portrait_url });
+
+    // Gender icon in title bar
+    try {
+      const host = els.personDetailPanel;
+      const gEl = host?.querySelector('[data-person-gender="1"]');
+      const icon = _genderIcon(p.gender);
+      if (gEl) {
+        gEl.textContent = icon.text;
+        if (icon.title) gEl.setAttribute('title', icon.title);
+        else gEl.removeAttribute('title');
+      }
+    } catch (_) {}
     _renderPersonDetailPanelBody();
   } catch (e) {
     if (state.detailPanel.lastReqSeq !== seq) return;

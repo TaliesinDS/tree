@@ -93,6 +93,13 @@ html[data-theme="light"] .personDetailAvatar {
   text-overflow: ellipsis;
 }
 
+.personDetailGender {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
 .personDetailMeta {
   font-size: 12px;
   color: var(--muted);
