@@ -680,7 +680,7 @@ function _setPanelHeader({ name, meta, portraitUrl, gender } = {}) {
     state.detailPanel.peek.url = url;
     state.detailPanel.peek.name = String(name || '').trim();
     if (!state.detailPanel.open) {
-      try { _updateDetailPeekTab(); } catch (_) {}
+      try { _setDetailPeekVisible(true); } catch (_) {}
     }
     if (url) {
       const img = document.createElement('img');
@@ -1057,11 +1057,12 @@ function _renderPersonDetailPanelBody() {
   body.innerHTML = '<div class="muted">More tabs coming soon.</div>';
 }
 
-async function loadPersonDetailsIntoPanel(personApiId) {
+async function loadPersonDetailsIntoPanel(personApiId, { openPanel = false } = {}) {
   const pid = String(personApiId || '').trim();
   if (!pid) return;
 
-  showPersonDetailPanel();
+  // Never auto-open the panel; only open if explicitly requested.
+  if (openPanel) showPersonDetailPanel();
 
   const seq = (state.detailPanel.lastReqSeq || 0) + 1;
   state.detailPanel.lastReqSeq = seq;
@@ -1315,9 +1316,15 @@ selection.subscribe((next) => {
   // Prefer grampsId when present: it's what the user typed/selected.
   const ref = String(next?.grampsId || next?.apiId || next?.key || '').trim();
   if (!ref) return;
+
+  // If the panel is closed, keep the peek tab visible and updated.
+  if (!state.detailPanel.open) {
+    try { _setDetailPeekVisible(true); } catch (_) {}
+  }
+
   // Avoid redundant fetches.
   if (state.detailPanel.lastPersonId && state.detailPanel.lastPersonId === ref && state.detailPanel.open) return;
-  try { loadPersonDetailsIntoPanel(ref); } catch (_) {}
+  try { loadPersonDetailsIntoPanel(ref, { openPanel: state.detailPanel.open }); } catch (_) {}
 });
 
 function _normalizeGraphvizTitleToId(title) {
@@ -1776,8 +1783,8 @@ async function rerender() {
         _applyGraphPersonSelection(svg, pid);
       } catch (_) {}
 
-      // Detail panel should open on single-click selection.
-      try { loadPersonDetailsIntoPanel(pid); } catch (_) {}
+      // Update detail data (and peek tab) without forcing the panel open.
+      try { loadPersonDetailsIntoPanel(pid, { openPanel: state.detailPanel.open }); } catch (_) {}
 
       const node = state.nodeById.get(String(pid)) || null;
       // Graph click should behave like a global selection: switch to People and center-scroll.
