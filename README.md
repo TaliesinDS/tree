@@ -1,14 +1,14 @@
-# Genealogy app (backend-first)
+# Tree (Gramps genealogy viewer)
 
 Quick resume doc (for future you / new chats): see HANDOFF.md.
 
-This repo is a **backend-first genealogy web app scaffold** with a working local API + demo UI.
+This repo is a **view-only genealogy browser** that visualizes data exported from Gramps Desktop.
 
-Goals (what you asked for)
+Goals
 - Pick any **two people** → show the **ancestry/relationship path** between them.
 - **Search inside notes**, and sort/filter by event description/content.
 - Use **place/location** data and show it on a **map**.
-- Enforce privacy: public site, but **living people auto-private**.
+- Enforce privacy: public site, but **living/private people are redacted server-side**.
 
 Why this isn’t GitHub Pages-only
 - GitHub Pages is static hosting. The feature list implies **querying** (graph traversal, full-text search, map queries), which requires a **backend + database**.
@@ -25,9 +25,10 @@ Next steps
 1) Decide where the **source-of-truth** lives:
    - keep Gramps as authoring tool and **export/sync** into Postgres (recommended)
    - or move entirely to a web-native DB (bigger change)
-2) Agree on the privacy rule:
-   - “living = no death date AND birth within N years” (common), plus manual override
-3) Build import pipeline from Gramps (SQLite) → Postgres
+2) Agree on the privacy rule (current implementation is documented in PRIVACY.md)
+3) Run the existing pipeline from Gramps package export → Postgres:
+   - export `.gramps`/`.gpkg` to JSONL (see `export/export_gramps_package.ps1`)
+   - load JSONL into Postgres (see `export/load_export_to_postgres.ps1`)
 
 Files
 - `api/`: FastAPI app + graph endpoints + demo UI
@@ -36,6 +37,7 @@ Files
 Demo UI
 - **Primary UI (going forward):** `/demo/relationship` — **relchart v3** (Graphviz WASM + modular JS/CSS).
    - This is the Gramps-Web-like relationship chart: couples + family hubs + children, with expand-in-place.
+   - Includes a People index (surname-grouped), a Families view, and a person detail panel.
    - Clicking a person card or family hub updates the status bar with both API id + Gramps id and copies them to clipboard.
    - Clicking a family hub is selection-only (it does not expand or recenter).
 - Legacy/reference demos:
@@ -56,4 +58,5 @@ Interactive “carve-a-path” expansion
 
 Export tooling
 - `export/inspect_gramps_sqlite.py`: schema discovery for your Gramps SQLite
-- `export/export_gramps_sqlite.py`: (next) export + redaction pipeline
+- `export/export_gramps_package.py`: export `.gramps`/`.gpkg` → JSONL (privacy-aware)
+- `export/load_export_to_postgres.py`: load JSONL → Postgres

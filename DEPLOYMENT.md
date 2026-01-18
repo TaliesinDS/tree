@@ -28,5 +28,7 @@ This avoids trying to “merge” two hosting providers on the same path.
 ## Next implementation steps
 1) Create Cloud SQL + run `sql/schema.sql`.
 2) Wire DB access in the API.
-3) Build a **Gramps → Postgres** importer (one-way sync).
-4) Add a minimal frontend UI (pick person A + B → show path; search notes; map view).
+3) Run the existing **Gramps package export → JSONL → Postgres** pipeline (one-way sync).
+4) Continue evolving the existing relchart v3 frontend (`/demo/relationship`) into the long-term UI:
+  - add “pick A / pick B” relationship highlight
+  - add global Events/Places/Map views

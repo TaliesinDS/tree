@@ -45,7 +45,7 @@ Required:
 - **Renderer:** SVG is fine for default mode; Strategic may need LOD.
 
 Current implementation note (demo):
-- The `/demo/viewer` prototype uses viewBox-based pan/zoom (pointer-drag + wheel zoom).
+- The maintained `/demo/relationship` (relchart v3) uses viewBox-based pan/zoom (pointer-drag + wheel zoom).
 - Because the SVG uses `preserveAspectRatio="xMinYMin meet"`, pan math must account for letterboxing so vertical dragging stays 1:1.
 
 Not required:
@@ -55,7 +55,7 @@ Not required:
 
 Required:
 - **Frontend:** click handlers on nodes.
-- **Backend:** `GET /person/<id>` (minimal payload for fast UI updates).
+- **Backend:** `GET /people/{id}` (minimal payload for fast UI updates).
 
 Optional:
 - Preload minimal person payload within the graph nodes to avoid a roundtrip.
@@ -64,7 +64,7 @@ Optional:
 
 Required:
 - **Frontend:** dblclick handler.
-- **Backend:** `GET /person/<id>/details` (richer payload: events, notes, sources).
+- **Backend:** `GET /people/{id}/details` (richer payload: events, notes, sources).
 
 ### 3.4 Pin(s) + relationship highlighting
 
@@ -83,7 +83,8 @@ Two related UX flows:
 
 Required:
 - **Backend pathfinding:**
-  - for single-pin “route”: `GET /graph/path?from=<id>&to=<id>&mode=blood|any`
+  - current prototype: `GET /relationship/path?from_id=<id>&to_id=<id>&max_hops=12`
+  - future (if we need modes/results): `GET /graph/path?from=<id>&to=<id>&mode=blood|any`
   - for two-pin queries: `GET /graph/relationship?a=<id>&b=<id>&query=route|shared_ancestor|shared_descendant&mode=blood|any&max_results=10&max_depth=20`
 - **Frontend:** maintain `pinnedA`, `pinnedB`, `selected`, and `relationshipQuery` state; render highlight overlay for returned nodes/edges.
 
@@ -129,7 +130,7 @@ Behavior:
 
 Required:
 - **Backend (proposed):** `POST /graph/expand` returning **only new nodes/edges**.
-- **Backend (current prototype):** targeted expand endpoints used by `/demo/viewer`:
+- **Backend (current prototype):** targeted expand endpoints used by `/demo/relationship`:
   - `GET /graph/family/parents?family_id=<family>&child_id=<child>` (expand up)
   - `GET /graph/family/children?family_id=<family>&include_spouses=true` (expand down)
 - **Frontend:** merge incremental nodes/edges into the current dataset.
@@ -322,13 +323,15 @@ Known tradeoffs vs Graphviz DOT:
   - body: `{ seed_person_ids, seed_family_ids, already_have_person_ids, max_people_delta }`
   - returns: incremental nodes/edges only
 
-Concrete expand endpoints (implemented in the API and used by `/demo/viewer`):
+Concrete expand endpoints (implemented in the API and used by `/demo/relationship`):
 - `GET /graph/family/parents?family_id=<family>&child_id=<child>`
 - `GET /graph/family/children?family_id=<family>&include_spouses=true`
 
-- `GET /graph/path`
+- `GET /graph/path` (proposed)
   - query: `from`, `to`, `mode=blood|any`
   - returns: ordered `node_ids` and/or explicit edges for highlight
+
+Note: current pathfinding prototype endpoint is `GET /relationship/path?from_id=...&to_id=...&max_hops=...`.
 
 - `GET /graph/relationship`
   - query: `a`, `b`, `query=route|shared_ancestor|shared_descendant`, `mode=blood|any`, optional bounds like `max_results`, `max_depth`
@@ -374,10 +377,10 @@ Sync pipeline (CLI or internal admin endpoint; view-only app can keep it manual)
 
 ### 6.6 Person endpoints
 
-- `GET /person/<id>`
+- `GET /people/{id}`
   - minimal payload used for hover/selection UI
 
-- `GET /person/<id>/details`
+- `GET /people/{id}/details`
   - richer payload used by modal
 
 ## 7) What requires Canvas/WebGL?

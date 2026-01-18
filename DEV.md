@@ -2,6 +2,8 @@
 
 This repo is designed to run locally on Windows (PowerShell), backed by Postgres + PostGIS.
 
+Tip: there are VS Code tasks for common actions (Docker up, run API on 8080, restart API detached).
+
 ## Option A (recommended): install Docker Desktop
 - Install Docker Desktop for Windows.
 - Then from repo root run:
@@ -23,17 +25,22 @@ You need:
 Set `DATABASE_URL` like:
 `postgresql://genealogy:genealogy@HOST:5432/genealogy`
 
-## Load an export into Postgres
-This loads the JSONL export produced by the `.gpkg` exporter.
+Note: the included VS Code tasks set `DATABASE_URL` for *your* machine. If you're using Docker (Option A), a common local value is:
+`postgresql://genealogy:genealogy@localhost:5432/genealogy`
 
-Example using your latest good export folder:
+If you run Postgres locally with different credentials (for example `postgres:<password>`), override `DATABASE_URL` accordingly.
+
+## Load an export into Postgres
+This loads the JSONL export produced by the `.gramps`/`.gpkg` exporter.
+
+Example using your latest export folder (usually under `reports/gramps_export_<timestamp>/`):
 
 ```powershell
 Set-Location "C:\Users\akortekaas\Documents\GitHub\tree"
 $env:DATABASE_URL = "postgresql://genealogy:genealogy@localhost:5432/genealogy"
 
 .\export\load_export_to_postgres.ps1 `
-  -ExportDir .\exports\run_20260111_160635 `
+  -ExportDir .\reports\gramps_export_20260117_194704 `
   -DatabaseUrl $env:DATABASE_URL `
   -Truncate
 ```
@@ -83,4 +90,5 @@ Graphviz-specific notes:
 - The relationship chart keeps pan/zoom stable during selection; use Fit/controls to change view.
 
 Privacy:
-- The API will always return `display_name: "Private"` for `is_private` or `is_living` rows.
+- Privacy is enforced server-side; private people are redacted before JSON reaches the browser.
+- See PRIVACY.md for the current policy/thresholds.

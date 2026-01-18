@@ -8,6 +8,36 @@ Current implementation note (Jan 2026):
 - The primary maintained frontend is **relchart v3** at `/demo/relationship` (Graphviz WASM + modular JS/CSS under `api/static/relchart/`).
 - Older demos (e.g. `/demo/viewer`) are kept as reference/experiments and should not be treated as the direction going forward.
 
+## Current status (relchart v3)
+
+Implemented (working today):
+- [x] Relationship chart render (Graphviz WASM) from `GET /graph/neighborhood?layout=family`
+- [x] Map-like pan/zoom (drag + strong cursor-centered wheel zoom)
+- [x] Incremental expand-in-place:
+  - expand parents via `GET /graph/family/parents?family_id=<fid>&child_id=<pid>`
+  - expand children via `GET /graph/family/children?family_id=<fid>&include_spouses=true`
+- [x] Click person or family hub selects and updates the status bar (includes Gramps id when present)
+- [x] People sidebar:
+  - server-backed list (`GET /people`) with surname grouping
+  - ignores surname particles for grouping (e.g. “van der Lee” under L)
+  - search filter
+  - “Expand” wide mode with right-aligned years and adjustable width
+- [x] Families sidebar:
+  - selecting a person auto-selects a relevant family when opening the Families tab
+  - if the person is only visible as a child, falls back to selecting the parent family
+- [x] Person detail panel:
+  - loads `GET /people/{id}/details`
+  - has a hidden “peek tab”; while loading it stays blank (no “L” from “Loading…”)
+
+Partially implemented / placeholders:
+- [~] Events and Places as standalone browsers (global search/filter/map) are planned; current work is mostly per-person detail rendering.
+
+Not implemented yet (planned):
+- [ ] Relationship-path highlight on the graph UI (API exists: `GET /relationship/path?from_id=...&to_id=...`)
+- [ ] Pins / waypoints (toolbar pin list)
+- [ ] Strategic (whole-tree) overview mode with LOD
+- [ ] Portrait mirroring + heraldry cues (requires media ingestion + privacy)
+
 ## Roadmap notes (relchart v3)
 This section expands the running TODO list into small, actionable feature notes.
 
@@ -46,7 +76,8 @@ This section expands the running TODO list into small, actionable feature notes.
 - UX:
   - “Pick A / Pick B” mode, then show highlighted nodes+edges; allow clearing.
 - Backend:
-  - use `GET /graph/path` (blood vs any) and optionally return the path edges for highlighting.
+  - current prototype: `GET /relationship/path?from_id=<id>&to_id=<id>&max_hops=12`
+  - future: `GET /graph/path` (blood vs any) and optionally return the path edges for highlighting.
   - caching helps when repeatedly comparing.
 
 **Default starter picker**
@@ -170,7 +201,8 @@ Path modes (important for UX):
 - **any**: include spouse/partner edges too
 
 API shape (suggestion):
-- `GET /graph/path?from=<person_id>&to=<person_id>&mode=blood|any`
+- current prototype: `GET /relationship/path?from_id=<person_id>&to_id=<person_id>&max_hops=12`
+- future: `GET /graph/path?from=<person_id>&to=<person_id>&mode=blood|any`
   - returns ordered `person_ids` and/or explicit `edges` to highlight
 
 ## 2) Default map explorer: pan/zoom with a capped node budget
@@ -340,7 +372,7 @@ Pins “notepad” shortcut (anti-getting-lost during deep exploration):
   - One-click **Clear pins** to wipe the list, plus optional per-pin remove `×`
 
 Backend:
-- Uses `GET /graph/path` from section (1)
+- Uses the path endpoint from section (1)
 - Consider caching paths (or caching adjacency map client-side)
 
 API shapes (suggestion):
@@ -362,8 +394,8 @@ Double click:
 - Modal can fetch richer data on-demand
 
 API shape (suggestion):
-- `GET /person/<id>` minimal
-- `GET /person/<id>/details` richer (events, notes, sources)
+- `GET /people/{id}` minimal
+- `GET /people/{id}/details` richer (events, notes, sources)
 
 ## 5) “Focus window” mode: click to redraw 4 generations around someone
 This is the behavior you described:
@@ -398,8 +430,8 @@ Backend representation:
 - Need a way to know “this node has more neighbors not yet included.”
 - If you model families as hubs, the cul-de-sac can literally be a family-id node.
 
-Current implementation (viewer prototype):
-- The `/demo/viewer` UI uses two targeted expand endpoints instead of a generic `POST /graph/expand`:
+Current implementation (relchart v3):
+- The `/demo/relationship` UI uses two targeted expand endpoints instead of a generic `POST /graph/expand`:
   - Expand up: `GET /graph/family/parents?family_id=<family>&child_id=<child>`
   - Expand down: `GET /graph/family/children?family_id=<family>&include_spouses=true`
 - Family nodes can include `parents_total` and `children_total`; the viewer uses these counts to decide when to display expand indicators.

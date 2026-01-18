@@ -4,7 +4,7 @@ If you’re starting a new chat: **attach this file** (or paste it) and say:
 
 > We’re continuing the TaliesinDS.github.io genealogy project. Please read HANDOFF.md and continue from the “Current state / next tasks” section.
 
-This repo is a **backend-first genealogy app** scaffold with a working local demo UI.
+This repo is a **view-only genealogy viewer** (Gramps export → read-only API → browser UI) with a working local demo UI.
 
 ## What we’re building (goals)
 
@@ -51,7 +51,15 @@ Hosting sketch (intended):
 Privacy rule (conservative / privacy-first):
 - If death date exists → not living.
 - If birth date is unknown → treat as living.
-- Else if birth is within N years (default 110) → living.
+
+Current policy details (see PRIVACY.md for the authoritative version):
+- Unknown birth date → private (privacy-first)
+- Born on/after 1946-01-01 → private
+- Age < 90 years → private
+
+Overrides:
+- `is_private` always wins (always private)
+- `is_living_override` / `is_living` can force living/not-living
 
 ### Graph model: “family hubs” as the default
 - Decision: the API supports two graph shapes:
@@ -133,6 +141,7 @@ Graphviz layout stability:
 - Added defensive filtering so malformed edges (e.g., family→family “child” edges) don’t create orphan family hubs.
 
 Viewer UX (legacy Graphviz /demo/viewer):
+- Legacy/reference only. Current expected UI behavior is defined by relchart v3 (`/demo/relationship`).
 - Family hubs (⚭) are post-processed in SVG for a Gramps-Web-like look.
 - Redundant spouse→hub connector stubs are hidden when the hub touches spouse cards.
 - Edge endpoints that attach to the hub are snapped to the hub ellipse boundary to avoid tiny overshoots in very large families.

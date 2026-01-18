@@ -57,7 +57,7 @@ In Gramps Web this lives in `src/charts/RelationshipChart.js` and uses `@hpcc-js
 Tree’s `relchart` intentionally simplifies this:
 - We use Graphviz WASM via `@hpcc-js/wasm-graphviz` from a CDN (no bundler step).
 - We generate DOT directly from the API payload (no Gramps-specific “rules” query layer).
-- We do *minimal* SVG post-processing: attach click handlers and draw expand badges.
+- We do targeted SVG post-processing: attach click handlers, draw expand badges, and smooth edge paths.
 
 ## Entry points and file layout
 
@@ -65,7 +65,7 @@ The route is served by FastAPI:
 - `GET /demo/relationship` → `api/static/relchart/index.html`
 
 Files:
-- `api/static/relchart/index.html`: UI shell + inputs (personId/depth/maxNodes) + chart container
+- `api/static/relchart/index.html`: UI shell (tabs/sidebar) + chart container
 - `api/static/relchart/styles.css`: styling for the shell and the chart container
 
 JavaScript modules:
@@ -78,6 +78,7 @@ JavaScript modules:
     - `/graph/neighborhood?layout=family`
     - `/graph/family/parents`
     - `/graph/family/children`
+    - person lookups used by sidebar/details panels
 - `api/static/relchart/js/chart/dot.js`
   - `buildRelationshipDot(payload)` (payload → DOT string)
   - encodes “couple row” semantics by placing father → hub → mother in a same-rank cluster

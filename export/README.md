@@ -35,8 +35,7 @@ Export from a `.gramps` file:
 # 1) Export from Gramps: File -> Export -> Gramps XML (.gramps)
 # 2) Run exporter
 $ts = Get-Date -Format "yyyyMMdd_HHmmss"
-$out = "exports/run_$ts"
-.
+$out = ".\reports\gramps_export_$ts"
 \export\export_gramps_package.ps1 -InPath "C:\path\to\export.gpkg" -OutDir $out
 ```
 
@@ -56,4 +55,4 @@ If you still want a SQLite-based exporter later, we can do it, but it requires d
 
 ## Privacy rule
 Default is conservative: unknown birth → treat as living.
-See `../PRIVACY.md`.
+See `../PRIVACY.md` (server-side rules and thresholds).
