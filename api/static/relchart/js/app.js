@@ -50,7 +50,7 @@ const state = {
     resize: { active: false, startY: 0, startH: 0 },
     pos: { left: 48, top: 72 },
     size: { h: null },
-    peek: { url: '', name: '' },
+    peek: { url: '', name: '', loading: false },
   },
 };
 
@@ -104,6 +104,7 @@ function _updateDetailPeekTab() {
   imgHost.innerHTML = '';
   const url = String(state.detailPanel.peek?.url || '').trim();
   const name = String(state.detailPanel.peek?.name || '').trim();
+  const isLoading = !!state.detailPanel.peek?.loading;
   el.title = name ? `Show details: ${name}` : 'Show person details';
   if (url) {
     const img = document.createElement('img');
@@ -115,7 +116,8 @@ function _updateDetailPeekTab() {
   } else {
     const ph = document.createElement('div');
     ph.className = 'detailPeekPlaceholder';
-    ph.textContent = name ? name.trim().slice(0, 1).toUpperCase() : '•';
+    // While loading, keep the tab visually blank (no "L" from "Loading…").
+    ph.textContent = isLoading ? '' : (name ? name.trim().slice(0, 1).toUpperCase() : '•');
     imgHost.appendChild(ph);
   }
 }
@@ -1070,6 +1072,14 @@ async function loadPersonDetailsIntoPanel(personApiId, { openPanel = false } = {
   state.detailPanel.lastPersonId = pid;
   state.detailPanel.data = null;
 
+  // Keep the hidden peek tab blank while loading.
+  state.detailPanel.peek.loading = true;
+  state.detailPanel.peek.url = '';
+  state.detailPanel.peek.name = '';
+  if (!state.detailPanel.open) {
+    try { _updateDetailPeekTab(); } catch (_) {}
+  }
+
   _setPanelHeader({ name: 'Loading…', meta: pid, gender: null });
   _renderPersonDetailPanelBody();
 
@@ -1080,6 +1090,8 @@ async function loadPersonDetailsIntoPanel(personApiId, { openPanel = false } = {
     if (state.detailPanel.lastReqSeq !== seq) return;
     state.detailPanel.data = data;
 
+    state.detailPanel.peek.loading = false;
+
     const p = data?.person || {};
     const name = String(p.display_name || 'Person');
     const metaParts = [];
@@ -1089,6 +1101,8 @@ async function loadPersonDetailsIntoPanel(personApiId, { openPanel = false } = {
   } catch (e) {
     if (state.detailPanel.lastReqSeq !== seq) return;
     state.detailPanel.data = { person: { display_name: 'Error' } };
+
+    state.detailPanel.peek.loading = false;
     _setPanelHeader({ name: 'Failed to load', meta: String(e?.message || e), gender: null });
     _renderPersonDetailPanelBody();
   }
