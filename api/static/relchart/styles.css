@@ -418,8 +418,11 @@ html[data-theme="light"] .tabbtn.active {
   border-radius: 12px;
   background: rgba(15,22,34,0.60);
   box-shadow: var(--shadow);
-  overflow: auto;
+  overflow: hidden;
   padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 html[data-theme="light"] .sidebarPanel {
@@ -709,7 +712,24 @@ html[data-theme="light"] .optionsSection {
 }
 
 .tabpanel { display: none; }
-.tabpanel.active { display: block; }
+.tabpanel.active {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Non-people panels can scroll as a whole if needed */
+.tabpanel.active[data-panel="graph"],
+.tabpanel.active[data-panel="events"],
+.tabpanel.active[data-panel="map"] {
+  overflow: auto;
+}
+
+/* People panel: only the list scrolls */
+.tabpanel.active[data-panel="people"] {
+  overflow: hidden;
+}
 
 .peopleTools {
   display: grid;
@@ -720,6 +740,8 @@ html[data-theme="light"] .optionsSection {
 .peopleList {
   display: grid;
   gap: 0px;
+  overflow: auto;
+  min-height: 0;
 }
 
 .peopleGroup {

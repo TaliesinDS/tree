@@ -512,7 +512,8 @@ function _applyPeopleSelectionToDom({ scroll = true } = {}) {
 
   if (!scroll) return;
 
-  const scrollContainer = (els.peopleList.closest('.sidebarPanel') || els.peopleList);
+  // Only the list should scroll (not the whole People panel).
+  const scrollContainer = els.peopleList;
   const centerSelected = () => {
     try {
       const c = scrollContainer;
