@@ -281,6 +281,182 @@ function _findExpandTabElement(svg, personId, expandKind) {
   return withTitle || els[0] || null;
 }
 
+function _clearGraphPersonSelection(svg) {
+  if (!svg) return;
+  try {
+    for (const n of svg.querySelectorAll('g.node.personNode.selected')) {
+      n.classList.remove('selected');
+    }
+  } catch (_) {}
+
+  try {
+    for (const el of svg.querySelectorAll('[data-selection-border="1"]')) {
+      el.remove();
+    }
+  } catch (_) {}
+}
+
+function _applyGraphPersonSelection(svg, personId) {
+  if (!svg) return;
+  const pid = String(personId || '').trim();
+  _clearGraphPersonSelection(svg);
+  if (!pid) return;
+
+  const node = _findPersonNodeElement(svg, pid);
+  if (!node) return;
+
+  try { node.classList.add('selected'); } catch (_) {}
+
+  const graphLayer = (() => {
+    // Graphviz typically wraps everything in a <g id="graph0">.
+    const g0 = svg.querySelector('g#graph0');
+    if (g0) return g0;
+    // Fallback: choose the first top-level <g> if present.
+    const g = svg.querySelector('g');
+    return g || svg;
+  })();
+
+  const raiseFamilyHubsAboveSelection = () => {
+    // Ensure hubs render above the selection outline by moving them to the end
+    // of the Graphviz layer. Event listeners remain attached.
+    try {
+      const hubs = Array.from(graphLayer.querySelectorAll('g.node'))
+        .filter((n) => !!n.querySelector('ellipse'));
+      for (const hub of hubs) {
+        try { graphLayer.appendChild(hub); } catch (_) {}
+      }
+    } catch (_) {}
+  };
+
+  // Add a black border overlay around the *whole* person card.
+  // The card is composed of multiple overlapping paths, one of which may be
+  // vertically translated. Instead of tracing a single path, we outline the
+  // union of the card layers in SVG user-space.
+  try {
+    const isExpandTab = (el) => {
+      if (!el) return false;
+      try {
+        if (el.matches?.('[data-hidden-parents-for],[data-hidden-children-for],[data-hidden-parents-hit],[data-hidden-children-hit]')) return true;
+      } catch (_) {}
+      return false;
+    };
+
+    const layerEls = (() => {
+      const rimLayers = Array.from(node.querySelectorAll('[data-rim="1"]'))
+        .filter((el) => !isExpandTab(el));
+      if (rimLayers.length) return rimLayers;
+      // Fallback if rim overlay wasn't built for some reason.
+      const base = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+      return base ? [base] : [];
+    })();
+
+    if (!layerEls.length) return;
+
+    // Union bounding rect in screen pixels.
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    for (const el of layerEls) {
+      try {
+        const r = el.getBoundingClientRect?.();
+        if (!r) continue;
+        if (!Number.isFinite(r.left) || !Number.isFinite(r.top) || !Number.isFinite(r.right) || !Number.isFinite(r.bottom)) continue;
+        left = Math.min(left, r.left);
+        top = Math.min(top, r.top);
+        right = Math.max(right, r.right);
+        bottom = Math.max(bottom, r.bottom);
+      } catch (_) {}
+    }
+    if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(right) || !Number.isFinite(bottom)) return;
+    if (right <= left || bottom <= top) return;
+
+    // Convert screen rect -> the coordinate space of the layer we will append into.
+    // g#graph0 is typically translated; using svg.getScreenCTM() would yield SVG-root
+    // user-space, which becomes wrong once the border lives under g#graph0.
+    const m = graphLayer.getScreenCTM?.() || svg.getScreenCTM?.();
+    if (!m || typeof m.inverse !== 'function') return;
+    const inv = m.inverse();
+
+    const p0 = new DOMPoint(left, top).matrixTransform(inv);
+    const p1 = new DOMPoint(right, bottom).matrixTransform(inv);
+
+    // Outline thickness + padding.
+    // Stroke is centered on the path. To avoid a visible inner gap, keep `pad` < strokeW/2
+    // so the inner half of the stroke overlaps the card slightly.
+    const strokeW = 4;
+    const pad = 1.5;
+    const x = Math.min(p0.x, p1.x) - pad;
+    const y = Math.min(p0.y, p1.y) - pad;
+    const w = Math.abs(p1.x - p0.x) + (pad * 2);
+    const h = Math.abs(p1.y - p0.y) + (pad * 2);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+
+    // Corner radius: match the card's rounded corners.
+    // The rim overlay uses a relatively large corner radius; our outline should be a bit larger
+    // than the geometric fallback so it visually aligns.
+    const rr = Math.max(0, Math.min(20, Math.min(w, h) / 3.2));
+    const roundedRectPath = (x0, y0, w0, h0, r) => {
+      const xA = x0;
+      const yA = y0;
+      const xB = x0 + w0;
+      const yB = y0 + h0;
+      const rad = Math.max(0, Math.min(r, Math.min(w0, h0) / 2));
+      return [
+        `M ${xA + rad} ${yA}`,
+        `H ${xB - rad}`,
+        `A ${rad} ${rad} 0 0 1 ${xB} ${yA + rad}`,
+        `V ${yB - rad}`,
+        `A ${rad} ${rad} 0 0 1 ${xB - rad} ${yB}`,
+        `H ${xA + rad}`,
+        `A ${rad} ${rad} 0 0 1 ${xA} ${yB - rad}`,
+        `V ${yA + rad}`,
+        `A ${rad} ${rad} 0 0 1 ${xA + rad} ${yA}`,
+        'Z',
+      ].join(' ');
+    };
+
+    const ns = 'http://www.w3.org/2000/svg';
+    const border = document.createElementNS(ns, 'path');
+    border.setAttribute('d', roundedRectPath(x, y, w, h, rr));
+    border.setAttribute('fill', 'none');
+    border.setAttribute('stroke', '#000');
+    border.setAttribute('stroke-width', String(strokeW));
+    border.setAttribute('opacity', '1');
+    border.setAttribute('data-selection-border', '1');
+    border.style.pointerEvents = 'none';
+
+    // Put the outline in the Graphviz layer so we can control z-order relative
+    // to hubs by reordering nodes within that same layer.
+    graphLayer.appendChild(border);
+    raiseFamilyHubsAboveSelection();
+  } catch (_) {}
+}
+
+function _resolveSelectedPersonIdFromPayload(payload, sel) {
+  const s = sel?.get?.() || {};
+  const wantApi = String(s.apiId || '').trim();
+  const wantGramps = String(s.grampsId || '').trim();
+  const wantKey = String(s.key || '').trim();
+
+  if (!payload?.nodes) return null;
+
+  // Prefer explicit api id.
+  if (wantApi) {
+    const hit = payload.nodes.find(n => String(n?.id || '').trim() === wantApi);
+    if (hit) return String(hit.id);
+  }
+
+  // Then gramps id / key.
+  const want = wantGramps || wantKey;
+  if (want) {
+    const hit = payload.nodes.find(n => n?.type === 'person' && String(n?.gramps_id || '').trim() === want);
+    if (hit) return String(hit.id);
+  }
+
+  return null;
+}
+
 function _getPersonNodeCenterSvg(svg, personId) {
   const node = _findPersonNodeElement(svg, personId);
   if (!node) return null;
@@ -522,6 +698,10 @@ async function rerender() {
     payload: state.payload,
     onSelectPerson: (pid) => {
       state.selectedPersonId = pid;
+      try {
+        const svg = els.chart?.querySelector('svg');
+        _applyGraphPersonSelection(svg, pid);
+      } catch (_) {}
       const node = state.nodeById.get(String(pid)) || null;
       // Graph click should behave like a global selection: switch to People and center-scroll.
       _setSidebarActiveTab('people');
@@ -579,6 +759,12 @@ async function rerender() {
   });
 
   state.panZoom = panZoom;
+
+  // Re-apply the latched person selection after every full rerender.
+  try {
+    const svg = els.chart?.querySelector('svg');
+    _applyGraphPersonSelection(svg, state.selectedPersonId);
+  } catch (_) {}
 }
 
 async function loadNeighborhood() {
@@ -594,7 +780,14 @@ async function loadNeighborhood() {
   setStatus('Loading…');
   try {
     state.payload = await api.neighborhood({ personId, depth, maxNodes });
-    state.selectedPersonId = null;
+    // Latch selection to the current selection store (people list or prior graph click).
+    // Fall back to the requested personId if it matches a person node.
+    state.selectedPersonId = _resolveSelectedPersonIdFromPayload(state.payload, selection);
+    if (!state.selectedPersonId) {
+      const fallback = String(personId || '').trim();
+      const hit = (state.payload?.nodes || []).find(n => n?.type === 'person' && String(n?.gramps_id || '').trim() === fallback);
+      if (hit?.id) state.selectedPersonId = String(hit.id);
+    }
     setStatus(`Loaded ${state.payload.nodes?.length || 0} nodes, ${state.payload.edges?.length || 0} edges.`);
     await rerender();
   } catch (e) {

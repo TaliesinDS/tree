@@ -24,6 +24,11 @@
   font-weight: var(--card-date-weight) !important; /* date lines */
 }
 
+/* Selected person card indicator (simple black border for now). */
+.chart svg g.node.personNode.selected {
+  /* Keep this as a hook for future styling (glow, badge, etc.). */
+}
+
 .chart svg g.node.personNode text[font-weight="bold"] {
   font-weight: var(--card-name-weight) !important; /* name lines */
 }
