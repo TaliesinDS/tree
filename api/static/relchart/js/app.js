@@ -124,10 +124,10 @@ function _renderPersonDetailPanelSkeleton() {
       <button class="personDetailTab" type="button" data-tab="details">Details</button>
       <button class="personDetailTab" type="button" data-tab="relations">Relations</button>
       <button class="personDetailTab" type="button" data-tab="gramps_notes">Gramps Notes</button>
-      <button class="personDetailTab" type="button" data-tab="user_notes">User Notes</button>
       <button class="personDetailTab" type="button" data-tab="media">Media</button>
       <button class="personDetailTab" type="button" data-tab="sources">Sources</button>
       <button class="personDetailTab" type="button" data-tab="other">Other</button>
+      <button class="personDetailTab" type="button" data-tab="user_notes">User Notes</button>
     </div>
     <div class="personDetailBody" data-panel-body="1"></div>
   `;

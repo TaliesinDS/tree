@@ -28,6 +28,163 @@ _HISTORIC_YEAR_CUTOFF_YEARS_AGO = 150
 
 _PAREN_EPITHET_RE = re.compile(r"^\([^()]{1,80}\)$")
 
+# Name particles that are typically lowercase in surnames, including Dutch/German/French-style.
+# We apply this conservatively for display only (DB remains unchanged).
+_NAME_LOWER_PARTICLES = {
+    "van",
+    "der",
+    "den",
+    "de",
+    "het",
+    "ten",
+    "ter",
+    "te",
+    "op",
+    "aan",
+    "in",
+    "onder",
+    "bij",
+    "tot",
+    "voor",
+    "achter",
+    "over",
+    "uit",
+    "von",
+    "zu",
+    "zur",
+    "zum",
+    "am",
+    "im",
+    "da",
+    "di",
+    "du",
+    "des",
+    "del",
+    "della",
+    "la",
+    "le",
+    "les",
+}
+
+_ROMAN_NUMERALS = {
+    "i",
+    "ii",
+    "iii",
+    "iv",
+    "v",
+    "vi",
+    "vii",
+    "viii",
+    "ix",
+    "x",
+    "xi",
+    "xii",
+}
+
+
+def _smart_title_case_name(raw: str | None) -> str | None:
+    """Best-effort title casing for personal names.
+
+    Goals:
+    - Fix common ALLCAPS / lowercase exports for display.
+    - Keep surname particles like "van der" lowercase (even at start) when name has >1 token.
+    - Handle hyphens and apostrophes: "o'neill" -> "O'Neill", "anne-marie" -> "Anne-Marie".
+    - Preserve "Private" exactly.
+
+    This is heuristic and intentionally conservative.
+    """
+
+    if raw is None:
+        return None
+
+    s0 = str(raw).strip()
+    if not s0:
+        return None
+    if s0 == "Private":
+        return s0
+
+    # Normalize whitespace to single spaces.
+    tokens = [t for t in re.split(r"\s+", s0) if t]
+    if not tokens:
+        return None
+
+    def _split_punct(tok: str) -> tuple[str, str, str]:
+        prefix = ""
+        while tok and (not tok[0].isalnum()):
+            prefix += tok[0]
+            tok = tok[1:]
+        suffix = ""
+        while tok and (not tok[-1].isalnum()):
+            suffix = tok[-1] + suffix
+            tok = tok[:-1]
+        return prefix, tok, suffix
+
+    def _cap_simple(word: str) -> str:
+        if not word:
+            return word
+        w = word
+        wl = w.lower()
+
+        # Roman numerals.
+        if wl in _ROMAN_NUMERALS:
+            return wl.upper()
+
+        # McXxxx heuristic.
+        if wl.startswith("mc") and len(w) > 2 and w[2].isalpha():
+            rest = w[2:]
+            return "Mc" + rest[0].upper() + rest[1:].lower()
+
+        # Basic title-case.
+        return w[:1].upper() + w[1:].lower()
+
+    def _cap_word(word: str) -> str:
+        if not word:
+            return word
+
+        # Hyphenated parts.
+        if "-" in word:
+            return "-".join(_cap_word(p) for p in word.split("-"))
+
+        # Apostrophe handling.
+        wl = word.lower()
+        if wl.startswith("d'") and len(word) > 2:
+            return "d'" + _cap_word(word[2:])
+        if wl.startswith("l'") and len(word) > 2:
+            return "l'" + _cap_word(word[2:])
+        if wl.startswith("o'") and len(word) > 2:
+            return "O'" + _cap_word(word[2:])
+        if "'" in word:
+            parts = word.split("'")
+            out_parts: list[str] = []
+            for i, p in enumerate(parts):
+                if not p:
+                    out_parts.append("")
+                    continue
+                if i == 0 and len(p) == 1:
+                    out_parts.append(p.upper())
+                else:
+                    out_parts.append(_cap_simple(p))
+            return "'".join(out_parts)
+
+        return _cap_simple(word)
+
+    out_tokens: list[str] = []
+    multi = len(tokens) > 1
+    for idx, tok in enumerate(tokens):
+        prefix, core, suffix = _split_punct(tok)
+        if not core:
+            out_tokens.append(tok)
+            continue
+
+        core_l = core.lower()
+        if core_l in _NAME_LOWER_PARTICLES and multi:
+            out_tokens.append(prefix + core_l + suffix)
+            continue
+
+        out_tokens.append(prefix + _cap_word(core) + suffix)
+
+    return " ".join(out_tokens)
+
 
 def _normalize_public_name_fields(
     *,
@@ -56,6 +213,24 @@ def _normalize_public_name_fields(
         return s, None
 
     return given_name, surname
+
+
+def _format_public_person_names(
+    *,
+    display_name: str | None,
+    given_name: str | None,
+    surname: str | None,
+) -> tuple[str | None, str | None, str | None]:
+    given_name_out, surname_out = _normalize_public_name_fields(
+        display_name=display_name,
+        given_name=given_name,
+        surname=surname,
+    )
+    return (
+        _smart_title_case_name(display_name),
+        _smart_title_case_name(given_name_out),
+        _smart_title_case_name(surname_out),
+    )
 
 
 def _add_years(d: date, years: int) -> date:
@@ -306,7 +481,7 @@ def list_people(
                 }
             )
         else:
-            given_name_out, surname_out = _normalize_public_name_fields(
+            display_name_out, given_name_out, surname_out = _format_public_person_names(
                 display_name=display_name,
                 given_name=given_name,
                 surname=surname,
@@ -317,7 +492,7 @@ def list_people(
                     "id": pid,
                     "gramps_id": gid,
                     "type": "person",
-                    "display_name": display_name,
+                    "display_name": display_name_out,
                     "given_name": given_name_out,
                     "surname": surname_out,
                     "birth_year": by,
@@ -433,7 +608,7 @@ def get_person(person_id: str) -> dict[str, Any]:
             "is_private": True,
         }
 
-    given_name_out, surname_out = _normalize_public_name_fields(
+    display_name_out, given_name_out, surname_out = _format_public_person_names(
         display_name=person.get("display_name"),
         given_name=person.get("given_name"),
         surname=person.get("surname"),
@@ -442,7 +617,7 @@ def get_person(person_id: str) -> dict[str, Any]:
     return {
         "id": person["id"],
         "gramps_id": person.get("gramps_id"),
-        "display_name": person.get("display_name"),
+        "display_name": display_name_out,
         "given_name": given_name_out,
         "surname": surname_out,
         "gender": person.get("gender"),
@@ -704,7 +879,7 @@ def _people_core_many(conn: psycopg.Connection, person_ids: list[str]) -> dict[s
             }
             continue
 
-        given_name_out, surname_out = _normalize_public_name_fields(
+        display_name_out, given_name_out, surname_out = _format_public_person_names(
             display_name=display_name,
             given_name=given_name,
             surname=surname,
@@ -713,7 +888,7 @@ def _people_core_many(conn: psycopg.Connection, person_ids: list[str]) -> dict[s
         out[str(pid)] = {
             "id": pid,
             "gramps_id": gid,
-            "display_name": display_name,
+            "display_name": display_name_out,
             "given_name": given_name_out,
             "surname": surname_out,
             "gender": gender,
@@ -935,7 +1110,7 @@ def search_people(q: str = Query(min_length=1, max_length=200)) -> dict[str, Any
         ):
             results.append({"id": r[0], "gramps_id": r[1], "display_name": "Private"})
         else:
-            results.append({"id": r[0], "gramps_id": r[1], "display_name": r[2]})
+            results.append({"id": r[0], "gramps_id": r[1], "display_name": _smart_title_case_name(r[2])})
 
     return {"query": q, "results": results}
 
@@ -1125,7 +1300,7 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
             "death": None,
             "distance": distance,
         }
-    given_name_out, surname_out = _normalize_public_name_fields(
+    display_name_out, given_name_out, surname_out = _format_public_person_names(
         display_name=name,
         given_name=given_name,
         surname=surname,
@@ -1135,7 +1310,7 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
         "id": pid,
         "gramps_id": gid,
         "type": "person",
-        "display_name": name,
+        "display_name": display_name_out,
         "given_name": given_name_out,
         "surname": surname_out,
         "gender": gender,
@@ -2090,7 +2265,7 @@ def relationship_path(
                         birth_date=r[3],
                         death_date=r[4],
                     )
-                    else r[2]
+                    else _smart_title_case_name(r[2])
                 ),
             }
             for r in rows

@@ -208,10 +208,12 @@ html[data-theme="light"] .personDetailClose {
   white-space: nowrap;
   font-family: inherit;
 
-  /* Fill the whole bar */
-  flex: 1 1 0;
+  /* Size by content (not equal-width); allow shrinking + ellipsis if cramped */
+  flex: 0 1 auto;
   min-width: 0;
   text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .personDetailTab.active {
