@@ -1125,6 +1125,7 @@ html[data-theme="light"] .optionsSection {
 .eventType {
   font-weight: 750;
   font-size: 13px;
+  color: var(--muted);
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -1220,12 +1221,13 @@ html[data-theme="light"] .optionsSection {
 }
 
 .placeName {
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: 600;
+  font-size: 14px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--muted);
 }
 
 .placeMetaRight {
@@ -1285,6 +1287,7 @@ html[data-theme="light"] .placesGroup {
   overflow: auto;
   min-height: 0;
   background: #f3f5f5;
+  color: var(--muted);
   font-family: var(--card-font);
   font-weight: var(--sidebar-list-font-weight, 500);
   font-optical-sizing: auto;
