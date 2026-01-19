@@ -442,14 +442,18 @@ function _applyFamiliesSelectionToDom({ scroll = true } = {}) {
   }
 
   if (!key) return;
-  const sel = els.familiesList.querySelector(`.peopleItem[data-family-key="${_cssEscape(key)}"]`);
-  if (!sel) return;
 
-  sel.classList.add('selected');
-  if (!scroll) return;
-
+  // Families are virtualized; the selected row element can be replaced during
+  // scroll/render. Re-query each attempt so we don't center a detached node.
   const scrollContainer = els.familiesList;
+  const selector = `.peopleItem[data-family-key="${_cssEscape(key)}"]`;
+
   const centerSelected = () => {
+    const sel = scrollContainer.querySelector(selector);
+    if (!sel) return;
+    sel.classList.add('selected');
+    if (!scroll) return;
+
     try {
       const cRect = scrollContainer.getBoundingClientRect();
       const eRect = sel.getBoundingClientRect();
@@ -485,6 +489,12 @@ function setSelectedFamilyKey(key, { source = 'unknown', scrollFamilies = true }
   }
   // Ensure highlighting updates even if the selected row isn't currently rendered.
   try { _renderFamiliesViewport(); } catch (_) {}
+
+  // After virtualization scroll+render, do a DOM-based centering pass so the
+  // selected row lands correctly on the first click.
+  if (scrollFamilies) {
+    try { _applyFamiliesSelectionToDom({ scroll: true }); } catch (_) {}
+  }
 }
 
 const _FAMILY_ROW_H = 56; // fixed; must match CSS for stable virtualization
@@ -511,9 +521,16 @@ function _scrollFamiliesToKey(key) {
   if (!k || !els.familiesList) return;
   const idx = _familiesIndexByKey.get(k);
   if (typeof idx !== 'number' || !Number.isFinite(idx)) return;
-  // Center the row.
-  const top = Math.max(0, idx * _FAMILY_ROW_H - (els.familiesList.clientHeight / 2));
-  els.familiesList.scrollTop = top;
+  // Center the row (by its midpoint), with a tiny nudge upward so it doesn't
+  // sit right on the bottom edge of the clipped/rounded scroll viewport.
+  const host = els.familiesList;
+  const rowH = _FAMILY_ROW_H;
+  const viewportH = host.clientHeight || 0;
+  const nudgePx = 10;
+  const desiredTop = idx * rowH - (viewportH - rowH) / 2 + nudgePx;
+  const maxTop = Math.max(0, (host.scrollHeight || 0) - viewportH);
+  const top = Math.max(0, Math.min(maxTop, desiredTop));
+  host.scrollTop = top;
 }
 
 function _wireFamiliesViewport() {

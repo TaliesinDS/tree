@@ -1137,7 +1137,7 @@ html[data-theme="light"] .optionsSection {
   color: var(--muted);
   flex: 0 1 auto;
   margin-left: auto;
-  max-width: 60%;
+  max-width: 70%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
