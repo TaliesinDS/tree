@@ -1834,12 +1834,15 @@ function _renderPlacesList(allPlaces) {
     }
   }
 
-  // Stable ordering by Gramps P#### where available.
+  // Alphabetical ordering by place label (stable tie-breaks).
   const sortKey = (p) => {
+    if (!p) return '\uffff';
+    const label = _placeLabel(p);
+    const norm = _normKey(label);
     const gid = String(p?.gramps_id || '').trim();
-    if (gid) return gid;
-    const name = _placeLabel(p);
-    return `ZZZ_${name}`;
+    const pid = String(p?.id || '').trim();
+    // Use NUL separators to avoid accidental key collisions.
+    return `${norm}\u0000${label}\u0000${gid}\u0000${pid}`;
   };
   const sortChildren = (parentId) => {
     const kids = childrenByParent.get(parentId) || [];
@@ -1866,7 +1869,6 @@ function _renderPlacesList(allPlaces) {
   if (rootNonCountries.length) {
     if (!childrenByParent.has(nlId)) childrenByParent.set(nlId, []);
     const list = childrenByParent.get(nlId);
-    // Preserve original order among non-country roots by current root ordering.
     for (const p of rootNonCountries) {
       list.push({ id: String(p.id) });
     }
@@ -1876,12 +1878,8 @@ function _renderPlacesList(allPlaces) {
   const finalRoots = [];
   for (const c of rootCountries) finalRoots.push({ id: String(c.id) });
 
-  // Sort roots by gid/name, but keep Netherlands first if present.
-  finalRoots.sort((a, b) => {
-    if (String(a.id) === nlId) return -1;
-    if (String(b.id) === nlId) return 1;
-    return sortKey(byId.get(a.id)).localeCompare(sortKey(byId.get(b.id)));
-  });
+  // Sort roots alphabetically by label.
+  finalRoots.sort((a, b) => sortKey(byId.get(a.id)).localeCompare(sortKey(byId.get(b.id))));
 
   for (const r of finalRoots) sortChildren(r.id);
 
