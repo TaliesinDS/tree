@@ -12,7 +12,7 @@
   --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   /* Prefer self-hosted Crimson Pro. */
   --card-font: "TreeCrimsonPro", "Crimson Pro", "TreeEBGaramond", Garamond, "EB Garamond", "Times New Roman", Times, serif;
-  --panel-font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  --panel-font: "TreeEBGaramond", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   --card-name-weight: 700;
   --card-date-weight: 500;
   --sidebar-list-font-weight: 400;
@@ -765,7 +765,7 @@ html[data-theme="light"] .tabbtn.active {
 }
 
 html[data-theme="light"] .sidebarPanel {
-  background: rgba(255,255,255,0.78);
+  background: #fdfdfd;
 }
 
 .sidebarPanel h2 {
@@ -1150,7 +1150,7 @@ html[data-theme="light"] .optionsSection {
 }
 
 .eventType {
-  font-weight: 750;
+  font-weight: 800;
   font-size: 13px;
   color: var(--muted);
   flex: 1 1 auto;
@@ -1338,6 +1338,8 @@ html[data-theme="light"] .placeEventsMenuBtn {
   border-radius: 14px;
   overflow: hidden;
   backdrop-filter: blur(8px);
+  color: var(--text);
+  font-family: var(--panel-font);
 }
 
 .placeEventsPanelHeader {
@@ -1347,6 +1349,7 @@ html[data-theme="light"] .placeEventsMenuBtn {
   gap: 10px;
   padding: 10px 10px;
   border-bottom: 1px solid var(--border);
+  background: var(--panel);
 }
 
 .placeEventsPanelTitle {
@@ -1354,9 +1357,32 @@ html[data-theme="light"] .placeEventsMenuBtn {
   font-weight: 800;
   letter-spacing: 0.2px;
   color: var(--text);
+  font-family: var(--panel-font);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Make the person name clickable without button chrome. */
+.placeEventPersonLink {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: right;
+}
+
+.placeEventPersonLink:hover {
+  text-decoration: underline;
+}
+
+.placeEventPersonLink:focus-visible {
+  outline: 2px solid rgba(122,162,255,0.65);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 .placeEventsPanelClose {
@@ -1377,9 +1403,15 @@ html[data-theme="light"] .placeEventsPanelClose {
 }
 
 .placeEventsPanelBody {
-  padding: 10px;
+  padding: 0;
   overflow: auto;
   max-height: inherit;
+}
+
+/* In the popover, reuse the sidebar list styling without extra gaps. */
+.placeEventsPanelBody .placeEventList {
+  gap: 0;
+  margin: 0;
 }
 
 .placeEventsLoading,

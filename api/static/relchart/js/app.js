@@ -135,6 +135,37 @@ function _ensurePlaceEventsPanel() {
     _closePlaceEventsPanel();
   });
 
+  // Delegated click: select person from the place-events list.
+  panel.addEventListener('click', (e) => {
+    const t = e?.target;
+    const el = (t && t.nodeType === 1) ? t : t?.parentElement;
+    const btn = el && el.closest ? el.closest('.placeEventPersonLink[data-person-api], .placeEventPersonLink[data-person-gramps]') : null;
+    if (!btn) return;
+
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+    } catch (_) {}
+
+    const apiId = String(btn?.dataset?.personApi || '').trim() || null;
+    const grampsId = String(btn?.dataset?.personGramps || '').trim() || null;
+    if (!apiId && !grampsId) return;
+
+    const activeTab = _getSidebarActiveTab();
+    try {
+      selection.selectPerson(
+        { apiId, grampsId },
+        { source: 'place-events', scrollPeople: activeTab === 'people', updateInput: true },
+      );
+    } catch (_) {}
+
+    try { els.personId.value = grampsId || apiId || ''; } catch (_) {}
+    try { Promise.resolve().then(loadNeighborhood); } catch (_) {}
+
+    const who = String(btn?.textContent || '').trim() || grampsId || apiId;
+    try { setStatus(`Selected: ${who}`); } catch (_) {}
+  });
+
   try {
     window.addEventListener('resize', () => {
       _positionPlaceEventsPanel();
@@ -230,31 +261,37 @@ function _renderPlaceEventsPanelBody(placeId, events) {
   }
 
   const items = evs.map((ev) => {
-    const t = String(ev?.type || 'Event');
-    const dateText = String(ev?.date_text || '').trim();
-    const dateIso = String(ev?.date || '').trim();
-    const dateUi = formatGrampsDateEnglish(dateIso || dateText);
-    const primary = String(ev?.primary_person?.display_name || '').trim();
-    const desc = String(ev?.description || '').trim();
-    const line1 = primary ? `${t} · ${primary}` : t;
-    const line2Parts = [];
-    if (dateUi) line2Parts.push(dateUi);
-    if (desc) line2Parts.push(desc);
-    const line2 = line2Parts.join(' · ');
+    const apiId = String(ev?.id || '').trim();
     const gid = String(ev?.gramps_id || '').trim();
-    const idLabel = gid || String(ev?.id || '').trim();
+    const idLabel = gid || apiId;
+    const eventTitle = _formatEventTitle(ev);
+    const primary = ev?.primary_person || null;
+    const primaryName = String(primary?.display_name || '').trim();
+    const primaryApiId = String(primary?.id || '').trim();
+    const primaryGrampsId = String(primary?.gramps_id || '').trim();
+    const sub = _formatEventSubLineNoPlace(ev);
+    const desc = String(ev?.description || '').trim();
+
+    const primaryHtml = (primaryName && (primaryApiId || primaryGrampsId))
+      ? `<button type="button" class="eventPrimary placeEventPersonLink" data-person-api="${_escapeHtml(primaryApiId)}" data-person-gramps="${_escapeHtml(primaryGrampsId)}" title="Select person">${_escapeHtml(primaryName)}</button>`
+      : `<div class="eventPrimary" title="${_escapeHtml(primaryName)}">${_escapeHtml(primaryName)}</div>`;
+
     return `
-      <div class="placeEventItem" title="${_escapeHtml(idLabel)}">
-        <div class="placeEventRow1">
-          <div class="placeEventTitle">${_escapeHtml(line1)}</div>
-          <div class="placeEventId">${_escapeHtml(idLabel)}</div>
+      <div class="peopleItem eventsItem" data-event-id="${_escapeHtml(apiId)}">
+        <div class="eventGrid">
+          <div class="eventRow1">
+            <div class="eventType">${_escapeHtml(eventTitle)}</div>
+            ${primaryHtml}
+          </div>
+          <div class="eventMetaLeft">${_escapeHtml(sub)}</div>
+          <div class="eventMetaRight">${_escapeHtml(idLabel)}</div>
+          ${desc ? `<div class="eventDescLine" style="grid-column: 1 / -1" title="${_escapeHtml(desc)}">${_escapeHtml(desc)}</div>` : ''}
         </div>
-        ${line2 ? `<div class="placeEventRow2">${_escapeHtml(line2)}</div>` : ''}
       </div>
     `;
   }).join('');
 
-  bodyEl.innerHTML = `<div class="placeEventList">${items}</div>`;
+  bodyEl.innerHTML = `<div class="peopleList placeEventList">${items}</div>`;
 }
 
 async function _togglePlaceEventsPanel(placeId, anchorEl) {
@@ -536,6 +573,12 @@ function _formatEventSubLine(ev) {
   if (dateUi) parts.push(dateUi);
   if (placeName) parts.push(placeName);
   return parts.join(' · ');
+}
+
+function _formatEventSubLineNoPlace(ev) {
+  const dateText = String(ev?.date || ev?.date_text || ev?.event_date || ev?.event_date_text || '').trim();
+  const dateUi = dateText ? formatGrampsDateEnglish(dateText) : '';
+  return dateUi;
 }
 
 function _renderEventsList(events, query) {
@@ -1919,6 +1962,11 @@ function _initPeopleExpanded() {
 function _setSidebarActiveTab(tabName) {
   const name = String(tabName || '').trim();
   if (!name) return;
+
+  // Place-events popover is Map-tab-only.
+  try {
+    if (name !== 'map') _closePlaceEventsPanel();
+  } catch (_) {}
 
   const tabButtons = Array.from(document.querySelectorAll('.tabbtn[data-tab]'));
   const tabPanels = Array.from(document.querySelectorAll('.tabpanel[data-panel]'));
