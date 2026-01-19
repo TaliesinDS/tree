@@ -95,4 +95,4 @@ Graphviz-specific notes:
 
 Privacy:
 - Privacy is enforced server-side; private people are redacted before JSON reaches the browser.
-- See PRIVACY.md for the current policy/thresholds.
+- See `docs/architecture/PRIVACY.md` for the current policy/thresholds.

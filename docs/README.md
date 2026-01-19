@@ -60,7 +60,7 @@ docs/
 | Document | Purpose | Update when... |
 |----------|---------|----------------|
 | [DEV.md](guides/DEV.md) | Local dev setup: Docker, Postgres, API commands | Changing dev setup, adding dependencies |
-| [DEPLOYMENT.md](guides/DEPLOYMENT.md) | Cloud deployment sketch | Deploying or changing infra |
+| [DEPLOYMENT.md](guides/DEPLOYMENT.md) | Personal hosting options (Pages vs API-served UI, CORS, DB choices) | Deploying or changing infra |
 
 ### `/design/` — UI/UX design planning
 
