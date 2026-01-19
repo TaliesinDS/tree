@@ -37,9 +37,11 @@ Files
 Demo UI
 - **Primary UI (going forward):** `/demo/relationship` — **relchart v3** (Graphviz WASM + modular JS/CSS).
    - This is the Gramps-Web-like relationship chart: couples + family hubs + children, with expand-in-place.
-   - Includes a People index (surname-grouped), a Families view, and a person detail panel.
+   - Includes a People index (surname-grouped), a Families view, an Events list, a Places/Map view, and a person detail panel.
    - Clicking a person card or family hub updates the status bar with both API id + Gramps id and copies them to clipboard.
    - Clicking a family hub is selection-only (it does not expand or recenter).
+   - The Map view renders inside the same main viewport as the Graph and cross-fades when switching tabs.
+     - Implementation note: Leaflet is lazy-loaded from a CDN and uses OpenStreetMap raster tiles.
 - Legacy/reference demos:
    - `/demo/graph` — older neighborhood graph demo.
    - `/demo/viewer` — older viewer shell/prototype.

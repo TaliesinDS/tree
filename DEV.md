@@ -76,6 +76,10 @@ The demo UI is served from the API:
 - **Primary (going forward):** `/demo/relationship` (relchart v3; Graphviz WASM + modular JS/CSS)
   - Click a person card or family hub to show both API id + Gramps id in the status bar and copy them to clipboard.
   - Clicking a family hub is selection-only (it does not expand or recenter).
+  - Map tab:
+    - The map renders inside the same main viewport as the graph and cross-fades when switching tabs.
+    - Leaflet is lazy-loaded from a CDN; base tiles are OpenStreetMap raster tiles.
+    - If you’re offline or behind a strict firewall, the map may fail to load (the rest of the UI still works).
 - Legacy/reference demos:
   - `/demo/graph` (interactive; older)
   - `/demo/viewer` (older viewer shell/prototype)

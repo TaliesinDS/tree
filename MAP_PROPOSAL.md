@@ -1,5 +1,13 @@
 # Map Proposal (relchart v3)
 
+Current status (Jan 2026):
+- A Map tab MVP is implemented in relchart v3 (`/demo/relationship`).
+- The map renders in the **same main viewport** as the graph and cross-fades when switching between Graph and Map.
+- Implementation: Leaflet (lazy-loaded from CDN) + OpenStreetMap raster tiles.
+- Places list behavior:
+  - clicking the **row/box** toggles expand/collapse (and can select/highlight), but does **not** move the map
+  - clicking the **place name text** copies id + breadcrumb and centers/marks the map (when coords exist)
+
 Goal: add a **Map** view to Tree (read-only Gramps viewer) that supports:
 - **Topo + Aerial basemaps**
 - **Pins** (all places/events, or selected subsets)

@@ -67,12 +67,18 @@ The route is served by FastAPI:
 Files:
 - `api/static/relchart/index.html`: UI shell (tabs/sidebar) + chart container
 - `api/static/relchart/styles.css`: styling for the shell and the chart container
+  - The chart container now includes layered viewports:
+    - `#graphView`: Graphviz-rendered SVG goes here
+    - `#mapView`: Leaflet map goes here
+    - Cross-fade is driven by `#chart[data-main-view="graph"|"map"]`
 
 JavaScript modules:
 - `api/static/relchart/js/app.js`
   - glue code (load neighborhood, store payload, rerender)
   - wires UI controls and status
   - performs incremental expansions (calls API then merges payload)
+  - switches the main viewport between graph/map when tabs change
+  - lazy-loads Leaflet and initializes the map on first Map-tab open
 - `api/static/relchart/js/api.js`
   - tiny fetch wrappers:
     - `/graph/neighborhood?layout=family`
@@ -140,6 +146,17 @@ Both return the same `{nodes, edges}` shape so the frontend can `mergeGraphPaylo
 7) Compute “hidden relatives” signals from payload metadata and add small badges on person cards:
    - `↑` when there is a birth-family hub with missing parent edges in-view
    - `↓` when a parent-family hub has more children than currently in-view
+
+## Map view (current MVP)
+
+The Map tab uses a lightweight Leaflet map (OpenStreetMap raster tiles) rendered in the **same main viewport** as the Graph.
+
+Implementation notes:
+- Leaflet is lazy-loaded from a CDN on first Map-tab open.
+- Switching tabs cross-fades between `#graphView` and `#mapView` (CSS opacity + pointer-events).
+- Places list click behavior:
+  - clicking the **row/box** selects/highlights and (if expandable) toggles open/closed, but does **not** move the map
+  - clicking the **place name text** copies the place id + breadcrumb and also centers/drops a marker on the map (when coords exist)
 
 ## Key tradeoffs (explicit)
 

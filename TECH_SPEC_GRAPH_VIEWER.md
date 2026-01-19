@@ -195,6 +195,11 @@ Implementation hints:
 
 ### 3.11 Map view (places + markers + selection-as-filter)
 
+Current implementation note (relchart v3 demo):
+- The Map tab is implemented as a Leaflet MVP rendered in the **same main viewport** as the Graph.
+- Leaflet is lazy-loaded from a CDN; base tiles are OpenStreetMap raster tiles.
+- Selecting a place from the Places list can center/mark the map (when that place has coordinates).
+
 Required:
 - **Data:** all places have coordinates (lat/lon). Events should reference places where possible.
 - **Frontend:** map library (e.g. Leaflet) and a marker layer.

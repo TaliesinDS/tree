@@ -99,6 +99,7 @@ Top-level docs:
 - ./DEV.md — local dev runbook (Docker vs external Postgres)
 - ./DEPLOYMENT.md — Cloud Run / Cloud SQL sketch
 - ./NOTES_ON_FEATURES.md — feature → capability mapping
+- ./DEBUG_DATA_QUALITY.md — planned “export a fix-list for Gramps” debug reports
 
 API:
 - api/main.py — FastAPI endpoints; privacy filtering; neighborhood/path logic
@@ -130,6 +131,8 @@ Database schema:
   - incremental expand-in-place endpoints used by the viewer:
     - `GET /graph/family/parents?family_id=<family>&child_id=<child>`
     - `GET /graph/family/children?family_id=<family>&include_spouses=true`
+  - places listing:
+    - `GET /places` (includes `type`, `enclosed_by_id`, coords when present)
 - Demo UI can render:
   - Cytoscape view (dagre family layout / cose direct layout)
   - Graphviz view (DOT → SVG)
@@ -167,6 +170,10 @@ Relationship chart (/demo/relationship):
 - Supports expand-in-place by calling `/graph/family/parents` and `/graph/family/children` and re-rendering.
  - Clicking a person card or family hub updates status with both API id + Gramps id and copies them to clipboard.
  - Clicking a family hub is selection-only (it does not expand or recenter).
+ - Map tab MVP:
+   - Map renders in the same main viewport as the graph and cross-fades when switching tabs.
+   - Leaflet is lazy-loaded from a CDN and uses OpenStreetMap raster tiles.
+   - Clicking place name text in the Places list copies id+breadcumb and centers/marks the map (row/box clicks do not move the map).
 
 Note: because the viewer is a static HTML file, the demo URL uses a `?v=<n>` cache buster when iterating quickly.
 
@@ -199,7 +206,7 @@ See DEV.md for the exact PowerShell commands and Docker option.
 1) Add a minimal real UI (beyond the demo) for:
    - person search → select two people → show relationship path
 2) Implement note search endpoint(s) using `note.body_tsv`.
-3) Implement place endpoints and map view.
+3) Improve map (markers from events, filters, offline tiles strategy).
 4) Decide on deployment details (Cloud Run + Cloud SQL) and secret handling.
 
 ---
