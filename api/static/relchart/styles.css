@@ -1165,6 +1165,32 @@ html[data-theme="light"] .optionsSection {
   min-width: 0;
 }
 
+.placeLeft {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.placeNameRow {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.placesTwisty,
+.placesTwistySpacer {
+  display: inline-block;
+  width: 14px;
+  flex: 0 0 14px;
+  color: var(--muted);
+  transform-origin: 50% 55%;
+}
+
+.placesGroup[open] > summary .placesTwisty {
+  transform: rotate(90deg);
+}
+
 .placeName {
   font-weight: 700;
   font-size: 13px;
@@ -1182,14 +1208,7 @@ html[data-theme="light"] .optionsSection {
   white-space: nowrap;
 }
 
-.placeEnclosureLine {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* placeEnclosureLine is no longer used; enclosure is shown inline */
 
 .placesGroup {
   padding: 1px;
@@ -1205,6 +1224,16 @@ html[data-theme="light"] .placesGroup {
   color: var(--text);
   font-size: 14px;
   font-weight: 700;
+  list-style: none;
+}
+
+/* Hide the browser's default marker; we render our own triangle. */
+.placesGroup summary::-webkit-details-marker {
+  display: none;
+}
+
+.placesGroup > summary {
+  list-style: none;
 }
 
 .placesGroup .placesChildren {
@@ -1213,7 +1242,7 @@ html[data-theme="light"] .placesGroup {
 }
 
 .placesIndent {
-  padding-left: 14px;
+  padding-left: 18px;
 }
 
 .peopleTools {

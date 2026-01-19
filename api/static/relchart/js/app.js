@@ -1570,42 +1570,47 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
   const children = childrenByParent.get(node.id) || [];
   const hasChildren = children.length > 0;
 
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'peopleItem placesItem';
-  btn.dataset.placeId = String(node.id || '');
-  if (state.placesSelected && String(state.placesSelected) === String(node.id)) btn.classList.add('selected');
+  const INDENT_PX = 18;
 
-  const grid = document.createElement('div');
-  grid.className = 'placeGrid';
-
-  const left = document.createElement('div');
-  left.className = 'placeName';
-  left.textContent = _placeLabel(node);
-  left.title = left.textContent;
-  if (depth > 0) left.classList.add('placesIndent');
-
-  const right = document.createElement('div');
-  right.className = 'placeMetaRight';
-  right.textContent = _placeMeta(node);
-
-  grid.appendChild(left);
-  grid.appendChild(right);
-  btn.appendChild(grid);
-
-  const enclosure = Array.isArray(node?.enclosure) ? node.enclosure : [];
-  if (enclosure.length) {
-    const line = document.createElement('div');
-    line.className = 'placeEnclosureLine';
-    // Show nearest parent first, then farther.
-    const names = enclosure
+  const _placeBreadcrumb = () => {
+    const enclosure = Array.isArray(node?.enclosure) ? node.enclosure : [];
+    const anc = enclosure
       .map((e) => String(e?.name || '').trim())
-      .filter((s) => s);
-    line.textContent = names.join(' · ');
-    btn.appendChild(line);
-  }
+      .filter((s) => s)
+      // API provides nearest-parent-first; reverse for root-first.
+      .reverse();
+    const self = _placeLabel(node);
+    return [...anc, self].filter((s) => s).join(' > ');
+  };
 
-  btn.addEventListener('click', () => {
+  const _copyText = async (text) => {
+    const t = String(text || '');
+    if (!t) return false;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(t);
+        return true;
+      }
+    } catch (_) {}
+    // Fallback for older browsers.
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = t;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const selectThisPlace = (rowEl) => {
     const pid = String(node.id || '').trim();
     if (!pid) return;
     state.placesSelected = pid;
@@ -1613,19 +1618,83 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
       if (els.placesList) {
         for (const el of els.placesList.querySelectorAll('.peopleItem.selected')) el.classList.remove('selected');
       }
-      btn.classList.add('selected');
+      rowEl.classList.add('selected');
     } catch (_) {}
     try { setStatus(`Place: ${_placeMeta(node) || pid} · ${_placeLabel(node)}`); } catch (_) {}
     try { onSelect && onSelect(node); } catch (_) {}
-  });
+  };
 
-  if (!hasChildren) return btn;
+  const buildRow = (elTag) => {
+    const rowEl = document.createElement(elTag);
+    rowEl.className = 'peopleItem placesItem';
+    rowEl.dataset.placeId = String(node.id || '');
+    if (state.placesSelected && String(state.placesSelected) === String(node.id)) rowEl.classList.add('selected');
+
+    const grid = document.createElement('div');
+    grid.className = 'placeGrid';
+
+    const left = document.createElement('div');
+    left.className = 'placeLeft';
+    const d = Number(depth || 0);
+    if (d > 0) left.style.paddingLeft = `${d * INDENT_PX}px`;
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'placeNameRow';
+
+    const twisty = document.createElement('span');
+    twisty.className = hasChildren ? 'placesTwisty' : 'placesTwistySpacer';
+    twisty.setAttribute('aria-hidden', 'true');
+    twisty.textContent = hasChildren ? '▶' : '';
+    nameRow.appendChild(twisty);
+
+    const name = document.createElement('span');
+    name.className = 'placeName';
+    name.textContent = _placeLabel(node);
+    name.title = name.textContent;
+    // Clicking the name copies ID + full breadcrumb.
+    name.addEventListener('click', async (e) => {
+      try {
+        e.preventDefault();
+        e.stopPropagation();
+      } catch (_) {}
+      const gid = String(node?.gramps_id || '').trim();
+      const internal = String(node?.id || '').trim();
+      const idPart = gid ? `${gid} (${internal})` : internal;
+      const crumb = _placeBreadcrumb();
+      const text = `${idPart}\t${crumb}`;
+      const ok = await _copyText(text);
+      try { setStatus(ok ? `Copied: ${idPart} · ${crumb}` : 'Copy failed.'); } catch (_) {}
+    });
+    nameRow.appendChild(name);
+
+    left.appendChild(nameRow);
+
+    const right = document.createElement('div');
+    right.className = 'placeMetaRight';
+    right.textContent = _placeMeta(node);
+
+    grid.appendChild(left);
+    grid.appendChild(right);
+    rowEl.appendChild(grid);
+
+    return rowEl;
+  };
+
+  if (!hasChildren) {
+    const btn = buildRow('button');
+    btn.type = 'button';
+    btn.addEventListener('click', () => selectThisPlace(btn));
+    return btn;
+  }
 
   const details = document.createElement('details');
   details.className = 'placesGroup';
 
-  const summary = document.createElement('summary');
-  summary.appendChild(btn);
+  const summary = buildRow('summary');
+  summary.addEventListener('click', () => {
+    // One click both selects and toggles the <details>.
+    selectThisPlace(summary);
+  });
 
   // Default open when searching and the subtree contains a match.
   if (queryNorm) {
