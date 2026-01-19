@@ -152,6 +152,10 @@ Small UX win (no backend required):
 - Backend:
   - `GET /places?query=` and `GET /places/{id}`.
 
+**Data quality / debug reports**
+- Goal: generate exportable lists of troublesome records (especially Places with missing `place_type`, missing `enclosed_by_id`, and/or missing coords) so they can be fixed in Gramps Desktop.
+- Spec / notes: `DEBUG_DATA_QUALITY.md`
+
 ### UI trick: separate actions inside a `<summary>`
 In the Places tree, an expandable row is a `<details>` with a `<summary>`.
 

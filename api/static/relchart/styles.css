@@ -1231,10 +1231,24 @@ html[data-theme="light"] .optionsSection {
 }
 
 .placeMetaRight {
+  display: grid;
+  justify-items: end;
+  align-content: start;
+  gap: 2px;
+  text-align: right;
+}
+
+.placeTypeRight {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--panel-font);
+  white-space: nowrap;
+}
+
+.placeIdRight {
   font-size: 12px;
   color: var(--muted);
   font-family: var(--mono);
-  text-align: right;
   white-space: nowrap;
 }
 

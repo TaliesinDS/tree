@@ -1617,6 +1617,26 @@ function _placeMeta(p) {
   return parts.join(', ');
 }
 
+function _placeTypeText(p) {
+  return _normPlaceType(p?.type);
+}
+
+function _placeIdText(p) {
+  return String(p?.gramps_id || '').trim();
+}
+
+function _isLikelyInNetherlands(p) {
+  const lat = Number(p?.lat);
+  const lon = Number(p?.lon);
+  // Rough NL bounding box (WGS84). Using a generous box avoids false negatives.
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    return lat >= 50.6 && lat <= 53.8 && lon >= 2.7 && lon <= 7.5;
+  }
+  // If we have no coordinates, fall back to name heuristics.
+  const n = _placeLabel(p).toLowerCase();
+  return n.includes('netherlands') || n.includes('nederland');
+}
+
 function _isCountryPlace(p) {
   const t = _normPlaceType(p?.type).toLowerCase();
   if (!t) return false;
@@ -1648,6 +1668,12 @@ function _isLikelyCountryName(name) {
     'indonesia',
     'nederlands-indie',
     'nederlands-indië',
+    'italy',
+    'italie',
+    'italië',
+    'israel',
+    'hungary',
+    'hongarije',
   ]);
   return known.has(n);
 }
@@ -1657,6 +1683,57 @@ function _isCountryPlaceRobust(p) {
   const parent = String(p?.enclosed_by_id || '').trim();
   if (parent) return false;
   return _isLikelyCountryName(p?.name);
+}
+
+function _countryNameForCoords(latRaw, lonRaw) {
+  const lat = Number(latRaw);
+  const lon = Number(lonRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+  // Rough country bounding boxes (WGS84). These are pragmatic buckets.
+  // Order matters: check NL before broader neighbors.
+  if (lat >= 50.6 && lat <= 53.8 && lon >= 2.7 && lon <= 7.5) return 'netherlands';
+  if (lat >= 49.4 && lat <= 51.6 && lon >= 2.4 && lon <= 6.5) return 'belgium';
+  if (lat >= 47.2 && lat <= 55.2 && lon >= 5.2 && lon <= 15.6) return 'germany';
+  if (lat >= 41.0 && lat <= 51.6 && lon >= -5.5 && lon <= 9.8) return 'france';
+  if (lat >= 35.0 && lat <= 48.0 && lon >= 6.0 && lon <= 19.5) return 'italy';
+  if (lat >= 29.0 && lat <= 34.2 && lon >= 34.0 && lon <= 36.5) return 'israel';
+  if (lat >= 45.6 && lat <= 48.7 && lon >= 16.0 && lon <= 22.9) return 'hungary';
+  return null;
+}
+
+function _ensureCountryRoot(byId, rootCountries, countryKey) {
+  const key = String(countryKey || '').trim().toLowerCase();
+  if (!key) return null;
+
+  const aliases = {
+    netherlands: new Set(['netherlands', 'nederland']),
+    belgium: new Set(['belgium', 'belgie', 'belgië']),
+    germany: new Set(['germany', 'duitsland']),
+    france: new Set(['france', 'frankrijk']),
+    italy: new Set(['italy', 'italie', 'italië']),
+    israel: new Set(['israel']),
+    hungary: new Set(['hungary', 'hongarije']),
+  };
+
+  const match = (p) => {
+    const label = _placeLabel(p).toLowerCase();
+    const a = aliases[key];
+    if (a && a.has(label)) return true;
+    return label === key;
+  };
+
+  const existing = Array.isArray(rootCountries) ? rootCountries.find(match) : null;
+  if (existing) return String(existing.id);
+
+  const id = `__country_${key.replace(/[^a-z0-9]+/g, '_')}__`;
+  if (!byId.has(id)) {
+    const title = key.charAt(0).toUpperCase() + key.slice(1);
+    byId.set(id, { id, gramps_id: null, name: title, type: 'Country', enclosed_by_id: null });
+  }
+  const rec = byId.get(id);
+  if (rec && !rootCountries.some((p) => String(p?.id || '') === id)) rootCountries.push(rec);
+  return id;
 }
 
 function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
@@ -1765,7 +1842,22 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
 
     const right = document.createElement('div');
     right.className = 'placeMetaRight';
-    right.textContent = _placeMeta(node);
+
+    const typeText = _placeTypeText(node);
+    if (typeText) {
+      const typeEl = document.createElement('div');
+      typeEl.className = 'placeTypeRight';
+      typeEl.textContent = typeText;
+      right.appendChild(typeEl);
+    }
+
+    const gid = _placeIdText(node);
+    if (gid) {
+      const idEl = document.createElement('div');
+      idEl.className = 'placeIdRight';
+      idEl.textContent = gid;
+      right.appendChild(idEl);
+    }
 
     grid.appendChild(left);
     grid.appendChild(right);
@@ -1878,33 +1970,41 @@ function _renderPlacesList(allPlaces) {
     for (const k of kids) sortChildren(k.id);
   };
 
-  // Netherlands normalization: create/choose a top-level Netherlands country node
-  // and move any non-country roots under it (preserving their order).
+  // Country normalization: keep countries as top-level roots.
+  // When hierarchy is incomplete (no enclosed_by_id), bucket non-country roots
+  // under a likely country (by coords when present; NL by default when missing)
+  // so they don't appear as random top-level roots.
   const rootsResolved = roots.map((r) => byId.get(r.id)).filter(Boolean);
   const rootCountries = rootsResolved.filter(_isCountryPlaceRobust);
   const rootNonCountries = rootsResolved.filter((p) => !_isCountryPlaceRobust(p));
 
-  const nl = rootCountries.find((p) => {
-    const n = _placeLabel(p).toLowerCase();
-    return n === 'netherlands' || n === 'nederland';
-  });
-  const nlId = nl ? String(nl.id) : '__nl__';
-  if (!nl) {
-    byId.set(nlId, { id: nlId, gramps_id: null, name: 'Netherlands', type: 'Country', enclosed_by_id: null });
-    rootCountries.unshift(byId.get(nlId));
-  }
+  const nlId = _ensureCountryRoot(byId, rootCountries, 'netherlands') || '__country_netherlands__';
 
-  if (rootNonCountries.length) {
-    if (!childrenByParent.has(nlId)) childrenByParent.set(nlId, []);
-    const list = childrenByParent.get(nlId);
-    for (const p of rootNonCountries) {
-      list.push({ id: String(p.id) });
+  const unbucketedOrphans = [];
+  for (const p of rootNonCountries) {
+    const pid = String(p?.id || '').trim();
+    if (!pid) continue;
+
+    const lat = Number(p?.lat);
+    const lon = Number(p?.lon);
+    const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);
+
+    // Bucket by country bbox when possible.
+    const bucketByCoords = _countryNameForCoords(lat, lon);
+    const bucket = bucketByCoords || (hasCoords ? null : 'netherlands');
+    if (!bucket) {
+      unbucketedOrphans.push({ id: pid });
+      continue;
     }
-    // Remove those from roots.
+
+    const countryId = _ensureCountryRoot(byId, rootCountries, bucket) || nlId;
+    if (!childrenByParent.has(countryId)) childrenByParent.set(countryId, []);
+    childrenByParent.get(countryId).push({ id: pid });
   }
 
   const finalRoots = [];
   for (const c of rootCountries) finalRoots.push({ id: String(c.id) });
+  for (const o of unbucketedOrphans) finalRoots.push(o);
 
   // Sort roots alphabetically by label.
   finalRoots.sort((a, b) => sortKey(byId.get(a.id)).localeCompare(sortKey(byId.get(b.id))));
