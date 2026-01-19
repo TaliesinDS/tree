@@ -24,6 +24,8 @@
   --detail-panel-h: 620px;
   /* Leaflet uses fairly high z-index values for panes/controls; keep UI above it. */
   --detail-panel-z: 2000;
+  /* Topbar + popovers must sit above map + detail panels. */
+  --topbar-z: 3000;
 }
 
 /* Self-hosted Crimson Pro (variable font). Files live under api/static/relchart/fonts/Crimson_Pro/static/ */
@@ -961,7 +963,7 @@ html[data-theme="light"] .themeToggle:hover { background: #e0e0e0; }
   backdrop-filter: blur(6px);
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: var(--topbar-z);
 }
 
 html[data-theme="light"] .topbar {
@@ -985,6 +987,7 @@ html[data-theme="light"] .topbar {
 
 .optionsMenu {
   position: relative;
+  z-index: calc(var(--topbar-z) + 1);
 }
 
 .optionsMenu summary {
@@ -1025,7 +1028,7 @@ html[data-theme="light"] .optionsBtn:hover { background: #e0e0e0; }
   background: var(--panel);
   box-shadow: var(--shadow);
   backdrop-filter: blur(8px);
-  z-index: 2001;
+  z-index: calc(var(--topbar-z) + 2);
 }
 
 .optionsSection {
