@@ -115,7 +115,11 @@ This section expands the running TODO list into small, actionable feature notes.
 - UX:
   - mode toggle + generation depth slider (e.g. 5, 10, 20, or “all until unknown”)
   - should be fast and stable (very small subgraph)
-- Backend:
+- Frontend utility available:
+  - `api/static/relchart/js/chart/lineage.js` provides `traceAncestorLine(payload, rootId, { preferGender: 'M'|'F' })`
+  - Returns `{ personIds, familyIds, personOrder, persons }` for highlighting
+  - Use `getEdgesForLine()` to get edge list for SVG highlighting
+- Backend (optional):
   - can be implemented as repeated parent lookups (cheap) or a recursive CTE with a “direction” filter
   - API shape idea: `GET /graph/lineage?center=<id>&mode=patrilineal|matrilineal|ancestors&max_depth=20`
   - return nodes+edges suitable for reuse in the main renderer

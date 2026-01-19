@@ -81,6 +81,13 @@ Two related UX flows:
   - `shared_ancestor` (highlight common ancestor(s) and paths A→ancestor and B→ancestor)
   - `shared_descendant` (highlight common descendant(s) and paths A→descendant and B→descendant)
 
+Frontend utility available:
+- `api/static/relchart/js/chart/lineage.js` provides ancestor/descendant line tracing:
+  - `traceAncestorLine(payload, rootId, { preferGender: 'M'|'F' })` — trace paternal or maternal line
+  - `traceDescendantLine(payload, rootId)` — trace first-child line downward
+  - `getEdgesForLine(payload, personIds, familyIds)` — get edges for SVG highlighting
+- These utilities work client-side on the loaded payload for quick highlighting without backend calls.
+
 Required:
 - **Backend pathfinding:**
   - current prototype: `GET /relationship/path?from_id=<id>&to_id=<id>&max_hops=12`

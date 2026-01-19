@@ -107,6 +107,7 @@ API:
 - api/static/graph_demo.html — interactive graph demo (Cytoscape + Graphviz)
 - api/static/viewer_ported.html — newer Gramps-Web-like viewer shell (Graphviz + sidebar tabs)
 - api/static/relchart/ — modular relationship chart demo frontend (Graphviz WASM)
+  - `js/chart/lineage.js` — ancestor/descendant line tracing utilities for future edge highlighting features
 - api/restart_api_8080.ps1 — start/restart uvicorn detached, logs to reports/
 
 Relchart notes:

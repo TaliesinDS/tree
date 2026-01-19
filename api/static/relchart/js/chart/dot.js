@@ -128,8 +128,15 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
   const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
   const edges = Array.isArray(payload?.edges) ? payload.edges : [];
 
+  // Build lookup maps for ID resolution
   const peopleById = new Map(nodes.filter(n => n?.type === 'person' && n?.id).map(n => [String(n.id), n]));
   const familiesById = new Map(nodes.filter(n => n?.type === 'family' && n?.id).map(n => [String(n.id), n]));
+
+  // Note: For ancestor/descendant line tracing (edge highlighting, etc.),
+  // see lineage.js which provides traceAncestorLine(), traceDescendantLine(),
+  // and getEdgesForLine() utilities.
+
+  // peopleById and familiesById already defined above
 
   const famFather = new Map();
   const famMother = new Map();

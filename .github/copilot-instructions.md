@@ -34,6 +34,7 @@ When working on the viewer, **always use the relchart v3 files** under `api/stat
 - `api/static/relchart/js/chart/graphviz.js` — Graphviz WASM loader
 - `api/static/relchart/js/chart/panzoom.js` — viewBox-based pan/zoom
 - `api/static/relchart/js/chart/payload.js` — payload merge utilities
+- `api/static/relchart/js/chart/lineage.js` — **ancestor/descendant line tracing** for edge highlighting
 
 ### Backend
 - `api/main.py` — FastAPI endpoints, privacy filtering, graph queries

@@ -97,6 +97,12 @@ JavaScript modules:
   - compute expansion opportunities from the payload:
     - `computeHiddenParentFamiliesByPersonId`
     - `computeHiddenChildFamiliesByPersonId`
+- `api/static/relchart/js/chart/lineage.js`
+  - **Ancestor/descendant line tracing utilities** for future edge-highlighting features
+  - `traceAncestorLine(payload, rootId, { preferGender })` — trace direct paternal ('M') or maternal ('F') line
+  - `traceDescendantLine(payload, rootId)` — trace first-child line downward
+  - `getEdgesForLine(payload, personIds, familyIds)` — get edges connecting a traced line
+  - See the file's JSDoc for usage examples
 - `api/static/relchart/js/chart/render.js`
   - render pipeline (DOT → Graphviz SVG → attach interactions + badges)
 
