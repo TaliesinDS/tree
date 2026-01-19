@@ -628,6 +628,7 @@ def list_events(
     offset: int = Query(default=0, ge=0, le=5_000_000),
     include_total: bool = False,
     q: Optional[str] = None,
+    place_id: Optional[str] = None,
     sort: str = "type_asc",
 ) -> dict[str, Any]:
     """List events in the database (privacy-safe).
@@ -662,6 +663,8 @@ def list_events(
         qn = (q or "").strip()
         q_like = f"%{qn}%" if qn else None
 
+        pid = (place_id or "").strip() or None
+
         gramps_id_select = "e.gramps_id" if has_event_gramps_id else "NULL"
 
         sort_key = (sort or "type_asc").strip().lower()
@@ -685,6 +688,7 @@ def list_events(
                         FROM event e
                         LEFT JOIN place pl ON pl.id = e.place_id
                         WHERE e.is_private = FALSE
+                          AND (%s::text IS NULL OR e.place_id = %s::text)
                           AND (
                             e.event_type ILIKE %s
                             OR e.description ILIKE %s
@@ -705,7 +709,7 @@ def list_events(
                                                         )
                           )
                         """.strip(),
-                                                (q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like),
+                                                (pid, pid, q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like),
                     ).fetchone()[0]
                 else:
                     total = conn.execute(
@@ -714,6 +718,7 @@ def list_events(
                         FROM event e
                         LEFT JOIN place pl ON pl.id = e.place_id
                         WHERE e.is_private = FALSE
+                          AND (%s::text IS NULL OR e.place_id = %s::text)
                           AND (
                             e.event_type ILIKE %s
                             OR e.description ILIKE %s
@@ -733,10 +738,18 @@ def list_events(
                                                         )
                           )
                         """.strip(),
-                                                (q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like),
+                                                (pid, pid, q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like),
                     ).fetchone()[0]
             else:
-                total = conn.execute("SELECT COUNT(*) FROM event WHERE is_private = FALSE").fetchone()[0]
+                total = conn.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM event e
+                    WHERE e.is_private = FALSE
+                      AND (%s::text IS NULL OR e.place_id = %s::text)
+                    """.strip(),
+                    (pid, pid),
+                ).fetchone()[0]
 
         page_limit = int(limit)
         page_offset = int(offset)
@@ -744,6 +757,9 @@ def list_events(
 
         base_where = "e.is_private = FALSE"
         params: list[Any] = []
+        if pid:
+            base_where += " AND e.place_id = %s"
+            params.append(pid)
         if q_like:
             if has_event_gramps_id:
                 base_where += " AND (e.event_type ILIKE %s OR e.description ILIKE %s OR e.event_date_text ILIKE %s OR e.gramps_id ILIKE %s OR pl.name ILIKE %s OR EXISTS (SELECT 1 FROM person_event pe JOIN person p ON p.id = pe.person_id WHERE pe.event_id = e.id AND (p.display_name ILIKE %s OR p.given_name ILIKE %s OR p.surname ILIKE %s OR p.gramps_id ILIKE %s)))"
@@ -1013,6 +1029,37 @@ def list_events(
     if include_total:
         out["total"] = int(total or 0)
     return _compact_json(out) or out
+
+
+@app.get("/places/events_counts")
+def places_events_counts() -> dict[str, Any]:
+        """Return per-place event counts (privacy-safe).
+
+        Used by the Map tab to decide whether to show the per-place events menu.
+
+        Notes:
+        - Counts only include events where event.is_private = FALSE.
+        - Only includes non-private places.
+        """
+
+        with db_conn() as conn:
+                rows = conn.execute(
+                        """
+                        SELECT
+                            e.place_id AS place_id,
+                            COUNT(*)::int AS events_total
+                        FROM event e
+                        JOIN place p ON p.id = e.place_id
+                        WHERE e.is_private = FALSE
+                            AND p.is_private = FALSE
+                            AND e.place_id IS NOT NULL
+                        GROUP BY e.place_id
+                        """.strip()
+                ).fetchall()
+
+        results = [{"place_id": str(pid), "events_total": int(n)} for (pid, n) in rows]
+        out: dict[str, Any] = {"results": results}
+        return _compact_json(out) or out
 
 
 @app.get("/places")

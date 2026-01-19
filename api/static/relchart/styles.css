@@ -1279,6 +1279,165 @@ html[data-theme="light"] .optionsSection {
   white-space: nowrap;
 }
 
+/* Place list: stable ID alignment + events menu button */
+.placeIdRow {
+  display: grid;
+  grid-template-columns: auto 26px;
+  gap: 6px;
+  align-items: center;
+  justify-items: end;
+}
+
+.placeEventsMenuBtn {
+  width: 26px;
+  height: 22px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.10);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+html[data-theme="light"] .placeEventsMenuBtn {
+  border-color: rgba(0,0,0,0.08);
+  background: rgba(0,0,0,0.03);
+}
+
+.placeEventsMenuBtn:hover {
+  background: rgba(122,162,255,0.10);
+}
+
+.placeEventsMenuBtn:focus-visible {
+  outline: 2px solid rgba(122,162,255,0.65);
+  outline-offset: 2px;
+}
+
+/* Three horizontal hyphens (hamburger) */
+.placesMenuIcon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+  background:
+    linear-gradient(currentColor 0 0) 0 2px/100% 2px no-repeat,
+    linear-gradient(currentColor 0 0) 0 6px/100% 2px no-repeat,
+    linear-gradient(currentColor 0 0) 0 10px/100% 2px no-repeat;
+  border-radius: 999px;
+}
+
+/* Non-modal popover panel for place events (overlaps map) */
+.placeEventsPanel {
+  position: fixed;
+  z-index: 1600;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  border-radius: 14px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+
+.placeEventsPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.placeEventsPanelTitle {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.placeEventsPanelClose {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.10);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+html[data-theme="light"] .placeEventsPanelClose {
+  border-color: rgba(0,0,0,0.08);
+  background: rgba(0,0,0,0.03);
+}
+
+.placeEventsPanelBody {
+  padding: 10px;
+  overflow: auto;
+  max-height: inherit;
+}
+
+.placeEventsLoading,
+.placeEventsEmpty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.placeEventList {
+  display: grid;
+  gap: 8px;
+}
+
+.placeEventItem {
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.08);
+  border-radius: 12px;
+  padding: 8px;
+}
+
+html[data-theme="light"] .placeEventItem {
+  border-color: rgba(0,0,0,0.08);
+  background: rgba(0,0,0,0.03);
+}
+
+.placeEventRow1 {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.placeEventTitle {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 650;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.placeEventId {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.placeEventRow2 {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* placeEnclosureLine is no longer used; enclosure is shown inline */
 
 .placesGroup {

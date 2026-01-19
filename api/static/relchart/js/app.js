@@ -37,6 +37,7 @@ const els = {
   optPeopleWidePx: $('optPeopleWidePx'),
   optionsMenu: $('optionsMenu'),
   personDetailPanel: $('personDetailPanel'),
+  placeEventsPanel: null,
 };
 
 const state = {
@@ -68,6 +69,13 @@ const state = {
   placesSelected: null,
   placesQuery: '',
   placeById: new Map(),
+  placeEventCountById: new Map(),
+  placeEventsByPlaceId: new Map(),
+  placeEventsPanel: {
+    open: false,
+    placeId: null,
+    wiredScroll: false,
+  },
   map: {
     leafletLoading: false,
     leafletReady: false,
@@ -89,6 +97,205 @@ const state = {
     peek: { url: '', name: '', loading: false },
   },
 };
+
+function _applyPlacesMenuButtonVisibility() {
+  if (!els.placesList) return;
+  for (const b of els.placesList.querySelectorAll('.placeEventsMenuBtn[data-place-id]')) {
+    const pid = String(b?.dataset?.placeId || '').trim();
+    if (!pid) continue;
+    const count = Number(state.placeEventCountById?.get?.(pid));
+    const has = Number.isFinite(count) && count > 0;
+    b.style.visibility = has ? 'visible' : 'hidden';
+  }
+}
+
+function _ensurePlaceEventsPanel() {
+  if (els.placeEventsPanel && document.body.contains(els.placeEventsPanel)) return;
+
+  const panel = document.createElement('div');
+  panel.className = 'placeEventsPanel';
+  panel.hidden = true;
+  panel.innerHTML = `
+    <div class="placeEventsPanelHeader">
+      <div class="placeEventsPanelTitle" data-place-events-title="1">Place Events</div>
+      <button class="placeEventsPanelClose" type="button" data-place-events-close="1" title="Close">×</button>
+    </div>
+    <div class="placeEventsPanelBody" data-place-events-body="1"></div>
+  `;
+
+  panel.addEventListener('click', (e) => {
+    const t = e?.target;
+    const el = (t && t.nodeType === 1) ? t : t?.parentElement;
+    const closeBtn = el && el.closest ? el.closest('[data-place-events-close="1"]') : null;
+    if (!closeBtn) return;
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+    } catch (_) {}
+    _closePlaceEventsPanel();
+  });
+
+  try {
+    window.addEventListener('resize', () => {
+      _positionPlaceEventsPanel();
+    });
+  } catch (_) {}
+
+  els.placeEventsPanel = panel;
+  document.body.appendChild(panel);
+}
+
+function _closePlaceEventsPanel() {
+  state.placeEventsPanel.open = false;
+  state.placeEventsPanel.placeId = null;
+  if (els.placeEventsPanel) {
+    els.placeEventsPanel.hidden = true;
+    els.placeEventsPanel._anchorEl = null;
+  }
+}
+
+function _positionPlaceEventsPanel(anchorEl) {
+  const panel = els.placeEventsPanel;
+  if (!panel || panel.hidden) return;
+
+  const a = anchorEl || panel._anchorEl || null;
+  if (!a || typeof a.getBoundingClientRect !== 'function') {
+    _closePlaceEventsPanel();
+    return;
+  }
+  const r = a.getBoundingClientRect();
+
+  // If the anchor is fully out of view, close the panel.
+  // This avoids the panel sticking to the top/bottom edge when scrolling.
+  const vw = window.innerWidth || 1200;
+  const vh = window.innerHeight || 800;
+  if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) {
+    _closePlaceEventsPanel();
+    return;
+  }
+
+  const margin = 10;
+  const gap = 10;
+  const w = 380;
+  const maxH = Math.min(520, (window.innerHeight || 800) - (margin * 2));
+
+  let left = r.right + gap;
+  let top = r.top - 8;
+
+  if (left + w + margin > vw) left = Math.max(margin, vw - w - margin);
+  if (top + 120 > vh - margin) top = Math.max(margin, vh - 120 - margin);
+  if (top < margin) top = margin;
+
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+  panel.style.width = `${w}px`;
+  panel.style.maxHeight = `${maxH}px`;
+}
+
+async function _ensurePlaceEventsLoaded(placeId) {
+  const pid = String(placeId || '').trim();
+  if (!pid) return [];
+  if (state.placeEventsByPlaceId.has(pid)) return state.placeEventsByPlaceId.get(pid) || [];
+
+  const params = new URLSearchParams();
+  params.set('place_id', pid);
+  params.set('limit', '2000');
+  params.set('offset', '0');
+  params.set('sort', 'year_asc');
+
+  const r = await fetch(`/events?${params.toString()}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  const results = Array.isArray(data?.results) ? data.results : [];
+  state.placeEventsByPlaceId.set(pid, results);
+  return results;
+}
+
+function _renderPlaceEventsPanelBody(placeId, events) {
+  const panel = els.placeEventsPanel;
+  if (!panel) return;
+  const titleEl = panel.querySelector('[data-place-events-title="1"]');
+  const bodyEl = panel.querySelector('[data-place-events-body="1"]');
+  if (!bodyEl) return;
+
+  const pid = String(placeId || '').trim();
+  const place = state.placeById?.get?.(pid) || null;
+  const title = place ? _placeLabel(place) : `Place ${pid}`;
+  if (titleEl) titleEl.textContent = `Events · ${title}`;
+
+  const evs = Array.isArray(events) ? events : [];
+  if (!evs.length) {
+    bodyEl.innerHTML = `<div class="placeEventsEmpty">No public events found for this place.</div>`;
+    return;
+  }
+
+  const items = evs.map((ev) => {
+    const t = String(ev?.type || 'Event');
+    const dateText = String(ev?.date_text || '').trim();
+    const dateIso = String(ev?.date || '').trim();
+    const dateUi = formatGrampsDateEnglish(dateIso || dateText);
+    const primary = String(ev?.primary_person?.display_name || '').trim();
+    const desc = String(ev?.description || '').trim();
+    const line1 = primary ? `${t} · ${primary}` : t;
+    const line2Parts = [];
+    if (dateUi) line2Parts.push(dateUi);
+    if (desc) line2Parts.push(desc);
+    const line2 = line2Parts.join(' · ');
+    const gid = String(ev?.gramps_id || '').trim();
+    const idLabel = gid || String(ev?.id || '').trim();
+    return `
+      <div class="placeEventItem" title="${_escapeHtml(idLabel)}">
+        <div class="placeEventRow1">
+          <div class="placeEventTitle">${_escapeHtml(line1)}</div>
+          <div class="placeEventId">${_escapeHtml(idLabel)}</div>
+        </div>
+        ${line2 ? `<div class="placeEventRow2">${_escapeHtml(line2)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  bodyEl.innerHTML = `<div class="placeEventList">${items}</div>`;
+}
+
+async function _togglePlaceEventsPanel(placeId, anchorEl) {
+  const pid = String(placeId || '').trim();
+  if (!pid) return;
+
+  _ensurePlaceEventsPanel();
+  const panel = els.placeEventsPanel;
+  if (!panel) return;
+
+  if (state.placeEventsPanel.open && state.placeEventsPanel.placeId === pid) {
+    _closePlaceEventsPanel();
+    return;
+  }
+
+  state.placeEventsPanel.open = true;
+  state.placeEventsPanel.placeId = pid;
+  panel._anchorEl = anchorEl || null;
+  panel.hidden = false;
+  _positionPlaceEventsPanel(anchorEl);
+
+  // Loading state
+  try {
+    const bodyEl = panel.querySelector('[data-place-events-body="1"]');
+    if (bodyEl) bodyEl.innerHTML = '<div class="placeEventsLoading">Loading events…</div>';
+  } catch (_) {}
+
+  let events = [];
+  try {
+    events = await _ensurePlaceEventsLoaded(pid);
+  } catch (e) {
+    try {
+      const bodyEl = panel.querySelector('[data-place-events-body="1"]');
+      if (bodyEl) bodyEl.innerHTML = `<div class="placeEventsEmpty">Failed to load events: ${_escapeHtml(e?.message || e)}</div>`;
+    } catch (_) {}
+    return;
+  }
+
+  _renderPlaceEventsPanelBody(pid, events);
+  _positionPlaceEventsPanel(anchorEl);
+}
 
 function _setMainView(viewName) {
   const v = String(viewName || '').trim().toLowerCase();
@@ -1240,6 +1447,12 @@ function _selectPlaceGlobal(placeLike, { emitMapEvent = true } = {}) {
   const pid = String(place?.id || '').trim();
   if (!pid) return;
 
+  // If a different place becomes selected, close any open place-events panel.
+  try {
+    const openPid = String(state.placeEventsPanel?.placeId || '').trim();
+    if (openPid && openPid !== pid) _closePlaceEventsPanel();
+  } catch (_) {}
+
   state.placesSelected = pid;
   state.map.pendingPlaceId = pid;
 
@@ -1271,6 +1484,9 @@ function _selectPlaceGlobal(placeLike, { emitMapEvent = true } = {}) {
     // Note: this should never force the map to become visible.
     try { window.dispatchEvent(new CustomEvent('relchart:place-selected', { detail: place })); } catch (_) {}
   }
+
+  // Prime menu availability for this place.
+  try { Promise.resolve(_ensurePlaceEventsLoaded(pid)).catch(() => {}); } catch (_) {}
 }
 
 function _resolveRelationsRootPersonId() {
@@ -2046,7 +2262,15 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
   const selectThisPlace = (rowEl, { emitMapEvent = true } = {}) => {
     const pid = String(node.id || '').trim();
     if (!pid) return;
+
+    // If a different place becomes selected, close any open place-events panel.
+    try {
+      const openPid = String(state.placeEventsPanel?.placeId || '').trim();
+      if (openPid && openPid !== pid) _closePlaceEventsPanel();
+    } catch (_) {}
+
     state.placesSelected = pid;
+    state.map.pendingPlaceId = pid;
     try {
       if (els.placesList) {
         for (const el of els.placesList.querySelectorAll('.peopleItem.selected')) el.classList.remove('selected');
@@ -2057,6 +2281,9 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
     if (emitMapEvent) {
       try { onSelect && onSelect(node); } catch (_) {}
     }
+
+    // Prime the cache so opening the panel is instant if the user clicks the menu.
+    try { Promise.resolve(_ensurePlaceEventsLoaded(pid)).catch(() => {}); } catch (_) {}
   };
 
   const buildRow = (elTag) => {
@@ -2121,12 +2348,38 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
     }
 
     const gid = _placeIdText(node);
-    if (gid) {
-      const idEl = document.createElement('div');
-      idEl.className = 'placeIdRight';
-      idEl.textContent = gid;
-      right.appendChild(idEl);
-    }
+    const idRow = document.createElement('div');
+    idRow.className = 'placeIdRow';
+
+    const idEl = document.createElement('div');
+    idEl.className = 'placeIdRight';
+    idEl.textContent = gid;
+    idRow.appendChild(idEl);
+
+    const menuBtn = document.createElement('button');
+    menuBtn.type = 'button';
+    menuBtn.className = 'placeEventsMenuBtn';
+    menuBtn.title = 'Show events for this place';
+    menuBtn.setAttribute('aria-label', 'Show events for this place');
+    menuBtn.dataset.placeId = String(node.id || '');
+    menuBtn.innerHTML = '<span class="placesMenuIcon" aria-hidden="true"></span>';
+
+    // Visibility is driven by per-place counts loaded once.
+    // If counts aren't loaded yet, keep hidden; we'll flip visibility once counts arrive.
+    const count = Number(state.placeEventCountById?.get?.(String(node.id)));
+    const has = Number.isFinite(count) && count > 0;
+    menuBtn.style.visibility = has ? 'visible' : 'hidden';
+
+    menuBtn.addEventListener('click', (e) => {
+      try {
+        e.preventDefault();
+        e.stopPropagation();
+      } catch (_) {}
+      try { _togglePlaceEventsPanel(String(node.id || ''), menuBtn); } catch (_) {}
+    });
+
+    idRow.appendChild(menuBtn);
+    right.appendChild(idRow);
 
     grid.appendChild(left);
     grid.appendChild(right);
@@ -2206,6 +2459,9 @@ function _computePlaceMatches(roots, byId, childrenByParent, queryNorm) {
 
 function _renderPlacesList(allPlaces) {
   if (!els.placesList || !els.placesStatus) return;
+
+  // Re-rendering the list invalidates anchors; close any open popover.
+  try { _closePlaceEventsPanel(); } catch (_) {}
 
   const places = Array.isArray(allPlaces) ? allPlaces : [];
   const byId = new Map(places.map((p) => [String(p.id), p]));
@@ -2313,6 +2569,17 @@ function _renderPlacesList(allPlaces) {
   }
 
   els.placesList.appendChild(frag);
+
+  // Keep the popover anchored during list scroll.
+  try {
+    if (!state.placeEventsPanel.wiredScroll) {
+      state.placeEventsPanel.wiredScroll = true;
+      els.placesList.addEventListener('scroll', () => {
+        _positionPlaceEventsPanel();
+      }, { passive: true });
+    }
+  } catch (_) {}
+
   const total = places.length;
   const shown = els.placesList.querySelectorAll('.peopleItem.placesItem').length;
   els.placesStatus.textContent = queryNorm ? `Showing ${shown} of ${total}.` : `Showing ${total}.`;
@@ -2332,6 +2599,26 @@ async function ensurePlacesLoaded() {
     state.placeById = new Map(results.map((p) => [String(p?.id || ''), p]).filter(([k]) => !!k));
     state.placesLoaded = true;
     _renderPlacesList(results);
+
+    // Load event counts per place to drive the hamburger icon visibility.
+    // This avoids per-row fetching and ensures icons appear without needing clicks.
+    try {
+      const r2 = await fetch('/places/events_counts');
+      if (r2.ok) {
+        const d2 = await r2.json();
+        const rows = Array.isArray(d2?.results) ? d2.results : [];
+        const m = new Map();
+        for (const row of rows) {
+          const pid = String(row?.place_id || '').trim();
+          const n = Number(row?.events_total ?? 0);
+          if (pid) m.set(pid, Number.isFinite(n) ? n : 0);
+        }
+        state.placeEventCountById = m;
+        _applyPlacesMenuButtonVisibility();
+      }
+    } catch (_err) {
+      // Non-fatal. Menu icons may still appear after opening a place panel.
+    }
   } catch (e) {
     els.placesStatus.textContent = `Failed to load places: ${e?.message || e}`;
   }
