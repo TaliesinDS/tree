@@ -22,7 +22,8 @@
   /* Person detail panel (tweakable) */
   --detail-panel-w: 520px;
   --detail-panel-h: 620px;
-  --detail-panel-z: 50;
+  /* Leaflet uses fairly high z-index values for panes/controls; keep UI above it. */
+  --detail-panel-z: 2000;
 }
 
 /* Self-hosted Crimson Pro (variable font). Files live under api/static/relchart/fonts/Crimson_Pro/static/ */
@@ -413,6 +414,32 @@ html[data-theme="light"] .eventItem {
 }
 .eventMeta { color: var(--muted); font-size: 14px; margin-top: 0px; }
 .eventDesc { margin-top: 2px; font-size: 15px; }
+
+/* Clickable place name inside the person detail event list */
+.eventPlaceLink {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.eventPlaceLink:hover {
+  opacity: 0.9;
+}
+
+.eventPlaceLink:focus-visible {
+  outline: 2px solid rgba(122,162,255,0.65);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
 
 /* Relations tab */
 .relList {

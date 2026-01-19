@@ -67,12 +67,14 @@ const state = {
   placesLoaded: false,
   placesSelected: null,
   placesQuery: '',
+  placeById: new Map(),
   map: {
     leafletLoading: false,
     leafletReady: false,
     map: null,
     marker: null,
     lastCenteredPlaceId: null,
+    pendingPlaceId: null,
   },
   nodeById: new Map(),
   detailPanel: {
@@ -152,8 +154,9 @@ async function ensureMapInitialized() {
     return;
   }
 
-  // Leaflet expects the container to have real dimensions; ensure we are in map view.
-  try { _setMainView('map'); } catch (_) {}
+  // Leaflet expects the container to have real dimensions.
+  // Only initialize when the map is actually visible.
+  if (els.chart?.dataset?.mainView !== 'map') return;
 
   const L = window.L;
   const map = L.map(els.mapView, {
@@ -178,6 +181,22 @@ async function ensureMapInitialized() {
       try { map.invalidateSize(false); } catch (_err2) {}
     });
   } catch (_err) {}
+}
+
+function _resolvePlaceForMap(placeLike) {
+  const place = (typeof placeLike === 'string') ? { id: placeLike } : (placeLike || null);
+  if (!place) return null;
+  const pid = String(place?.id || '').trim();
+  if (!pid) return null;
+
+  const lat = Number(place?.lat);
+  const lon = Number(place?.lon);
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);
+  if (hasCoords) return place;
+
+  // If we only got an id/name (e.g. from an event payload), upgrade it from the loaded places list.
+  const hit = state.placeById?.get?.(pid) || null;
+  return hit || place;
 }
 
 function _centerMapOnPlace(place) {
@@ -996,6 +1015,34 @@ function _renderPersonDetailPanelSkeleton() {
     e.stopPropagation();
   });
 
+  // Place link inside Event metadata (Details tab)
+  host.addEventListener('click', (e) => {
+    const t = e?.target;
+    const el = (t && t.nodeType === 1) ? t : t?.parentElement;
+    const link = el && el.closest ? el.closest('.eventPlaceLink[data-place-id]') : null;
+    if (!link) return;
+
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+    } catch (_) {}
+
+    const pid = String(link.dataset.placeId || '').trim();
+    if (!pid) return;
+
+    const name = String(link.dataset.placeName || '').trim();
+    const lat = Number(link.dataset.placeLat);
+    const lon = Number(link.dataset.placeLon);
+    const gid = String(link.dataset.placeGrampsId || '').trim();
+
+    const place = { id: pid, name: name || '' };
+    if (gid) place.gramps_id = gid;
+    if (Number.isFinite(lat)) place.lat = lat;
+    if (Number.isFinite(lon)) place.lon = lon;
+
+    try { _selectPlaceGlobal(place, { emitMapEvent: true }); } catch (_) {}
+  });
+
   // Drag behavior
   const header = host.querySelector('[data-panel-drag="1"]');
   if (header) {
@@ -1146,13 +1193,29 @@ function _renderEvent(ev) {
   const dateText = String(ev?.date_text || '').trim();
   const dateIso = String(ev?.date || '').trim();
   const dateUi = formatGrampsDateEnglish(dateIso || dateText);
-  const placeName = String(ev?.place?.name || '').trim();
+  const place = ev?.place || null;
+  const placeId = String(place?.id || '').trim();
+  const placeGrampsId = String(place?.gramps_id || '').trim();
+  const placeName = _formatEventPlaceForSidebar(ev);
   const desc = String(ev?.description || '').trim();
 
-  const metaParts = [];
-  if (dateUi) metaParts.push(dateUi);
-  if (placeName) metaParts.push(placeName);
-  const meta = metaParts.join(' · ');
+  const metaHtmlParts = [];
+  if (dateUi) metaHtmlParts.push(`<span class="eventMetaPart">${_escapeHtml(dateUi)}</span>`);
+  if (placeName) {
+    if (placeId) {
+      const lat = Number(place?.lat);
+      const lon = Number(place?.lon);
+      const latAttr = Number.isFinite(lat) ? ` data-place-lat="${_escapeHtml(String(lat))}"` : '';
+      const lonAttr = Number.isFinite(lon) ? ` data-place-lon="${_escapeHtml(String(lon))}"` : '';
+      const gidAttr = placeGrampsId ? ` data-place-gramps-id="${_escapeHtml(placeGrampsId)}"` : '';
+      metaHtmlParts.push(
+        `<button type="button" class="eventPlaceLink" data-place-id="${_escapeHtml(placeId)}" data-place-name="${_escapeHtml(placeName)}"${gidAttr}${latAttr}${lonAttr} title="Select place">${_escapeHtml(placeName)}</button>`
+      );
+    } else {
+      metaHtmlParts.push(`<span class="eventMetaPart">${_escapeHtml(placeName)}</span>`);
+    }
+  }
+  const metaHtml = metaHtmlParts.join(' · ');
 
   const notes = Array.isArray(ev?.notes) ? ev.notes : [];
   const notesHtml = notes.length
@@ -1165,11 +1228,49 @@ function _renderEvent(ev) {
         <div class="eventTitle">${_escapeHtml(t)}</div>
         ${role ? `<div class="eventRole">${_escapeHtml(role)}</div>` : ''}
       </div>
-      ${meta ? `<div class="eventMeta">${_escapeHtml(meta)}</div>` : ''}
+      ${metaHtml ? `<div class="eventMeta">${metaHtml}</div>` : ''}
       ${desc ? `<div class="eventDesc">${_escapeHtml(desc)}</div>` : ''}
       ${notesHtml}
     </div>
   `;
+}
+
+function _selectPlaceGlobal(placeLike, { emitMapEvent = true } = {}) {
+  const place = (typeof placeLike === 'string') ? { id: placeLike } : (placeLike || null);
+  const pid = String(place?.id || '').trim();
+  if (!pid) return;
+
+  state.placesSelected = pid;
+  state.map.pendingPlaceId = pid;
+
+  // Highlight in the Places list (if already rendered).
+  try {
+    if (els.placesList) {
+      for (const el of els.placesList.querySelectorAll('.peopleItem.selected')) el.classList.remove('selected');
+      const sel = els.placesList.querySelector(`.peopleItem.placesItem[data-place-id="${_cssEscape(pid)}"]`);
+      if (sel) {
+        sel.classList.add('selected');
+        // Ensure ancestors are open so selection is visible.
+        let d = sel.closest('details.placesGroup');
+        while (d) {
+          d.open = true;
+          d = d.parentElement ? d.parentElement.closest('details.placesGroup') : null;
+        }
+        try { sel.scrollIntoView({ block: 'center' }); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
+  try {
+    const label = _placeLabel(place);
+    const meta = _placeMeta(place);
+    setStatus(`Place: ${meta || pid} · ${label}`);
+  } catch (_) {}
+
+  if (emitMapEvent) {
+    // Note: this should never force the map to become visible.
+    try { window.dispatchEvent(new CustomEvent('relchart:place-selected', { detail: place })); } catch (_) {}
+  }
 }
 
 function _resolveRelationsRootPersonId() {
@@ -1621,6 +1722,15 @@ function _setSidebarActiveTab(tabName) {
       // Lazy-init map; also invalidate size after the fade completes.
       Promise.resolve(ensureMapInitialized()).then(() => {
         try { state.map.map?.invalidateSize?.(false); } catch (_) {}
+
+        // If we already have a selected place, center it now that the map is visible.
+        try {
+          const pid = String(state.map.pendingPlaceId || state.placesSelected || '').trim();
+          if (pid) {
+            const p = _resolvePlaceForMap(pid);
+            _centerMapOnPlace(p);
+          }
+        } catch (_) {}
       });
     }
   } catch (_) {}
@@ -1656,7 +1766,17 @@ function _setSidebarActiveTab(tabName) {
 
     if (name === 'map') {
       Promise.resolve(ensurePlacesLoaded()).then(() => {
-        // Nothing else to sync yet.
+        // Now that places are loaded, upgrade any pending selection so the map can center.
+        try {
+          const pid = String(state.map.pendingPlaceId || state.placesSelected || '').trim();
+          if (pid && state.map.map && els.chart?.dataset?.mainView === 'map') {
+            const p = _resolvePlaceForMap(pid);
+            _centerMapOnPlace(p);
+          }
+        } catch (_) {}
+
+        // Ensure the selected place is visible in the Places tree.
+        try { _applyPlacesSelectionToDom({ scroll: true }); } catch (_) {}
       });
     }
   } catch (_) {}
@@ -2209,6 +2329,7 @@ async function ensurePlacesLoaded() {
     const data = await r.json();
     const results = Array.isArray(data?.results) ? data.results : [];
     state.places = results;
+    state.placeById = new Map(results.map((p) => [String(p?.id || ''), p]).filter(([k]) => !!k));
     state.placesLoaded = true;
     _renderPlacesList(results);
   } catch (e) {
@@ -2324,6 +2445,60 @@ function _applyPeopleSelectionToDom({ scroll = true } = {}) {
       requestAnimationFrame(centerSelected);
     });
   } catch (_) {
+    centerSelected();
+  }
+}
+
+function _applyPlacesSelectionToDom({ scroll = true } = {}) {
+  if (!els.placesList) return;
+  const pid = String(state.placesSelected || state.map.pendingPlaceId || '').trim();
+
+  for (const el of els.placesList.querySelectorAll('.peopleItem.selected')) {
+    el.classList.remove('selected');
+  }
+
+  if (!pid) return;
+
+  const sel = els.placesList.querySelector(`.peopleItem.placesItem[data-place-id="${_cssEscape(pid)}"]`);
+  if (!sel) return;
+
+  try { sel.classList.add('selected'); } catch (_err) {}
+
+  // Ensure ancestors are open so the selection is visible.
+  try {
+    let d = sel.closest('details.placesGroup');
+    while (d) {
+      d.open = true;
+      d = d.parentElement ? d.parentElement.closest('details.placesGroup') : null;
+    }
+  } catch (_err) {}
+
+  if (!scroll) return;
+
+  const scrollContainer = els.placesList;
+  const centerSelected = () => {
+    try {
+      const cRect = scrollContainer.getBoundingClientRect();
+      const eRect = sel.getBoundingClientRect();
+      if (!cRect || !eRect) return;
+      const desiredCenter = cRect.top + (cRect.height / 2);
+      const currentCenter = eRect.top + (eRect.height / 2);
+      const delta = currentCenter - desiredCenter;
+      if (!Number.isFinite(delta)) return;
+      scrollContainer.scrollTop += delta;
+    } catch (_err) {
+      try { sel.scrollIntoView({ block: 'center' }); } catch (_err2) {
+        try { sel.scrollIntoView(); } catch (_err3) {}
+      }
+    }
+  };
+
+  try {
+    requestAnimationFrame(() => {
+      centerSelected();
+      requestAnimationFrame(centerSelected);
+    });
+  } catch (_err) {
     centerSelected();
   }
 }
@@ -2997,11 +3172,23 @@ els.resetBtn.addEventListener('click', () => {
 // When a place is selected from the Map tab list, center the map (if available).
 try {
   window.addEventListener('relchart:place-selected', (e) => {
-    const place = e?.detail || null;
-    if (!place) return;
-    // Ensure map exists; then center.
+    const detail = e?.detail || null;
+    const pid = String(detail?.id || '').trim();
+    if (!pid) return;
+
+    // Always remember the last requested place selection.
+    state.map.pendingPlaceId = pid;
+    state.placesSelected = pid;
+
+    // Only center when the map is actually visible.
+    if (els.chart?.dataset?.mainView !== 'map') return;
+
     Promise.resolve(ensureMapInitialized()).then(() => {
-      _centerMapOnPlace(place);
+      Promise.resolve(ensurePlacesLoaded()).then(() => {
+        const place = _resolvePlaceForMap(detail);
+        _centerMapOnPlace(place);
+        try { _applyPlacesSelectionToDom({ scroll: true }); } catch (_) {}
+      });
     });
   });
 } catch (_) {}
