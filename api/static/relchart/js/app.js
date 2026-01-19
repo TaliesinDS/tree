@@ -14,6 +14,8 @@ const els = {
   resetBtn: $('resetBtn'),
   status: $('status'),
   chart: $('chart'),
+  graphView: $('graphView'),
+  mapView: $('mapView'),
   peopleSearch: $('peopleSearch'),
   peopleSearchClear: $('peopleSearchClear'),
   peopleStatus: $('peopleStatus'),
@@ -65,6 +67,13 @@ const state = {
   placesLoaded: false,
   placesSelected: null,
   placesQuery: '',
+  map: {
+    leafletLoading: false,
+    leafletReady: false,
+    map: null,
+    marker: null,
+    lastCenteredPlaceId: null,
+  },
   nodeById: new Map(),
   detailPanel: {
     open: false,
@@ -78,6 +87,130 @@ const state = {
     peek: { url: '', name: '', loading: false },
   },
 };
+
+function _setMainView(viewName) {
+  const v = String(viewName || '').trim().toLowerCase();
+  if (!els.chart) return;
+  els.chart.dataset.mainView = (v === 'map') ? 'map' : 'graph';
+}
+
+async function _ensureLeafletLoaded() {
+  if (state.map.leafletReady && window.L) return;
+  if (state.map.leafletLoading) {
+    // Wait until the script sets leafletReady.
+    let tries = 0;
+    while (!state.map.leafletReady && tries < 120) {
+      await new Promise((r) => setTimeout(r, 50));
+      tries++;
+    }
+    return;
+  }
+  state.map.leafletLoading = true;
+
+  const ensureCss = () => {
+    const id = 'leaflet-css';
+    if (document.getElementById(id)) return;
+    const link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+  };
+
+  const ensureJs = () => new Promise((resolve, reject) => {
+    const id = 'leaflet-js';
+    if (document.getElementById(id)) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = id;
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Leaflet')); 
+    document.head.appendChild(script);
+  });
+
+  try {
+    ensureCss();
+    await ensureJs();
+    state.map.leafletReady = Boolean(window.L);
+  } catch (_) {
+    state.map.leafletReady = false;
+  } finally {
+    state.map.leafletLoading = false;
+  }
+}
+
+async function ensureMapInitialized() {
+  if (!els.mapView) return;
+  if (state.map.map) return;
+  await _ensureLeafletLoaded();
+  if (!window.L) {
+    // Fallback: keep a simple placeholder message.
+    els.mapView.textContent = 'Map failed to load (Leaflet unavailable).';
+    return;
+  }
+
+  // Leaflet expects the container to have real dimensions; ensure we are in map view.
+  try { _setMainView('map'); } catch (_) {}
+
+  const L = window.L;
+  const map = L.map(els.mapView, {
+    zoomControl: true,
+    attributionControl: false,
+    preferCanvas: true,
+  });
+
+  // Default view: Netherlands-ish.
+  map.setView([52.2, 5.3], 7);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    crossOrigin: true,
+  }).addTo(map);
+
+  state.map.map = map;
+
+  // Keep the map responsive when the main view toggles.
+  try {
+    window.addEventListener('resize', () => {
+      try { map.invalidateSize(false); } catch (_) {}
+    });
+  } catch (_) {}
+}
+
+function _centerMapOnPlace(place) {
+  const p = place || null;
+  if (!p) return;
+  const lat = Number(p?.lat);
+  const lon = Number(p?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  if (!state.map.map || !window.L) return;
+
+  const L = window.L;
+  const map = state.map.map;
+  const pid = String(p?.id || '').trim();
+  const label = String(p?.name || '').trim();
+
+  try {
+    map.setView([lat, lon], Math.max(10, map.getZoom() || 10), { animate: true, duration: 0.25 });
+  } catch (_) {
+    try { map.setView([lat, lon], 10); } catch (_) {}
+  }
+
+  try {
+    if (state.map.marker) {
+      state.map.marker.setLatLng([lat, lon]);
+    } else {
+      state.map.marker = L.marker([lat, lon]);
+      state.map.marker.addTo(map);
+    }
+    if (label) state.map.marker.bindPopup(label);
+  } catch (_) {}
+
+  if (pid) state.map.lastCenteredPlaceId = pid;
+}
 
 function _eventYearHint(ev) {
   const iso = String(ev?.date || '').trim();
@@ -1483,6 +1616,17 @@ function _setSidebarActiveTab(tabName) {
     p.classList.toggle('active', p.dataset.panel === name);
   }
 
+  // Main viewport: show map only for the Map tab; otherwise show graph.
+  try {
+    _setMainView(name === 'map' ? 'map' : 'graph');
+    if (name === 'map') {
+      // Lazy-init map; also invalidate size after the fade completes.
+      Promise.resolve(ensureMapInitialized()).then(() => {
+        try { state.map.map?.invalidateSize?.(false); } catch (_) {}
+      });
+    }
+  } catch (_) {}
+
   // Lazy-load + scroll-to-selection on explicit tab open.
   // (Selection changes elsewhere should not force the sidebar to switch tabs.)
   try {
@@ -1781,7 +1925,7 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
     }
   };
 
-  const selectThisPlace = (rowEl) => {
+  const selectThisPlace = (rowEl, { emitMapEvent = true } = {}) => {
     const pid = String(node.id || '').trim();
     if (!pid) return;
     state.placesSelected = pid;
@@ -1792,7 +1936,9 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
       rowEl.classList.add('selected');
     } catch (_) {}
     try { setStatus(`Place: ${_placeMeta(node) || pid} · ${_placeLabel(node)}`); } catch (_) {}
-    try { onSelect && onSelect(node); } catch (_) {}
+    if (emitMapEvent) {
+      try { onSelect && onSelect(node); } catch (_) {}
+    }
   };
 
   const buildRow = (elTag) => {
@@ -1822,12 +1968,17 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
     name.className = 'placeName';
     name.textContent = _placeLabel(node);
     name.title = name.textContent;
-    // Clicking the name copies ID + full breadcrumb.
+    // Clicking the name centers the map (if coords exist) AND copies ID + full breadcrumb.
     name.addEventListener('click', async (e) => {
       try {
         e.preventDefault();
         e.stopPropagation();
       } catch (_) {}
+
+      // Keep expand/collapse on the row box, not the text.
+      // But the text click should still behave like a “select this place”.
+      try { selectThisPlace(rowEl, { emitMapEvent: true }); } catch (_) {}
+
       const gid = String(node?.gramps_id || '').trim();
       const internal = String(node?.id || '').trim();
       const idPart = gid ? `${gid} (${internal})` : internal;
@@ -1869,7 +2020,8 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
   if (!hasChildren) {
     const btn = buildRow('button');
     btn.type = 'button';
-    btn.addEventListener('click', () => selectThisPlace(btn));
+    // Clicking the row selects/highlights, but should not move the map.
+    btn.addEventListener('click', () => selectThisPlace(btn, { emitMapEvent: false }));
     return btn;
   }
 
@@ -1878,8 +2030,9 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
 
   const summary = buildRow('summary');
   summary.addEventListener('click', () => {
-    // One click both selects and toggles the <details>.
-    selectThisPlace(summary);
+    // Row click toggles the <details> (native behavior). Selecting is OK,
+    // but should not move the map.
+    selectThisPlace(summary, { emitMapEvent: false });
   });
 
   // Default open when searching and the subtree contains a match.
@@ -2691,12 +2844,12 @@ async function rerender() {
   if (!state.payload) return;
   rebuildNodeIndex(state.payload);
   const { panZoom } = await renderRelationshipChart({
-    container: els.chart,
+    container: els.graphView || els.chart,
     payload: state.payload,
     onSelectPerson: (pid) => {
       state.selectedPersonId = pid;
       try {
-        const svg = els.chart?.querySelector('svg');
+        const svg = (els.graphView || els.chart)?.querySelector('svg');
         _applyGraphPersonSelection(svg, pid);
       } catch (_) {}
 
@@ -2773,7 +2926,7 @@ async function rerender() {
 
   // Re-apply the latched person selection after every full rerender.
   try {
-    const svg = els.chart?.querySelector('svg');
+    const svg = (els.graphView || els.chart)?.querySelector('svg');
     _applyGraphPersonSelection(svg, state.selectedPersonId);
   } catch (_) {}
 }
@@ -2838,9 +2991,22 @@ els.loadBtn.addEventListener('click', loadNeighborhood);
 els.resetBtn.addEventListener('click', () => {
   state.payload = null;
   state.selectedPersonId = null;
-  els.chart.innerHTML = '';
+  if (els.graphView) els.graphView.innerHTML = '';
+  else if (els.chart) els.chart.innerHTML = '';
   setStatus('Ready.');
 });
+
+// When a place is selected from the Map tab list, center the map (if available).
+try {
+  window.addEventListener('relchart:place-selected', (e) => {
+    const place = e?.detail || null;
+    if (!place) return;
+    // Ensure map exists; then center.
+    Promise.resolve(ensureMapInitialized()).then(() => {
+      _centerMapOnPlace(place);
+    });
+  });
+} catch (_) {}
 
 els.fitBtn.addEventListener('click', () => {
   state.panZoom?.reset?.();

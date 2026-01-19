@@ -1585,3 +1585,54 @@ html[data-theme="light"] .status {
   position: relative;
   touch-action: none;
 }
+
+.graphView,
+.mapView {
+  position: absolute;
+  inset: 0;
+  transition: opacity 180ms ease;
+}
+
+/* Default: Graph visible */
+#chart[data-main-view="graph"] .graphView {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#chart[data-main-view="graph"] .mapView {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Map visible */
+#chart[data-main-view="map"] .graphView {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#chart[data-main-view="map"] .mapView {
+  opacity: 1;
+  pointer-events: auto;
+  background: #0b1324;
+}
+
+.mapAttribution {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 10;
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 9px;
+  user-select: none;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+#chart[data-main-view="map"] .mapAttribution {
+  opacity: 1;
+}
