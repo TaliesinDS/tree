@@ -37,6 +37,8 @@ Not implemented yet (planned):
 - [ ] Pins / waypoints (toolbar pin list)
 - [ ] Strategic (whole-tree) overview mode with LOD
 - [ ] Portrait mirroring + heraldry cues (requires media ingestion + privacy)
+- [ ] Reading mode (large notes/media/user notes)
+- [ ] Save defaults (graph + map config) and set default “home person”
 
 ## Roadmap notes (relchart v3)
 This section expands the running TODO list into small, actionable feature notes.
@@ -150,6 +152,11 @@ Small UX win (no backend required):
 - Goal: show place markers for event-linked locations and allow filtering/jumping back into the graph.
 - Backend:
   - `GET /map/markers` (already described above) + place detail endpoints.
+
+UI direction notes:
+- The Map sidebar panel is primarily the Places browser/tree.
+- Map settings/filters should live in the **topbar** (inline controls + popovers), not in the sidebar.
+- Pins default ON.
 
 **Places browser**
 - Goal: browse/search places (with coords), see events per place, and see people associated.
@@ -355,6 +362,36 @@ Important: scope + consistency
   - the whole database, or
   - the currently loaded graph scope.
 - Both are useful; if both exist, the UI should make it explicit (scope toggle).
+
+Decision (current direction):
+- Whole database scope is a first-class option (not hidden behind “Advanced”).
+- Use guardrails (pin density, server-side limits, progressive rendering) rather than hiding the option.
+
+## 2d) Reading mode (future)
+
+Goal:
+- A dedicated mode/tab for reading large notes, viewing media, and reviewing user notes without competing with the graph/map canvas.
+
+Examples:
+- Full-width reading layout (bigger font, comfortable line length)
+- Media viewer (portraits, documents) with privacy-safe redactions
+- User note review/triage (pinned research todos)
+
+Notes:
+- Not required for the Map topbar work; tracked here for later.
+
+## 2e) Saved defaults (future)
+
+Goal:
+- Allow users to set their current configuration as the default startup configuration.
+
+Scope:
+- Graph defaults: depth/maxNodes and other graph tuning options.
+- Map defaults: basemap, pins/routes toggles, scope, and related settings.
+- Default “home person” (seed person on first load) should be part of this flow.
+
+Storage:
+- Start with localStorage.
 
 ## 3) Pin a person + highlight route to current selection
 UX:

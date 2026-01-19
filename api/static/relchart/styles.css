@@ -1025,7 +1025,7 @@ html[data-theme="light"] .optionsBtn:hover { background: #e0e0e0; }
   background: var(--panel);
   box-shadow: var(--shadow);
   backdrop-filter: blur(8px);
-  z-index: 30;
+  z-index: 2001;
 }
 
 .optionsSection {
