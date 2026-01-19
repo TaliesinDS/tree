@@ -260,6 +260,7 @@ Examples:
 - “Highlight person on map” (toggle)
 - Choose an icon: ★ / 👑 / ⚔ / custom color
 
+
 How it integrates with the place-centric map:
 - When a place popup lists events/people, people with a chosen marker style get a small badge next to their name.
 - Routes for a selected person can render endpoints with that person’s chosen icon/color.

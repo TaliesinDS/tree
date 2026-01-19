@@ -691,9 +691,21 @@ def list_events(
                             OR e.event_date_text ILIKE %s
                             OR e.gramps_id ILIKE %s
                             OR pl.name ILIKE %s
+                                                        OR EXISTS (
+                                                            SELECT 1
+                                                            FROM person_event pe
+                                                            JOIN person p ON p.id = pe.person_id
+                                                            WHERE pe.event_id = e.id
+                                                                AND (
+                                                                    p.display_name ILIKE %s
+                                                                    OR p.given_name ILIKE %s
+                                                                    OR p.surname ILIKE %s
+                                                                    OR p.gramps_id ILIKE %s
+                                                                )
+                                                        )
                           )
                         """.strip(),
-                        (q_like, q_like, q_like, q_like, q_like),
+                                                (q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like),
                     ).fetchone()[0]
                 else:
                     total = conn.execute(
@@ -707,9 +719,21 @@ def list_events(
                             OR e.description ILIKE %s
                             OR e.event_date_text ILIKE %s
                             OR pl.name ILIKE %s
+                                                        OR EXISTS (
+                                                            SELECT 1
+                                                            FROM person_event pe
+                                                            JOIN person p ON p.id = pe.person_id
+                                                            WHERE pe.event_id = e.id
+                                                                AND (
+                                                                    p.display_name ILIKE %s
+                                                                    OR p.given_name ILIKE %s
+                                                                    OR p.surname ILIKE %s
+                                                                    OR p.gramps_id ILIKE %s
+                                                                )
+                                                        )
                           )
                         """.strip(),
-                        (q_like, q_like, q_like, q_like),
+                                                (q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like),
                     ).fetchone()[0]
             else:
                 total = conn.execute("SELECT COUNT(*) FROM event WHERE is_private = FALSE").fetchone()[0]
@@ -722,11 +746,11 @@ def list_events(
         params: list[Any] = []
         if q_like:
             if has_event_gramps_id:
-                base_where += " AND (e.event_type ILIKE %s OR e.description ILIKE %s OR e.event_date_text ILIKE %s OR e.gramps_id ILIKE %s OR pl.name ILIKE %s)"
-                params.extend([q_like, q_like, q_like, q_like, q_like])
+                base_where += " AND (e.event_type ILIKE %s OR e.description ILIKE %s OR e.event_date_text ILIKE %s OR e.gramps_id ILIKE %s OR pl.name ILIKE %s OR EXISTS (SELECT 1 FROM person_event pe JOIN person p ON p.id = pe.person_id WHERE pe.event_id = e.id AND (p.display_name ILIKE %s OR p.given_name ILIKE %s OR p.surname ILIKE %s OR p.gramps_id ILIKE %s)))"
+                params.extend([q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like])
             else:
-                base_where += " AND (e.event_type ILIKE %s OR e.description ILIKE %s OR e.event_date_text ILIKE %s OR pl.name ILIKE %s)"
-                params.extend([q_like, q_like, q_like, q_like])
+                base_where += " AND (e.event_type ILIKE %s OR e.description ILIKE %s OR e.event_date_text ILIKE %s OR pl.name ILIKE %s OR EXISTS (SELECT 1 FROM person_event pe JOIN person p ON p.id = pe.person_id WHERE pe.event_id = e.id AND (p.display_name ILIKE %s OR p.given_name ILIKE %s OR p.surname ILIKE %s OR p.gramps_id ILIKE %s)))"
+                params.extend([q_like, q_like, q_like, q_like, q_like, q_like, q_like, q_like])
 
         rows = conn.execute(
             f"""

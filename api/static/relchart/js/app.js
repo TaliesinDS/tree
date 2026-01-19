@@ -191,7 +191,13 @@ function _renderEventsList(events, query) {
         const desc = String(ev?.description || '').trim();
         const apiId = String(ev?.id || '').trim();
         const gid = _eventGrampsId(ev);
-        return _normKey(`${title} ${sub} ${desc} ${gid} ${apiId}`).includes(qn);
+        const primary = ev?.primary_person || null;
+        const primaryName = String(primary?.display_name || '').trim();
+        const primaryApiId = String(primary?.id || '').trim();
+        const primaryGid = String(primary?.gramps_id || '').trim();
+        return _normKey(
+          `${title} ${sub} ${desc} ${gid} ${apiId} ${primaryName} ${primaryGid} ${primaryApiId}`
+        ).includes(qn);
       })
     : ordered;
 
@@ -211,6 +217,9 @@ function _renderEventsList(events, query) {
 
     const grid = document.createElement('div');
     grid.className = 'eventGrid';
+
+    const row1 = document.createElement('div');
+    row1.className = 'eventRow1';
 
     // Row 1
     const r1l = document.createElement('div');
@@ -240,8 +249,10 @@ function _renderEventsList(events, query) {
     r3.textContent = desc;
     if (desc) r3.title = desc;
 
-    grid.appendChild(r1l);
-    grid.appendChild(r1r);
+    row1.appendChild(r1l);
+    row1.appendChild(r1r);
+
+    grid.appendChild(row1);
     grid.appendChild(r2l);
     grid.appendChild(r2r);
     if (desc) {
