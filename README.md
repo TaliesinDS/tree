@@ -1,64 +1,68 @@
 # Tree (Gramps genealogy viewer)
 
-Quick resume doc (for future you / new chats): see HANDOFF.md.
+**Resuming work?** → See [HANDOFF.md](HANDOFF.md)  
+**All documentation** → See [docs/README.md](docs/README.md)
 
 This repo is a **view-only genealogy browser** that visualizes data exported from Gramps Desktop.
 
-Goals
-- Pick any **two people** → show the **ancestry/relationship path** between them.
-- **Search inside notes**, and sort/filter by event description/content.
-- Use **place/location** data and show it on a **map**.
-- Enforce privacy: public site, but **living/private people are redacted server-side**.
+## Goals
 
-Why this isn’t GitHub Pages-only
-- GitHub Pages is static hosting. The feature list implies **querying** (graph traversal, full-text search, map queries), which requires a **backend + database**.
+- Pick any **two people** → show the **ancestry/relationship path** between them
+- **Search inside notes**, and sort/filter by event description/content
+- Use **place/location** data and show it on a **map**
+- Enforce privacy: public site, but **living/private people are redacted server-side**
 
-Suggested architecture (pragmatic)
-- **API**: FastAPI (Python) on **Cloud Run**.
-- **DB**: Postgres + PostGIS (Cloud SQL) for:
-  - recursive queries / graph-ish traversal for relationship paths
-  - full-text search (tsvector) for notes/events
-  - geospatial indexing/queries for places
-- **Frontend**: keep your Jekyll site as-is; add a separate subdomain like `tree.arthurkortekaas.nl` for the app UI.
+## Architecture
 
-Next steps
-1) Decide where the **source-of-truth** lives:
-   - keep Gramps as authoring tool and **export/sync** into Postgres (recommended)
-   - or move entirely to a web-native DB (bigger change)
-2) Agree on the privacy rule (current implementation is documented in PRIVACY.md)
-3) Run the existing pipeline from Gramps package export → Postgres:
-   - export `.gramps`/`.gpkg` to JSONL (see `export/export_gramps_package.ps1`)
-   - load JSONL into Postgres (see `export/load_export_to_postgres.ps1`)
+| Component | Location | Notes |
+|-----------|----------|-------|
+| **API** | `api/main.py` | FastAPI + privacy filtering |
+| **Frontend** | `api/static/relchart/` | Graphviz WASM relationship chart (v3) |
+| **Export pipeline** | `export/` | Gramps XML → JSONL → Postgres |
+| **Schema** | `sql/schema.sql` | Postgres + PostGIS |
+| **Docs** | `docs/` | All documentation |
 
-Files
-- `api/`: FastAPI app + graph endpoints + demo UI
-- `sql/schema.sql`: starter schema sketch
+**Why not GitHub Pages-only?** The feature list implies querying (graph traversal, full-text search, map queries), which requires a backend + database.
 
-Demo UI
-- **Primary UI (going forward):** `/demo/relationship` — **relchart v3** (Graphviz WASM + modular JS/CSS).
-   - This is the Gramps-Web-like relationship chart: couples + family hubs + children, with expand-in-place.
-   - Includes a People index (surname-grouped), a Families view, an Events list, a Places/Map view, and a person detail panel.
-   - Clicking a person card or family hub updates the status bar with both API id + Gramps id and copies them to clipboard.
-   - Clicking a family hub is selection-only (it does not expand or recenter).
-   - The Map view renders inside the same main viewport as the Graph and cross-fades when switching tabs.
-     - Implementation note: Leaflet is lazy-loaded from a CDN and uses OpenStreetMap raster tiles.
-- Legacy/reference demos:
-   - `/demo/graph` — older neighborhood graph demo.
-   - `/demo/viewer` — older viewer shell/prototype.
+## Quick Start
 
-Relationship chart architecture notes:
-- `ARCHITECTURE_RELCHART.md`
+```powershell
+# 1. Postgres running (Docker or external)
+# 2. Set DATABASE_URL
+$env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
 
-Interactive “carve-a-path” expansion
-- The viewer supports incremental expand-in-place actions:
-   - **Expand up**: `GET /graph/family/parents?family_id=<family>&child_id=<child>`
-   - **Expand down**: `GET /graph/family/children?family_id=<family>&include_spouses=true`
-- Family nodes may include metadata used by indicator logic:
-   - `parents_total` (0/1/2)
-   - `children_total` (0+)
-   - `has_more_children` (legacy/hint; used only when totals aren’t present)
+# 3. Start API
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8080
 
-Export tooling
-- `export/inspect_gramps_sqlite.py`: schema discovery for your Gramps SQLite
-- `export/export_gramps_package.py`: export `.gramps`/`.gpkg` → JSONL (privacy-aware)
-- `export/load_export_to_postgres.py`: load JSONL → Postgres
+# 4. Open http://127.0.0.1:8080/demo/relationship
+```
+
+Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
+
+## Demo UI
+
+**Primary UI:** `/demo/relationship` — relchart v3 (Graphviz WASM)
+- Gramps-Web-like relationship chart: couples + family hubs + children
+- Expand-in-place (parents/children)
+- People/Families/Events sidebars
+- Places list + Map view (Leaflet + OSM)
+
+**Legacy demos:** `/demo/graph`, `/demo/viewer` (do not modify)
+
+## Documentation
+
+| Topic | Document |
+|-------|----------|
+| Architecture | [docs/architecture/RELCHART.md](docs/architecture/RELCHART.md) |
+| Privacy model | [docs/architecture/PRIVACY.md](docs/architecture/PRIVACY.md) |
+| Features/roadmap | [docs/specs/FEATURES.md](docs/specs/FEATURES.md) |
+| Local dev setup | [docs/guides/DEV.md](docs/guides/DEV.md) |
+| All docs | [docs/README.md](docs/README.md) |
+
+## Export Pipeline
+
+1. Export from Gramps Desktop as `.gramps` / `.gpkg`
+2. Run `export/export_gramps_package.py` → JSONL files
+3. Run `export/load_export_to_postgres.py` → Postgres tables
+
+See [export/README.md](export/README.md) for details.

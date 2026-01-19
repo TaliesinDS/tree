@@ -181,8 +181,8 @@ $env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
 
 ## Bug Logs (historical reference)
 
-- `FID_MISALIGNMENT_BUGLOG.md` — hub alignment/float issues (v1-v2 era)
-- `F1592_COUPLE_SPACING_BUGLOG.md` — single-parent constraint interference (v3, resolved)
+- `docs/debug/FID_MISALIGNMENT_BUGLOG.md` — hub alignment/float issues (v1-v2 era)
+- `docs/debug/F1592_COUPLE_SPACING_BUGLOG.md` — single-parent constraint interference (v3, resolved)
 
 These contain detailed root cause analysis and failed approaches — consult before attempting similar fixes.
 

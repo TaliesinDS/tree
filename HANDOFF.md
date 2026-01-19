@@ -1,215 +1,140 @@
-# Genealogy project handoff (read this to resume)
+# Genealogy Project Handoff
 
-If you’re starting a new chat: **attach this file** (or paste it) and say:
-
-> We’re continuing the TaliesinDS.github.io genealogy project. Please read HANDOFF.md and continue from the “Current state / next tasks” section.
-
-This repo is a **view-only genealogy viewer** (Gramps export → read-only API → browser UI) with a working local demo UI.
-
-## What we’re building (goals)
-
-Primary features:
-- Pick any **two people** → show the **relationship path** between them (graph traversal).
-- **Search inside notes** and sort/filter by event description/content.
-- Use **places** and show them on a **map**.
-- Host publicly while enforcing **privacy** (living people auto-redacted).
-
-Why this isn’t GitHub Pages-only:
-- The above requires querying (graph traversal, full-text search, geospatial queries), so we use a **backend + database**.
-
-## High-level architecture
-
-Source of truth & data flow:
-1) **Gramps** remains the authoring tool.
-2) Export from Gramps as **Gramps XML/package** (`.gramps`/`.gpkg`).
-3) Export pipeline converts that into **normalized JSONL** files (privacy-aware).
-4) Loader ingests JSONL into **Postgres + PostGIS**.
-5) FastAPI serves **read-only** endpoints (privacy enforced server-side).
-6) A small in-browser demo UI visualizes the graph and helps debug layout.
-
-Hosting sketch (intended):
-- Main site stays on GitHub Pages.
-- API runs separately (Cloud Run), backed by Cloud SQL (Postgres + PostGIS).
-
-## Key decisions (and why)
-
-### Use Gramps XML/package export, not direct Gramps SQLite
-- Decision: treat Gramps SQLite as “work DB”, but export via `.gramps` / `.gpkg`.
-- Why: Gramps SQLite stores key data in internal serialized blobs (`blob_data`), which is painful/fragile to decode. Gramps XML is the stable-ish interchange format.
-
-### Use Postgres + PostGIS
-- Decision: central website DB is Postgres with PostGIS enabled.
-- Why:
-  - graph-ish queries are feasible (and easy to index) with relational tables
-  - built-in full-text search via `tsvector`
-  - map queries need geospatial indexing
-
-### Privacy is enforced server-side
-- Decision: the API redacts living/private rows before returning JSON.
-- Why: anything sent to a browser is effectively public.
-
-Privacy rule (conservative / privacy-first):
-- If death date exists → not living.
-- If birth date is unknown → treat as living.
-
-Current policy details (see PRIVACY.md for the authoritative version):
-- Unknown birth date → private (privacy-first)
-- Born on/after 1946-01-01 → private
-- Age < 90 years → private
-
-Overrides:
-- `is_private` always wins (always private)
-- `is_living_override` / `is_living` can force living/not-living
-
-### Graph model: “family hubs” as the default
-- Decision: the API supports two graph shapes:
-  - `layout=family`: **family hub nodes** (family + person nodes) with parent/child edges.
-  - `layout=direct`: person-only graph with parent and partner edges.
-- Why: family hubs are more readable for genealogy (it matches how Gramps/Graphviz tends to render lineage). Direct edges can be useful for generic graph layouts but tangle more easily.
-
-### Graph rendering: relchart v3 (the way forward)
-
-Historical context:
-- We experimented with multiple demo viewers/layout engines (Graphviz DOT in large HTML files; later D3/Dagre prototypes).
-
-Current direction (Jan 2026):
-- **Primary UI going forward:** **relchart v3** at `/demo/relationship`.
-  - A modular frontend under `api/static/relchart/`.
-  - Uses Graphviz WASM (`@hpcc-js/wasm-graphviz`) to produce the Gramps-like relationship chart layout.
-  - Implements expand-in-place via the `/graph/family/parents` and `/graph/family/children` endpoints.
-
-Legacy/reference:
-- Older demos (`/demo/viewer`, `/demo/graph`, and `api/static/viewer_ported.html`) are kept as reference while relchart v3 becomes the maintained path.
-
-### Multi-spouse handling (Graphviz)
-Problem:
-- A single person can have multiple spouses/families; naïve ordering can duplicate-looking nodes or produce floating family hubs.
-
-Current approach:
-- Keep **one person node per person id**.
-- For multi-spouse people, create a dedicated **marriage row** (rank-same block) with spouse/family hubs ordered by **child count** (so “main” family tends to be prioritized).
-- Do not pull spouses into a birth-family sibling row if that person is a parent/spouse elsewhere (prevents “spouse next to siblings” artifacts).
-- Ignore malformed edges when building the DOT adjacency maps (e.g., skip any `child` edge whose target is not a person) to prevent family→family links and orphan hubs.
-
-## Repository map (where things live)
-
-Top-level docs:
-- ./README.md — high-level goals and architecture overview
-- ./PRIVACY.md — privacy model and redaction behavior
-- ./DEV.md — local dev runbook (Docker vs external Postgres)
-- ./DEPLOYMENT.md — Cloud Run / Cloud SQL sketch
-- ./NOTES_ON_FEATURES.md — feature → capability mapping
-- ./DEBUG_DATA_QUALITY.md — planned “export a fix-list for Gramps” debug reports
-
-API:
-- api/main.py — FastAPI endpoints; privacy filtering; neighborhood/path logic
-- api/db.py — DB connection helper (simple per-request connection)
-- api/static/graph_demo.html — interactive graph demo (Cytoscape + Graphviz)
-- api/static/viewer_ported.html — newer Gramps-Web-like viewer shell (Graphviz + sidebar tabs)
-- api/static/relchart/ — modular relationship chart demo frontend (Graphviz WASM)
-  - `js/chart/lineage.js` — ancestor/descendant line tracing utilities for future edge highlighting features
-- api/restart_api_8080.ps1 — start/restart uvicorn detached, logs to reports/
-
-Relchart notes:
-- `ARCHITECTURE_RELCHART.md` explains the relchart architecture + decisions.
-
-Export pipeline:
-- export/README.md — why Gramps XML export; how to run exporter/loader
-- export/export_gramps_package.py — parse `.gramps`/`.gpkg` and output JSONL
-- export/load_export_to_postgres.py — create schema + load JSONL into Postgres
-
-Database schema:
-- sql/schema.sql — tables for person/family/event/place/note + indexes + note tsvector trigger
-
-## Current state / what works
-
-- Export pipeline can generate JSONL from Gramps packages.
-- Loader ingests JSONL into Postgres + PostGIS.
-- API provides:
-  - person lookup
-  - relationship path search
-  - neighborhood graph endpoint (family hubs or direct)
-  - incremental expand-in-place endpoints used by the viewer:
-    - `GET /graph/family/parents?family_id=<family>&child_id=<child>`
-    - `GET /graph/family/children?family_id=<family>&include_spouses=true`
-  - places listing:
-    - `GET /places` (includes `type`, `enclosed_by_id`, coords when present)
-- Demo UI can render:
-  - Cytoscape view (dagre family layout / cose direct layout)
-  - Graphviz view (DOT → SVG)
-
-## Recent work (Jan 2026)
-
-Graphviz layout stability:
-- Multi-spouse layout now supports spouse1–common–spouse2 patterns without duplicating people.
-- Added defensive filtering so malformed edges (e.g., family→family “child” edges) don’t create orphan family hubs.
-
-Viewer UX (legacy Graphviz /demo/viewer):
-- Legacy/reference only. Current expected UI behavior is defined by relchart v3 (`/demo/relationship`).
-- Family hubs (⚭) are post-processed in SVG for a Gramps-Web-like look.
-- Redundant spouse→hub connector stubs are hidden when the hub touches spouse cards.
-- Edge endpoints that attach to the hub are snapped to the hub ellipse boundary to avoid tiny overshoots in very large families.
-- Pan/zoom is viewBox-based and tuned so drag feels 1:1 at any zoom.
-- Status text includes the Gramps ID when present in the payload.
-
-Viewer UX (legacy D3 Dagre /demo/viewer):
-- Added a new **connected** layout mode based on Dagre (DAG layout).
-- Fixed the “puzzle pieces don’t stick together” issue caused by D3 tree layouts duplicating shared ancestors.
-- Implemented “Graphviz-like couple geometry”:
-  - spouses touch the family hub (⚭) without gaps
-  - family hub is centered between spouses
-- Implemented shared-spouse chains (one person in multiple visible families):
-  - renders as `spouse ⚭ common-spouse ⚭ spouse` (and longer chains when needed)
-- Added collision avoidance so couple rows don’t overlap each other or unrelated cards.
-- Selection behavior matches the Graphviz view:
-  - clicking a person shows/pins their `Ixxxx`
-  - clicking a family hub shows/pins its internal `_f...` id.
-
-Relationship chart (/demo/relationship):
-- Added a focused, modular relationship chart frontend under `api/static/relchart/`.
-- Uses Graphviz WASM (`@hpcc-js/wasm-graphviz`) with DOT generated from `/graph/neighborhood?layout=family`.
-- Supports expand-in-place by calling `/graph/family/parents` and `/graph/family/children` and re-rendering.
- - Clicking a person card or family hub updates status with both API id + Gramps id and copies them to clipboard.
- - Clicking a family hub is selection-only (it does not expand or recenter).
- - Map tab MVP:
-   - Map renders in the same main viewport as the graph and cross-fades when switching tabs.
-   - Leaflet is lazy-loaded from a CDN and uses OpenStreetMap raster tiles.
-   - Clicking place name text in the Places list copies id+breadcumb and centers/marks the map (row/box clicks do not move the map).
-
-Note: because the viewer is a static HTML file, the demo URL uses a `?v=<n>` cache buster when iterating quickly.
-
-Incremental expand stability (expand up/down):
-- Expand endpoints now return family node totals (`parents_total`, `children_total`) so indicators can reflect “known missing relatives” instead of guessing.
-- Up/down indicator computations only count *renderable* edges (endpoints exist as nodes), avoiding “indicators disappear / lines vanish then reappear” glitches.
-- Fixed a server-side crash in `GET /graph/family/parents` when a family had no parent ids (the response is now a valid empty expansion instead of a 500).
-
-## How to run locally (quick)
-
-1) Ensure you have a Postgres+PostGIS instance.
-2) Set `DATABASE_URL`.
-3) Run the API.
-
-See DEV.md for the exact PowerShell commands and Docker option.
-
-## Current sharp edges / known constraints
-
-- DB connection is per-request (no pooling) — fine for dev.
-- Full text search indexing exists for notes, but search endpoints/UI are still minimal.
-- Graphviz rendering is currently demo-UI-side (browser wasm), not server-side.
-
-## Graph rendering notes (current)
-
-- relchart v3 is the maintained frontend path and is the reference for UI behavior.
-- Legacy viewers remain useful for debugging and comparison, but should be treated as experimental/deprioritized.
-
-## Next tasks (suggested order)
-
-1) Add a minimal real UI (beyond the demo) for:
-   - person search → select two people → show relationship path
-2) Implement note search endpoint(s) using `note.body_tsv`.
-3) Improve map (markers from events, filters, offline tiles strategy).
-4) Decide on deployment details (Cloud Run + Cloud SQL) and secret handling.
+> **Resuming work?** Attach this file to your AI chat and say:
+> *"We're continuing the Tree genealogy project. Please read HANDOFF.md and continue."*
 
 ---
 
-If you need more context quickly, open the files in “Repository map” and skim the top sections; they were written explicitly to preserve decisions and rationale.
+## What This Is
+
+**Tree** is a **view-only** genealogy browser:
+- Source of truth: **Gramps Desktop** (export via `.gramps`/`.gpkg`)
+- Backend: **FastAPI + PostgreSQL/PostGIS** (read-only API, server-side privacy)
+- Frontend: **Browser-based graph viewer** using Graphviz WASM
+
+**Not an editor** — Gramps Desktop remains the authoring tool.
+
+---
+
+## Quick Start (Local Dev)
+
+```powershell
+# 1. Start Postgres (Docker or external)
+# 2. Set DATABASE_URL
+$env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
+
+# 3. Start API (use VS Code task or manually)
+# Task: "genealogy: restart api (detached 8080)"
+
+# 4. Open viewer
+# http://127.0.0.1:8080/demo/relationship
+```
+
+Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
+
+---
+
+## Architecture Summary
+
+| Component | Location | Notes |
+|-----------|----------|-------|
+| **API** | `api/main.py` | FastAPI endpoints, privacy filtering |
+| **Frontend (v3)** | `api/static/relchart/` | Graphviz WASM relationship chart |
+| **Export pipeline** | `export/` | Gramps XML → JSONL → Postgres |
+| **Schema** | `sql/schema.sql` | Postgres + PostGIS tables |
+
+**Active frontend:** `/demo/relationship` (relchart v3)  
+**Legacy viewers:** `/demo/viewer`, `/demo/graph` (do not modify)
+
+---
+
+## Key Documentation
+
+| Need to... | Read this |
+|------------|-----------|
+| Understand the architecture | [docs/architecture/RELCHART.md](docs/architecture/RELCHART.md) |
+| See planned features | [docs/specs/FEATURES.md](docs/specs/FEATURES.md) |
+| Understand privacy rules | [docs/architecture/PRIVACY.md](docs/architecture/PRIVACY.md) |
+| Set up local dev | [docs/guides/DEV.md](docs/guides/DEV.md) |
+| See all documentation | [docs/README.md](docs/README.md) |
+
+---
+
+## Current State (Jan 2026)
+
+**Working:**
+- ✅ Export pipeline (Gramps → JSONL → Postgres)
+- ✅ Graph viewer with expand-in-place (parents/children)
+- ✅ People/Families/Events sidebars
+- ✅ Person detail panel
+- ✅ Map tab MVP (Leaflet + OSM tiles)
+- ✅ Privacy enforcement (server-side)
+
+**In Progress / Planned:**
+- 🔲 Relationship path highlighting (API exists, UI pending)
+- 🔲 Ancestor line highlighting (lineage.js utilities ready)
+- 🔲 Note search (full-text index exists)
+- 🔲 Map markers/routes
+- 🔲 Offline map support
+
+---
+
+## Key Files (Quick Reference)
+
+### Frontend (relchart v3)
+```
+api/static/relchart/
+├── index.html          # UI shell
+├── styles.css          # Styling
+└── js/
+    ├── app.js          # Main app logic
+    ├── api.js          # Fetch wrappers
+    └── chart/
+        ├── dot.js      # DOT generation (payload → Graphviz)
+        ├── render.js   # SVG post-processing
+        ├── lineage.js  # Ancestor/descendant tracing utilities
+        ├── payload.js  # Payload merge
+        ├── panzoom.js  # Pan/zoom
+        └── graphviz.js # WASM loader
+```
+
+### Backend
+```
+api/main.py        # Endpoints + privacy
+api/db.py          # DB connection
+sql/schema.sql     # Tables + indexes
+```
+
+---
+
+## Next Tasks (Suggested)
+
+1. **Relationship path UI** — highlight path between two people
+2. **Ancestor line highlighting** — use `lineage.js` utilities
+3. **Note search** — endpoint using `note.body_tsv`
+4. **Map improvements** — markers, routes, filtering
+
+---
+
+## Repository Map
+
+```
+tree/
+├── README.md              # Project overview
+├── HANDOFF.md             # This file (resume pointer)
+├── docs/                  # All documentation
+│   ├── README.md          # Doc index
+│   ├── architecture/      # How it works
+│   ├── specs/             # What to build
+│   ├── guides/            # How to do things
+│   ├── design/            # UI/art planning
+│   └── debug/             # Bug investigations
+├── api/                   # FastAPI + static frontend
+├── export/                # Gramps export pipeline
+├── sql/                   # Database schema
+└── reports/               # Runtime logs + exports
+```
+
+---
+
+*For detailed architecture, decisions, and rationale, see the docs/ folder.*
