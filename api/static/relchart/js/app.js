@@ -175,9 +175,9 @@ async function ensureMapInitialized() {
   // Keep the map responsive when the main view toggles.
   try {
     window.addEventListener('resize', () => {
-      try { map.invalidateSize(false); } catch (_) {}
+      try { map.invalidateSize(false); } catch (_err2) {}
     });
-  } catch (_) {}
+  } catch (_err) {}
 }
 
 function _centerMapOnPlace(place) {
@@ -195,8 +195,8 @@ function _centerMapOnPlace(place) {
 
   try {
     map.setView([lat, lon], Math.max(10, map.getZoom() || 10), { animate: true, duration: 0.25 });
-  } catch (_) {
-    try { map.setView([lat, lon], 10); } catch (_) {}
+  } catch (_err) {
+    try { map.setView([lat, lon], 10); } catch (_err2) {}
   }
 
   try {
@@ -404,7 +404,6 @@ function _renderEventsList(events, query) {
         btn.classList.add('selected');
       } catch (_) {}
 
-      const primary = ev?.primary_person || null;
       const primaryApiId = String(primary?.id || '').trim();
       const primaryGrampsId = String(primary?.gramps_id || '').trim();
 
@@ -442,7 +441,7 @@ function _renderEventsList(events, query) {
       const loaded = src.length;
       const total = Number.isFinite(state.eventsTotal) ? state.eventsTotal : null;
       const more = state.eventsHasMore ? ' (scroll to load more)' : '';
-      els.eventsStatus.textContent = total != null ? `Showing ${loaded} of ${total}.${more}` : `Showing ${loaded}.${more}`;
+      els.eventsStatus.textContent = total !== null ? `Showing ${loaded} of ${total}.${more}` : `Showing ${loaded}.${more}`;
     } else {
       els.eventsStatus.textContent = `Showing ${filtered.length} of ${src.length}.`;
     }
@@ -596,9 +595,9 @@ function _applyFamiliesSelectionToDom({ scroll = true } = {}) {
       const delta = currentCenter - desiredCenter;
       if (!Number.isFinite(delta)) return;
       scrollContainer.scrollTop += delta;
-    } catch (_) {
-      try { sel.scrollIntoView({ block: 'center' }); } catch (_) {
-        try { sel.scrollIntoView(); } catch (_) {}
+    } catch (_err) {
+      try { sel.scrollIntoView({ block: 'center' }); } catch (_err2) {
+        try { sel.scrollIntoView(); } catch (_err3) {}
       }
     }
   };
@@ -613,7 +612,7 @@ function _applyFamiliesSelectionToDom({ scroll = true } = {}) {
   }
 }
 
-function setSelectedFamilyKey(key, { source = 'unknown', scrollFamilies = true } = {}) {
+function setSelectedFamilyKey(key, { source: _source = 'unknown', scrollFamilies = true } = {}) {
   const k = String(key || '').trim();
   if (k && state.familiesSelected === k) return;
   state.familiesSelected = k || null;
@@ -1131,7 +1130,7 @@ function _genderIcon(genderRaw) {
 function _renderKv(rows) {
   if (!rows || !rows.length) return '';
   const items = rows
-    .filter(([k, v]) => {
+    .filter(([, v]) => {
       if (v === null || v === undefined) return false;
       const s = String(v).trim();
       return s.length > 0;
@@ -1427,7 +1426,6 @@ function _renderPersonDetailPanelBody() {
   }
 
   if (tab === 'details') {
-    const p = data.person || {};
     const events = Array.isArray(data.events) ? data.events : [];
     const eventsSorted = _sortEventsForPanel(events);
     const evHtml = events.length
@@ -1536,7 +1534,7 @@ function _setPeopleWidePx(px, { persist = true } = {}) {
   }
 }
 
-function _setPeopleExpanded(expanded, { persist = true, rerender = true } = {}) {
+function _setPeopleExpanded(expanded, { persist = true, rerender: shouldRerender = true } = {}) {
   const on = !!expanded;
   state.peopleExpanded = on;
   document.documentElement.dataset.peopleWide = on ? 'true' : 'false';
@@ -1547,7 +1545,7 @@ function _setPeopleExpanded(expanded, { persist = true, rerender = true } = {}) 
   if (persist) {
     try { localStorage.setItem(PEOPLE_EXPANDED_KEY, on ? '1' : '0'); } catch (_) {}
   }
-  if (rerender && state.peopleLoaded && state.people) {
+  if (shouldRerender && state.peopleLoaded && state.people) {
     _renderPeopleList(state.people, els.peopleSearch?.value || '');
   }
 }
@@ -2311,10 +2309,10 @@ function _applyPeopleSelectionToDom({ scroll = true } = {}) {
       if (!Number.isFinite(delta)) return;
       // Positive delta means the element is below center: scroll down.
       c.scrollTop += delta;
-    } catch (_) {
+    } catch (_err) {
       // Fallback: at least bring it into view.
-      try { sel.scrollIntoView({ block: 'center' }); } catch (_) {
-        try { sel.scrollIntoView(); } catch (_) {}
+      try { sel.scrollIntoView({ block: 'center' }); } catch (_err2) {
+        try { sel.scrollIntoView(); } catch (_err3) {}
       }
     }
   };
@@ -2330,7 +2328,7 @@ function _applyPeopleSelectionToDom({ scroll = true } = {}) {
   }
 }
 
-function setSelectedPersonKey(key, { source = 'unknown', scrollPeople = true } = {}) {
+function setSelectedPersonKey(key, { source: _source = 'unknown', scrollPeople = true } = {}) {
   const k = String(key || '').trim();
   if (k && state.peopleSelected === k) return;
   state.peopleSelected = k || null;
@@ -2423,12 +2421,12 @@ function _findExpandTabElement(svg, personId, expandKind) {
   if (!svg || !pid) return null;
 
   const attr = (kind === 'children') ? 'data-hidden-children-for' : 'data-hidden-parents-for';
-  const els = Array.from(svg.querySelectorAll(`polygon[${attr}="${pid}"]`));
-  if (!els.length) return null;
+  const tabPolys = Array.from(svg.querySelectorAll(`polygon[${attr}="${pid}"]`));
+  if (!tabPolys.length) return null;
 
   // Prefer the visible tab (it contains a <title>).
-  const withTitle = els.find(el => !!el.querySelector('title'));
-  return withTitle || els[0] || null;
+  const withTitle = tabPolys.find(el => !!el.querySelector('title'));
+  return withTitle || tabPolys[0] || null;
 }
 
 function _clearGraphPersonSelection(svg) {

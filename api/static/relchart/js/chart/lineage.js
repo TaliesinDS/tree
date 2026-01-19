@@ -208,7 +208,7 @@ export function traceAncestorLine(payload, rootPersonId, { preferGender = null, 
 export function traceDescendantLine(payload, rootPersonId, { maxDepth = 100 } = {}) {
   const { peopleById, personByGrampsId } = buildPayloadMaps(payload);
   const edges = Array.isArray(payload?.edges) ? payload.edges : [];
-  const { familyToParents, familyToChildren } = buildEdgeMaps(edges);
+  const { familyToChildren } = buildEdgeMaps(edges);
   
   const personIds = new Set();
   const familyIds = new Set();

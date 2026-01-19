@@ -56,7 +56,7 @@ function normalizeIdFromGraphvizTitle(title) {
 
 function postProcessGraphvizSvg(svg, {
   personMetaById = new Map(),
-  familyMetaById = new Map(),
+  familyMetaById: _familyMetaById = new Map(),
   familyParentsById = new Map(),
   singleParentParentByFamily = new Map(),
   onExpandParents,
@@ -233,7 +233,7 @@ function postProcessGraphvizSvg(svg, {
 
     // For each couple where one spouse is in a single-parent family, check if
     // their cards are too close and nudge them apart symmetrically.
-    for (const [fid, parents] of (familyParentsById || new Map()).entries()) {
+    for (const [, parents] of (familyParentsById || new Map()).entries()) {
       const aId = String(parents?.fatherId || '').trim();
       const bId = String(parents?.motherId || '').trim();
       if (!aId || !bId) continue;

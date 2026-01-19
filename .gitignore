@@ -22,3 +22,11 @@ Thumbs.db
 
 # Copilot chatmodes are local per-repo preferences
 .github/chatmodes/
+
+# Node
+node_modules/
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

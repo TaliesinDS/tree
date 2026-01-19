@@ -1,0 +1,29 @@
+{
+  "name": "tree",
+  "version": "1.0.0",
+  "private": true,
+  "description": "**Resuming work?** → See [HANDOFF.md](HANDOFF.md)  \r **All documentation** → See [docs/README.md](docs/README.md)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "lint": "eslint \"api/static/relchart/js/**/*.js\"",
+    "lint:fix": "eslint --fix \"api/static/relchart/js/**/*.js\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TaliesinDS/tree.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/TaliesinDS/tree/issues"
+  },
+  "homepage": "https://github.com/TaliesinDS/tree#readme",
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  }
+}
