@@ -149,6 +149,14 @@ This section expands the running TODO list into small, actionable feature notes.
 - Backend:
   - `GET /places?query=` and `GET /places/{id}`.
 
+### UI trick: separate actions inside a `<summary>`
+In the Places tree, an expandable row is a `<details>` with a `<summary>`.
+
+- Clicking the `<summary>` toggles open/closed (native behavior)
+- A child element inside the `<summary>` (e.g. the place name `<span>`) can run a different action (copy-to-clipboard) by calling `e.stopPropagation()` + `e.preventDefault()`
+
+This allows “one click selects + toggles”, while “click the text copies” without needing extra buttons.
+
 **Sticky note section**
 - Goal: a persistent “scratchpad” for pins + notes.
 - Subtasks:

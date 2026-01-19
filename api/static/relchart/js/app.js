@@ -1510,8 +1510,74 @@ function _normPlaceType(raw) {
   return s;
 }
 
+function _normalizePlaceNameDisplay(rawName) {
+  const raw = String(rawName || '').trim();
+  if (!raw) return '';
+
+  // If the string is already mixed-case (has both upper and lower), assume the user intended it.
+  // Only normalize when it's obviously wrong (ALL CAPS / all lowercase).
+  const hasLower = /\p{Ll}/u.test(raw);
+  const hasUpper = /\p{Lu}/u.test(raw);
+  if (hasLower && hasUpper) return raw;
+
+  const lowerWords = new Set([
+    'van', 'de', 'den', 'der', 'het', 'een',
+    'aan', 'op', 'in', 'bij', 'te', 'ten', 'ter',
+    'aan', 'voor', 'achter', 'onder', 'boven',
+    'en', 'of',
+    "'t",
+  ]);
+
+  const capFirst = (s) => {
+    const v = String(s || '');
+    if (!v) return v;
+    return v.charAt(0).toUpperCase() + v.slice(1);
+  };
+
+  const capWord = (word, isFirstWord) => {
+    let w = String(word || '');
+    if (!w) return w;
+
+    // Preserve pure punctuation/number tokens.
+    if (!/[\p{L}]/u.test(w)) return w;
+
+    // Handle common Dutch contractions/prefixes.
+    // Example: "'s-gravenzande" => "'s-Gravenzande"
+    const lower = w.toLowerCase();
+    if (lower.startsWith("'s-")) {
+      const rest = w.slice(3).toLowerCase();
+      const parts = rest.split('-').map((p) => capFirst(p));
+      return "'s-" + parts.join('-');
+    }
+    if (lower === "'s") return "'s";
+    if (lower === "'t") return "'t";
+
+    // Handle hyphenated words: title-case each segment.
+    const segs = lower.split('-');
+    const fixed = segs.map((seg, idx) => {
+      const s = String(seg || '');
+      if (!s) return s;
+      // Keep particles lowercased unless it's the first overall word.
+      if (!isFirstWord && idx === 0 && lowerWords.has(s)) return s;
+      return capFirst(s);
+    });
+    const joined = fixed.join('-');
+
+    // Keep particles lowercased unless first word.
+    if (!isFirstWord && lowerWords.has(joined)) return joined;
+    return joined;
+  };
+
+  // Normalize whitespace but preserve the original separators between tokens.
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const out = tokens.map((tok, i) => capWord(tok, i === 0));
+  return out.join(' ');
+}
+
 function _placeLabel(p) {
-  return String(p?.name || '').trim() || '(unnamed place)';
+  const raw = String(p?.name || '').trim();
+  const fixed = _normalizePlaceNameDisplay(raw);
+  return fixed || '(unnamed place)';
 }
 
 function _placeMeta(p) {
