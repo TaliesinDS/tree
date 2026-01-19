@@ -127,6 +127,9 @@ This section expands the running TODO list into small, actionable feature notes.
 - Backend:
   - `GET /people/{id}` exists; likely add `GET /people/{id}/details` to include events, notes, families, media.
 
+Small UX win (no backend required):
+- In the user note section, allow choosing a per-person “map marker” (icon/color) stored in `localStorage` so notable people can stand out on the Map view.
+
 **Event browser**
 - Goal: search and filter events (timeline-like) and jump to people/places from events.
 - Backend:
