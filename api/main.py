@@ -12,6 +12,14 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 try:
+    from .routes.demo import router as demo_router
+    from .routes.health import router as health_router
+except ImportError:  # pragma: no cover
+    # Support running with CWD=genealogy/api (e.g., `python -m uvicorn main:app`).
+    from routes.demo import router as demo_router
+    from routes.health import router as health_router
+
+try:
     from .db import db_conn
 except ImportError:  # pragma: no cover
     # Support running with CWD=genealogy/api (e.g., `python -m uvicorn main:app`).
@@ -53,49 +61,8 @@ if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
-@app.get("/static/graph_demo.htm", include_in_schema=False)
-def _static_graph_demo_htm_redirect() -> RedirectResponse:
-    # Common typo/missing 'l'. Keep old links working.
-    return RedirectResponse(url="/static/graph_demo.html", status_code=307)
-
-
-@app.get("/demo/graph")
-def demo_graph() -> FileResponse:
-    """Interactive Cytoscape demo for the /graph/neighborhood endpoint."""
-
-    path = _STATIC_DIR / "graph_demo.html"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="demo not found")
-    return FileResponse(path)
-
-
-@app.get("/demo/viewer")
-def demo_viewer() -> FileResponse:
-    """Starter Gramps-Web-like viewer shell (Graph + People + Events + Map tabs)."""
-
-    # Viewer that ports the graph demo layout (graph_demo.html is kept as reference).
-    path = _STATIC_DIR / "viewer_ported.html"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="viewer not found")
-    return FileResponse(path)
-
-
-@app.get("/demo/relationship")
-def demo_relationship() -> FileResponse:
-    """Relationship chart (Graphviz WASM) demo.
-
-    Focused, modular frontend that renders a Gramps-Web-like relationship chart.
-    """
-
-    path = _STATIC_DIR / "relchart" / "index.html"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="demo not found")
-    return FileResponse(path)
-
-
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"ok": "true"}
+app.include_router(health_router)
+app.include_router(demo_router)
 
 
 @app.get("/people")
