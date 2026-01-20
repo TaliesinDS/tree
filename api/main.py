@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -2188,6 +2189,94 @@ def _year_hint_from_fields(
         if 1 <= y <= date.today().year + 5:
             return y
     return None
+
+
+@app.post("/graph/places")
+def graph_places(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """Return distinct public places referenced by events for a set of people.
+
+    This is intended to power the Map "Scope: Current graph" pins without making
+    N separate /people/{id}/details calls.
+
+    Privacy:
+    - Private/living people are excluded via the same person redaction policy.
+    - Private events are excluded (event.is_private = false).
+    - Private places are excluded.
+    """
+
+    person_ids_raw = payload.get("person_ids") or []
+    if not isinstance(person_ids_raw, list):
+        raise HTTPException(status_code=400, detail="person_ids must be a list")
+
+    person_ids: list[str] = []
+    for x in person_ids_raw:
+        s = str(x).strip()
+        if not s:
+            continue
+        person_ids.append(s)
+
+    # Hard guardrails to avoid huge requests.
+    person_ids = person_ids[:800]
+
+    limit_raw = payload.get("limit")
+    try:
+        limit = int(limit_raw) if limit_raw is not None else 5000
+    except Exception:
+        limit = 5000
+    limit = max(1, min(50_000, limit))
+
+    if not person_ids:
+        return {"results": [], "total": 0}
+
+    with db_conn() as conn:
+        # Apply privacy/redaction policy to the input people ids first.
+        cores = _people_core_many(conn, person_ids)
+        public_person_ids: list[str] = []
+        for pid, p in cores.items():
+            # _people_core_many already redacts: private people have display_name="Private".
+            if p.get("display_name") == "Private":
+                continue
+            if bool(p.get("is_private")):
+                continue
+            public_person_ids.append(str(pid))
+
+        if not public_person_ids:
+            return {"results": [], "total": 0}
+
+        rows = conn.execute(
+            """
+            SELECT DISTINCT
+              pl.id,
+              pl.gramps_id,
+              pl.name,
+              pl.lat,
+              pl.lon
+            FROM person_event pe
+            JOIN event e ON e.id = pe.event_id
+            JOIN place pl ON pl.id = e.place_id
+            WHERE pe.person_id = ANY(%s)
+              AND e.is_private = FALSE
+              AND pl.is_private = FALSE
+              AND pl.lat IS NOT NULL
+              AND pl.lon IS NOT NULL
+            LIMIT %s
+            """.strip(),
+            (public_person_ids, limit),
+        ).fetchall()
+
+        results: list[dict[str, Any]] = []
+        for pid, gid, name, lat, lon in rows:
+            results.append(
+                {
+                    "id": str(pid),
+                    "gramps_id": str(gid) if gid else None,
+                    "name": name,
+                    "lat": float(lat) if lat is not None else None,
+                    "lon": float(lon) if lon is not None else None,
+                }
+            )
+
+    return {"results": results, "total": len(results)}
 
 
 @app.get("/graph/neighborhood")

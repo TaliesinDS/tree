@@ -116,6 +116,7 @@ const state = {
     pinsCount: 0,
     routePoints: 0,
     overlayRenderKey: '',
+    autoFitPending: false,
     overlayRefreshTimer: null,
     personDetailsCache: new Map(),
   },
@@ -406,6 +407,24 @@ async function _computePlacesForScope() {
     const personLimit = Math.min(200, people.length);
     const selectedPeople = people.slice(0, personLimit);
 
+    // Fast path: ask the backend for all places for these people in one query.
+    // This avoids N separate /people/{id}/details calls (which is very slow on
+    // medium-sized graphs).
+    try {
+      const r = await fetch('/graph/places', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_ids: selectedPeople, limit: maxPins }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        const results = Array.isArray(data?.results) ? data.results : [];
+        return results.filter(_placeHasCoords).slice(0, maxPins);
+      }
+    } catch (_) {
+      // Fall back below.
+    }
+
     const placeIds = [];
     const seen = new Set();
     for (const pid of selectedPeople) {
@@ -536,6 +555,18 @@ async function _renderMapOverlaysNow() {
   }
 
   _applyMapUiToDom();
+
+  // After a hard refresh it's easy to think pins "didn't render" when the map
+  // is just centered somewhere else. When entering the Map tab with no specific
+  // place selection pending, auto-fit once so markers are immediately visible.
+  try {
+    if (state.mapUi.autoFitPending) {
+      state.mapUi.autoFitPending = false;
+      if (state.mapUi.pinsEnabled && (state.mapUi.pinsCount || 0) > 0) {
+        _fitMapToOverlays();
+      }
+    }
+  } catch (_) {}
 }
 
 function _scheduleMapOverlayRefresh() {
@@ -2571,6 +2602,13 @@ function _setSidebarActiveTab(tabName) {
     }
 
     if (name === 'map') {
+      // If we're not going to center a specific place, auto-fit once after the
+      // overlays render so pins are discoverable.
+      try {
+        const hasPendingPlace = !!String(state.map.pendingPlaceId || state.placesSelected || '').trim();
+        state.mapUi.autoFitPending = !hasPendingPlace;
+      } catch (_) {}
+
       // Lazy-init map; also invalidate size after the fade completes.
       Promise.resolve(ensureMapInitialized()).then(() => {
         try { state.map.map?.invalidateSize?.(false); } catch (_) {}
