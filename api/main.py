@@ -2282,8 +2282,8 @@ def graph_places(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[s
 @app.get("/graph/neighborhood")
 def graph_neighborhood(
     id: str = Query(min_length=1, max_length=64),
-    depth: int = Query(default=2, ge=0, le=12),
-    max_nodes: int = Query(default=1000, ge=1, le=5000),
+    depth: int = Query(default=2, ge=0, le=60),
+    max_nodes: int = Query(default=1000, ge=1, le=6000),
     layout: Literal["family", "direct"] = Query(default="family"),
 ) -> dict[str, Any]:
     """Return a small subgraph for interactive exploration.

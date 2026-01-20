@@ -348,16 +348,17 @@ The original mentions Graphviz WASM limits. Actual measured performance (2026-01
 |----------|-------------|-------------|--------|
 | Neighborhood depth=5 | ~200-400 | <1s | Fast |
 | Neighborhood depth=12 | 1196 nodes, 1205 edges | ~2s | Acceptable |
-| Neighborhood depth=15+ | Not tested | Unknown | Likely still usable |
-| Full 4k-person graph | ~4000 nodes | Unknown | May need windowing |
+| Neighborhood depth=15+ | 1498 nodes, 1593 edges | ~3s | Acceptable |
+| Full connected component (current dataset; “me” as root) | 2740 nodes, 2923 edges | ~4–5s | Acceptable |
+| Full 4k-person graph (different dataset) | ~4000 nodes | Unknown | May need windowing |
 
-**Key finding:** Graphviz WASM performs better than expected. The current `max_nodes=1000` default is conservative; real-world depth=12 loads 1200 nodes in ~2s.
+**Key finding:** Graphviz WASM performs better than expected. Real-world loads of ~1200 nodes take ~2s, ~1500 nodes take ~3s, and a ~2700-node connected component takes ~4–5s.
 
 **Recommendations:**
-- Consider raising `max_nodes` default to 1500-2000
+- Consider raising the `max_nodes` default to ~3000 for your dataset (so “full connected component” fits without tweaking)
 - Document that layout time scales roughly linearly with node count
 - The real ceiling is likely browser memory/DOM, not Graphviz WASM itself
-- Test depth=15+ and full-DB loads to find actual limits
+- Test depth=60 and `max_nodes=6000` to find actual limits
 
 ---
 
