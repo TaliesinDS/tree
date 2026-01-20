@@ -1,27 +1,37 @@
 # Implementation Plan: Tests & Code Modularization
 
 **Created:** 2026-01-20  
+**Last Updated:** 2026-01-20  
 **Goal:** Address the two main recommendations from PROJECT_REVIEW.md:
 1. Split the "god files" (`api/main.py` and `app.js`) into focused modules
 2. Add automated tests for privacy logic and critical rules
 
 **Status (as of 2026-01-20):**
-- Frontend modularization is in progress.
-- Completed extractions:
+- Backend modularization is mostly complete (modules + routes exist), but `api/main.py` is still ~952 lines and has remaining consolidation work.
+- Backend tests are implemented (`tests/test_privacy.py`, `tests/test_names.py`, plus graph payload regression/contract tests).
+- Frontend modularization is mostly complete (`api/static/relchart/js/app.js` is ~433 lines and primarily wiring).
+- Completed frontend extractions:
     - `api/static/relchart/js/state.js`
     - `api/static/relchart/js/util/dom.js`
     - `api/static/relchart/js/features/portal.js`
     - `api/static/relchart/js/features/people.js`
     - `api/static/relchart/js/features/families.js`
+    - `api/static/relchart/js/features/map.js`
+    - `api/static/relchart/js/features/graph.js`
+    - `api/static/relchart/js/features/detailPanel.js`
+    - `api/static/relchart/js/features/places.js`
+    - `api/static/relchart/js/features/events.js`
+    - `api/static/relchart/js/features/tabs.js`
+    - `api/static/relchart/js/features/keybinds.js`
 - `api/static/relchart/js/app.js` is updated to import and initialize these modules.
 
 ---
 
-## Phase 1: Backend Modularization (3-4 days)
+## Phase 1: Backend Modularization (DONE, follow-up needed)
 
 Break `api/main.py` (~2,755 lines) into focused modules.
 
-### Step 1.1: Extract `api/privacy.py`
+### Step 1.1: Extract `api/privacy.py` (DONE)
 
 **What to move:**
 ```python
@@ -44,7 +54,7 @@ def _is_effectively_private(p: dict, today: date) -> bool
 
 ---
 
-### Step 1.2: Extract `api/names.py`
+### Step 1.2: Extract `api/names.py` (DONE)
 
 **What to move:**
 ```python
@@ -68,7 +78,7 @@ def _format_public_person_names(people: list[dict]) -> list[dict]
 
 ---
 
-### Step 1.3: Extract `api/graph.py`
+### Step 1.3: Extract `api/graph.py` (DONE)
 
 **What to move:**
 ```python
@@ -92,7 +102,7 @@ def _fetch_spouses(...)
 
 ---
 
-### Step 1.4: Extract `api/queries.py`
+### Step 1.4: Extract `api/queries.py` (DONE)
 
 **What to move:**
 ```python
@@ -127,9 +137,9 @@ api/
 
 ---
 
-## Phase 2: Add Backend Tests (2-3 days)
+## Phase 2: Add Backend Tests (DONE)
 
-### Step 2.1: Create test infrastructure
+### Step 2.1: Create test infrastructure (DONE)
 
 **Create directory structure:**
 ```
@@ -151,7 +161,7 @@ pytest-cov  # optional
 
 ---
 
-### Step 2.2: Write privacy tests (`tests/test_privacy.py`)
+### Step 2.2: Write privacy tests (`tests/test_privacy.py`) (DONE)
 
 **Test cases to implement:**
 
@@ -168,7 +178,7 @@ pytest-cov  # optional
 
 ---
 
-### Step 2.3: Write name formatting tests (`tests/test_names.py`)
+### Step 2.3: Write name formatting tests (`tests/test_names.py`) (DONE)
 
 **Test cases to implement:**
 
@@ -182,7 +192,7 @@ pytest-cov  # optional
 
 ---
 
-### Step 2.4: Run tests command
+### Step 2.4: Run tests command (DONE)
 
 ```powershell
 # From repo root
@@ -191,7 +201,7 @@ pytest-cov  # optional
 
 ---
 
-## Phase 3: Frontend Modularization (4-5 days)
+## Phase 3: Frontend Modularization (MOSTLY DONE)
 
 Break `api/static/relchart/js/app.js` into focused modules.
 
@@ -255,7 +265,7 @@ export function _writeSetting(key, value) { ... }
 
 ---
 
-### Step 3.6: Extract `js/features/map.js` (NEXT)
+### Step 3.6: Extract `js/features/map.js` (DONE)
 
 **What to move:**
 - ALL Leaflet/map code
@@ -267,7 +277,19 @@ export function _writeSetting(key, value) { ... }
 
 ---
 
-### Step 3.7: Extract `js/features/detailPanel.js`
+### Step 3.6a: Extract `js/features/graph.js` (DONE)
+
+**What to move:**
+- Relationship chart rendering + re-rendering (`renderRelationshipChart` wiring)
+- Expand handlers (parents/children) + payload merge
+- SVG selection styling (selected person outline) and related DOM helpers
+- View anchor capture/restore around expansion (keep clicked tab stable)
+
+**Why:** Keeps `app.js` as mostly wiring and isolates graph behavior.
+
+---
+
+### Step 3.7: Extract `js/features/detailPanel.js` (DONE)
 
 **What to move:**
 - Detail panel open/close
@@ -279,7 +301,18 @@ export function _writeSetting(key, value) { ... }
 
 ---
 
-### Step 3.8: Extract `js/features/places.js`
+### Step 3.8: Extract `js/features/places.js` (DONE)
+
+---
+
+### Step 3.9: Extract `js/features/events.js`, `tabs.js`, `keybinds.js` (DONE)
+
+**What to move:**
+- Events sidebar behavior (list rendering + selection)
+- Tab switching/topbar mode
+- Keyboard shortcuts
+
+**Why:** Keeps the entrypoint focused on wiring.
 
 **What to move:**
 - Places list rendering
@@ -301,6 +334,10 @@ api/static/relchart/js/
 │   ├── people.js       # People list (~400 lines)
 │   ├── families.js     # Families list (~300-500 lines)
 │   ├── portal.js       # Popover portaling helpers
+│   ├── graph.js        # Graph rendering + selection/expand (~300-500 lines)
+│   ├── tabs.js         # Tab switching + topbar mode (~150-250 lines)
+│   ├── keybinds.js     # Keyboard shortcuts (~100-200 lines)
+│   ├── events.js       # Events list (~200-400 lines)
 │   ├── places.js       # Places list (~300 lines)
 │   ├── map.js          # Map rendering (~800 lines)
 │   └── detailPanel.js  # Detail panel (~600 lines)
@@ -315,7 +352,7 @@ api/static/relchart/js/
 
 ---
 
-## Phase 4: Add Fixtures & Smoke Tests (1 day)
+## Phase 4: Add Fixtures & Smoke Tests (NEXT)
 
 ### Step 4.1: Save known-problem payloads
 
@@ -364,42 +401,26 @@ Run after any significant change:
 
 ---
 
-## Handoff: Start Map Refactor (New Chat)
+## Handoff: Finish Backend Consolidation + Fixtures (New Chat)
 
-**Goal:** Extract the large Leaflet/Map + Places/Events-on-map logic out of the main frontend entrypoint.
+**Goal:** Finish the remaining “cleanup” work:
+- Reduce `api/main.py` further (target: route registration + app wiring only)
+- Add on-disk graph fixtures + a manual smoke checklist for repeatable UI verification
 
 **What’s already done:**
-- `app.js` now depends on:
-    - `state.js` for DOM refs + shared state
-    - `features/people.js` for People list + selection store
-    - `features/families.js` for Families list + selection
-    - `features/portal.js` for portaled popovers (topbar menus)
+- Backend modules exist: `api/privacy.py`, `api/names.py`, `api/graph.py`, `api/queries.py`
+- Backend tests exist: `tests/test_privacy.py`, `tests/test_names.py`, `tests/test_graph*.py`
+- Frontend feature modules exist under `api/static/relchart/js/features/` and `app.js` is mostly wiring
 
-**Next target (map chunk):**
-- In `app.js`, look for map-related functions such as:
-    - `ensureMapInitialized()`
-    - `_ensureLeafletLoaded()`
-    - `_applyBasemap()` / `_ensureBaseLayers()`
-    - `_scheduleMapOverlayRefresh()` / `_fitMapToOverlays()`
-    - `_centerMapOnPlace()`
-    - place selection events like `window.addEventListener('relchart:place-selected', ...)`
+**Next targets:**
+1. **Backend:** Identify what remains in `api/main.py` that can move into `api/routes/*` (or into `api/graph.py` / `api/queries.py`) and remove duplicate legacy code.
+2. **Fixtures:** Populate `tests/fixtures/payloads/` with a couple of known-problem neighborhood payload JSONs.
+3. **Smoke checklist:** Add `tests/SMOKE_TEST.md` to make UI verification repeatable.
 
-**Recommended split:**
-- Create `api/static/relchart/js/features/map.js` for Leaflet init, basemap, overlay layers, pin/route rendering, and refresh scheduling.
-- Keep `api/static/relchart/js/features/places.js` focused on Places list + place-events panel UI.
-- Keep “global place selection” in one place (either `places.js` or a small shared selection helper) so both Map and Places list stay in sync.
-
-**Integration shape (suggested):**
-- `features/map.js` exports `initMapFeature({ setStatus, ensurePlacesLoaded, selection/getSelectedPerson })` and `ensureMapInitialized()`.
-- `app.js` keeps the top-level wiring and passes callbacks, similar to how People/Families are initialized.
-
-**Smoke check after extraction:**
-- Run `npm run -s lint -- api/static/relchart/js/app.js api/static/relchart/js/features/map.js`.
+**Smoke check after backend consolidation:**
+- Run `pytest tests/`.
 - Restart API via the VS Code task “genealogy: restart api (detached 8080)”.
-- Open `http://127.0.0.1:8080/demo/relationship` and verify:
-    - switching to Map tab works
-    - pins toggle works
-    - selecting a place recenters the map (only when map is visible)
+- Open `http://127.0.0.1:8080/demo/relationship` and verify graph + expand still work.
 
 **Important project rules:**
 - Only touch relchart v3 files under `api/static/relchart/`.
@@ -459,8 +480,8 @@ git merge refactor/backend-modules
 After completing this plan:
 
 1. `api/main.py` is under 600 lines (route registration only)
-2. `app.js` is under 600 lines (module wiring only)
-3. `pytest tests/` passes with 10+ test cases
-4. Privacy rules are tested and documented
+2. `app.js` is under 600 lines (module wiring only) ✅
+3. `pytest tests/` passes ✅
+4. Privacy rules are tested ✅
 5. New features can be added without touching unrelated code
 6. You can understand any module in isolation
