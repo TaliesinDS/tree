@@ -295,16 +295,6 @@
         b.addEventListener('click', () => setActiveTab(b.dataset.tab));
       }
 
-      window.addEventListener('keydown', (e) => {
-        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-        const k = String(e.key || '').toLowerCase();
-        if (k === 'g') setActiveTab('graph');
-        if (k === 'p') setActiveTab('people');
-        if (k === 'f') setActiveTab('families');
-        if (k === 'e') setActiveTab('events');
-        if (k === 'm') setActiveTab('map');
-      });
-
       const THEME_KEY = 'tree_relchart_theme_v1';
       const getTheme = () => {
         try {

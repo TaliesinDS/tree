@@ -58,6 +58,7 @@ import {
   setSidebarActiveTab,
   setTopbarControlsMode,
 } from './features/tabs.js';
+import { initKeybindsFeature } from './features/keybinds.js';
 
 function _formatEventTitle(ev) {
   const t = String(ev?.type || ev?.event_type || 'Event').trim();
@@ -925,6 +926,7 @@ initTabsFeature({
   selection,
   selectParentFamilyForPersonInSidebar: _selectParentFamilyForPersonInSidebar,
 });
+initKeybindsFeature();
 
 loadDetailPanelPos();
 loadDetailPanelSize();
