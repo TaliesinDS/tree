@@ -5,6 +5,16 @@
 1. Split the "god files" (`api/main.py` and `app.js`) into focused modules
 2. Add automated tests for privacy logic and critical rules
 
+**Status (as of 2026-01-20):**
+- Frontend modularization is in progress.
+- Completed extractions:
+    - `api/static/relchart/js/state.js`
+    - `api/static/relchart/js/util/dom.js`
+    - `api/static/relchart/js/features/portal.js`
+    - `api/static/relchart/js/features/people.js`
+    - `api/static/relchart/js/features/families.js`
+- `api/static/relchart/js/app.js` is updated to import and initialize these modules.
+
 ---
 
 ## Phase 1: Backend Modularization (3-4 days)
@@ -185,7 +195,7 @@ pytest-cov  # optional
 
 Break `api/static/relchart/js/app.js` into focused modules.
 
-### Step 3.1: Extract `js/state.js`
+### Step 3.1: Extract `js/state.js` (DONE)
 
 **What to move:**
 ```javascript
@@ -201,7 +211,27 @@ export function _writeSetting(key, value) { ... }
 
 ---
 
-### Step 3.2: Extract `js/features/people.js`
+### Step 3.2: Extract `js/util/dom.js` (DONE)
+
+**What to move:**
+- Small DOM helpers that are shared across features
+- Example: `_cssEscape` and other tiny utilities
+
+**Why:** Keeps feature modules small and prevents circular imports.
+
+---
+
+### Step 3.3: Extract `js/features/portal.js` (DONE)
+
+**What to move:**
+- The topbar/details popover “portaling” logic
+- Helper like `_isInsideDetailsOrPortal` and portal/unportal functions
+
+**Why:** This is a self-contained UI behavior used by multiple popovers.
+
+---
+
+### Step 3.4: Extract `js/features/people.js` (DONE)
 
 **What to move:**
 - People list rendering
@@ -213,7 +243,19 @@ export function _writeSetting(key, value) { ... }
 
 ---
 
-### Step 3.3: Extract `js/features/map.js`
+### Step 3.5: Extract `js/features/families.js` (DONE)
+
+**What to move:**
+- Families list rendering + virtualization
+- Families search/filter UI wiring
+- Family selection + scroll-to-selected behavior
+- `ensureFamiliesLoaded()` and `setSelectedFamilyKey()`
+
+**Why:** Families sidebar is independent from the relationship chart rendering.
+
+---
+
+### Step 3.6: Extract `js/features/map.js` (NEXT)
 
 **What to move:**
 - ALL Leaflet/map code
@@ -225,7 +267,7 @@ export function _writeSetting(key, value) { ... }
 
 ---
 
-### Step 3.4: Extract `js/features/detailPanel.js`
+### Step 3.7: Extract `js/features/detailPanel.js`
 
 **What to move:**
 - Detail panel open/close
@@ -237,7 +279,7 @@ export function _writeSetting(key, value) { ... }
 
 ---
 
-### Step 3.5: Extract `js/features/places.js`
+### Step 3.8: Extract `js/features/places.js`
 
 **What to move:**
 - Places list rendering
@@ -253,8 +295,12 @@ api/static/relchart/js/
 ├── app.js              # Entrypoint + wiring (~500 lines)
 ├── api.js              # API fetch wrappers (existing)
 ├── state.js            # Shared state + settings (~100 lines)
+├── util/
+│   └── dom.js           # Shared DOM helpers
 ├── features/
 │   ├── people.js       # People list (~400 lines)
+│   ├── families.js     # Families list (~300-500 lines)
+│   ├── portal.js       # Popover portaling helpers
 │   ├── places.js       # Places list (~300 lines)
 │   ├── map.js          # Map rendering (~800 lines)
 │   └── detailPanel.js  # Detail panel (~600 lines)
@@ -315,6 +361,49 @@ Run after any significant change:
 - [ ] Verify map loads
 - [ ] Verify pins appear for events with coordinates
 ```
+
+---
+
+## Handoff: Start Map Refactor (New Chat)
+
+**Goal:** Extract the large Leaflet/Map + Places/Events-on-map logic out of the main frontend entrypoint.
+
+**What’s already done:**
+- `app.js` now depends on:
+    - `state.js` for DOM refs + shared state
+    - `features/people.js` for People list + selection store
+    - `features/families.js` for Families list + selection
+    - `features/portal.js` for portaled popovers (topbar menus)
+
+**Next target (map chunk):**
+- In `app.js`, look for map-related functions such as:
+    - `ensureMapInitialized()`
+    - `_ensureLeafletLoaded()`
+    - `_applyBasemap()` / `_ensureBaseLayers()`
+    - `_scheduleMapOverlayRefresh()` / `_fitMapToOverlays()`
+    - `_centerMapOnPlace()`
+    - place selection events like `window.addEventListener('relchart:place-selected', ...)`
+
+**Recommended split:**
+- Create `api/static/relchart/js/features/map.js` for Leaflet init, basemap, overlay layers, pin/route rendering, and refresh scheduling.
+- Keep `api/static/relchart/js/features/places.js` focused on Places list + place-events panel UI.
+- Keep “global place selection” in one place (either `places.js` or a small shared selection helper) so both Map and Places list stay in sync.
+
+**Integration shape (suggested):**
+- `features/map.js` exports `initMapFeature({ setStatus, ensurePlacesLoaded, selection/getSelectedPerson })` and `ensureMapInitialized()`.
+- `app.js` keeps the top-level wiring and passes callbacks, similar to how People/Families are initialized.
+
+**Smoke check after extraction:**
+- Run `npm run -s lint -- api/static/relchart/js/app.js api/static/relchart/js/features/map.js`.
+- Restart API via the VS Code task “genealogy: restart api (detached 8080)”.
+- Open `http://127.0.0.1:8080/demo/relationship` and verify:
+    - switching to Map tab works
+    - pins toggle works
+    - selecting a place recenters the map (only when map is visible)
+
+**Important project rules:**
+- Only touch relchart v3 files under `api/static/relchart/`.
+- If any SVG elements are moved during post-processing, edges must be re-snapped (see docs/debug notes).
 
 ---
 
