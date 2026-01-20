@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+import re
+from typing import Any, Optional
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Query
@@ -23,6 +24,132 @@ except ImportError:  # pragma: no cover
     from util import _compact_json
 
 router = APIRouter()
+
+
+@router.get("/people")
+def list_people(
+    limit: int = Query(default=5000, ge=1, le=50_000),
+    offset: int = Query(default=0, ge=0, le=5_000_000),
+    include_total: bool = False,
+) -> dict[str, Any]:
+    """List people in the database (privacy-redacted).
+
+    This endpoint is intended for building a global People index in the UI.
+    Use limit/offset pagination for large datasets.
+    """
+
+    with db_conn() as conn:
+        total = None
+        if include_total:
+            total = conn.execute("SELECT COUNT(*) FROM person").fetchone()[0]
+
+        rows = conn.execute(
+            """
+            SELECT id, gramps_id, display_name, given_name, surname,
+                   birth_text, death_text, birth_date, death_date,
+                   is_living, is_private, is_living_override
+            FROM person
+            ORDER BY display_name NULLS LAST, id
+            LIMIT %s OFFSET %s
+            """.strip(),
+            (limit, offset),
+        ).fetchall()
+
+    results: list[dict[str, Any]] = []
+    for r in rows:
+        (
+            pid,
+            gid,
+            display_name,
+            given_name,
+            surname,
+            birth_text,
+            death_text,
+            birth_date,
+            death_date,
+            is_living_flag,
+            is_private_flag,
+            is_living_override,
+        ) = tuple(r)
+
+        def _year_hint(
+            bd: date | None,
+            dd: date | None,
+            bt: str | None,
+            dt: str | None,
+        ) -> tuple[int | None, int | None]:
+            by = bd.year if bd is not None else None
+            dy = dd.year if dd is not None else None
+
+            def _year_from_text(s: str | None) -> int | None:
+                if not s:
+                    return None
+                m = re.search(r"\b(\d{4})\b", str(s))
+                if not m:
+                    return None
+                try:
+                    y = int(m.group(1))
+                except ValueError:
+                    return None
+                if y < 1 or y > date.today().year + 5:
+                    return None
+                return y
+
+            if by is None:
+                by = _year_from_text(bt)
+            if dy is None:
+                dy = _year_from_text(dt)
+            return by, dy
+
+        if _is_effectively_private(
+            is_private=is_private_flag,
+            is_living_override=is_living_override,
+            is_living=is_living_flag,
+            birth_date=birth_date,
+            death_date=death_date,
+            birth_text=birth_text,
+            death_text=death_text,
+        ):
+            results.append(
+                {
+                    "id": pid,
+                    "gramps_id": gid,
+                    "type": "person",
+                    "display_name": "Private",
+                    "given_name": None,
+                    "surname": None,
+                    "birth_year": None,
+                    "death_year": None,
+                }
+            )
+        else:
+            display_name_out, given_name_out, surname_out = _format_public_person_names(
+                display_name=display_name,
+                given_name=given_name,
+                surname=surname,
+            )
+            by, dy = _year_hint(birth_date, death_date, birth_text, death_text)
+            results.append(
+                {
+                    "id": pid,
+                    "gramps_id": gid,
+                    "type": "person",
+                    "display_name": display_name_out,
+                    "given_name": given_name_out,
+                    "surname": surname_out,
+                    "birth_year": by,
+                    "death_year": dy,
+                }
+            )
+
+    out: dict[str, Any] = {
+        "offset": offset,
+        "limit": limit,
+        "results": results,
+    }
+    if include_total:
+        out["total"] = int(total or 0)
+    return out
 
 
 @router.get("/people/{person_id}")
