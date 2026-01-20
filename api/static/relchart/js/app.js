@@ -1,9 +1,12 @@
 import * as api from './api.js';
-import { formatGrampsDateEnglish } from './util/date.js';
-
 import { els, state } from './state.js';
-import { _cssEscape } from './util/dom.js';
-import { _isInsideDetailsOrPortal, _portalDetailsPanel, _unportalDetailsPanel } from './features/portal.js';
+import { copyToClipboard } from './util/clipboard.js';
+import {
+  formatEventTitle,
+  formatEventPlaceForSidebar,
+  formatEventSubLine,
+  formatEventSubLineNoPlace,
+} from './util/event_format.js';
 import {
   initPeopleFeature,
   selection,
@@ -17,7 +20,6 @@ import {
   ensureFamiliesLoaded,
   setSelectedFamilyKey,
   _applyFamiliesSelectionToDom,
-  _renderFamiliesList,
 } from './features/families.js';
 import {
   initMapFeature,
@@ -57,130 +59,7 @@ import {
 } from './features/tabs.js';
 import { initKeybindsFeature } from './features/keybinds.js';
 import { initGraphFeature, rerenderGraph } from './features/graph.js';
-
-function _formatEventTitle(ev) {
-  const t = String(ev?.type || ev?.event_type || 'Event').trim();
-  return t || 'Event';
-}
-
-function _formatEventPlaceForSidebar(ev) {
-  const full = String(ev?.place?.name || '').trim();
-  if (!full) return '';
-
-  // Heuristic: if the place ends with "Netherlands"/"Nederland" (or "NL"), hide the country.
-  // If it's outside NL, keep the full place string (which should include the country).
-  const parts = full.split(',').map(s => String(s).trim()).filter(Boolean);
-  if (parts.length < 2) return full;
-  const country = String(parts[parts.length - 1] || '').trim();
-  if (/^(netherlands|nederland|nl)$/i.test(country)) {
-    return parts.slice(0, -1).join(', ');
-  }
-  return full;
-}
-
-function _formatEventSubLine(ev) {
-  const dateText = String(ev?.date || ev?.date_text || ev?.event_date || ev?.event_date_text || '').trim();
-  const dateUi = dateText ? formatGrampsDateEnglish(dateText) : '';
-  const placeName = _formatEventPlaceForSidebar(ev);
-  const parts = [];
-  if (dateUi) parts.push(dateUi);
-  if (placeName) parts.push(placeName);
-  return parts.join(' · ');
-}
-
-function _formatEventSubLineNoPlace(ev) {
-  const dateText = String(ev?.date || ev?.date_text || ev?.event_date || ev?.event_date_text || '').trim();
-  const dateUi = dateText ? formatGrampsDateEnglish(dateText) : '';
-  return dateUi;
-}
-
-const PEOPLE_EXPANDED_KEY = 'tree_relchart_people_expanded_v1';
-const PEOPLE_WIDE_PX_KEY = 'tree_relchart_people_wide_px_v1';
-const PEOPLE_WIDE_PX_DEFAULT = 440;
-
-function _setPeopleWidePx(px, { persist = true } = {}) {
-  let n = Number(px);
-  if (!Number.isFinite(n)) return;
-  n = Math.round(n);
-  n = Math.max(360, Math.min(900, n));
-  document.documentElement.style.setProperty('--sidebar-w-wide', `${n}px`);
-  if (els.peopleWidth) els.peopleWidth.value = String(n);
-  if (persist) {
-    try { localStorage.setItem(PEOPLE_WIDE_PX_KEY, String(n)); } catch (_) {}
-  }
-}
-
-function _setPeopleExpanded(expanded, { persist = true, rerender: shouldRerender = true } = {}) {
-  const on = !!expanded;
-  state.peopleExpanded = on;
-  document.documentElement.dataset.peopleWide = on ? 'true' : 'false';
-  if (els.peopleExpandToggle) {
-    els.peopleExpandToggle.textContent = on ? 'Compact' : 'Expand';
-    els.peopleExpandToggle.title = on ? 'Collapse people list' : 'Expand people list (show years)';
-  }
-  if (persist) {
-    try { localStorage.setItem(PEOPLE_EXPANDED_KEY, on ? '1' : '0'); } catch (_) {}
-  }
-  if (shouldRerender && state.peopleLoaded && state.people) {
-    _renderPeopleList(state.people, els.peopleSearch?.value || '');
-  }
-}
-
-function _initPeopleExpanded() {
-  let on = false;
-  try {
-    const v = String(localStorage.getItem(PEOPLE_EXPANDED_KEY) || '').trim();
-    on = (v === '1' || v.toLowerCase() === 'true');
-  } catch (_) {}
-
-  let px = PEOPLE_WIDE_PX_DEFAULT;
-  try {
-    const raw = String(localStorage.getItem(PEOPLE_WIDE_PX_KEY) || '').trim();
-    const n = Number(raw);
-    if (Number.isFinite(n)) px = n;
-  } catch (_) {}
-  _setPeopleWidePx(px, { persist: false });
-
-  if (els.optPeopleWidePx) {
-    els.optPeopleWidePx.value = String(px);
-    els.optPeopleWidePx.addEventListener('change', () => {
-      _setPeopleWidePx(els.optPeopleWidePx.value);
-      if (state.peopleExpanded && state.peopleLoaded && state.people) {
-        _renderPeopleList(state.people, els.peopleSearch?.value || '');
-      }
-    });
-  }
-
-  // Close the menu when clicking outside.
-  if (els.optionsMenu) {
-    try {
-      els.optionsMenu.addEventListener('toggle', () => {
-        if (els.optionsMenu.open) _portalDetailsPanel(els.optionsMenu, '.optionsPanel', { align: 'right' });
-        else _unportalDetailsPanel(els.optionsMenu);
-      });
-    } catch (_) {}
-
-    document.addEventListener('click', (e) => {
-      const open = els.optionsMenu.open;
-      if (!open) return;
-      const t = e.target;
-      if (t && _isInsideDetailsOrPortal(els.optionsMenu, t)) return;
-      els.optionsMenu.open = false;
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        try { els.optionsMenu.open = false; } catch (_) {}
-      }
-    });
-  }
-
-  _setPeopleExpanded(on, { persist: false, rerender: false });
-  if (els.peopleExpandToggle) {
-    els.peopleExpandToggle.addEventListener('click', () => {
-      _setPeopleExpanded(!state.peopleExpanded);
-    });
-  }
-}
+import { initOptionsFeature } from './features/options.js';
 
 function _selectParentFamilyForPersonInSidebar(personApiId) {
   const pid = String(personApiId || '').trim();
@@ -292,34 +171,6 @@ function setStatus(msg, isError = false) {
   } catch (_) {}
 }
 
-async function copyToClipboard(text) {
-  const s = String(text ?? '');
-  if (!s) return false;
-
-  try {
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(s);
-      return true;
-    }
-  } catch (_) {}
-
-  // Fallback for environments where Clipboard API isn't available.
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = s;
-    ta.setAttribute('readonly', '');
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    ta.style.top = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    ta.remove();
-    return !!ok;
-  } catch (_) {
-    return false;
-  }
-}
 
 async function rerender() {
   return rerenderGraph();
@@ -396,7 +247,7 @@ els.fitBtn.addEventListener('click', () => {
 
 // Initial
 setStatus('Ready.');
-_initPeopleExpanded();
+initOptionsFeature({ renderPeopleList: _renderPeopleList });
 initGraphFeature({
   selection,
   getSidebarActiveTab,
@@ -422,7 +273,7 @@ initDetailPanelFeature({
   getSidebarActiveTab,
   selectPlaceGlobal,
   resolveRelationsRootPersonId: _resolveRelationsRootPersonId,
-  formatEventPlaceForSidebar: _formatEventPlaceForSidebar,
+  formatEventPlaceForSidebar,
 });
 try { setTopbarControlsMode(getSidebarActiveTab() === 'map' ? 'map' : 'graph'); } catch (_) {}
 
@@ -474,8 +325,8 @@ initEventsFeature({
   setStatus,
   copyToClipboard,
   getSidebarActiveTab,
-  formatEventTitle: _formatEventTitle,
-  formatEventSubLine: _formatEventSubLine,
+  formatEventTitle,
+  formatEventSubLine,
 });
 
 initPlacesFeature({
@@ -483,6 +334,6 @@ initPlacesFeature({
   loadNeighborhood,
   selection,
   getSidebarActiveTab,
-  formatEventTitle: _formatEventTitle,
-  formatEventSubLineNoPlace: _formatEventSubLineNoPlace,
+  formatEventTitle,
+  formatEventSubLineNoPlace,
 });

@@ -1,5 +1,6 @@
 import { els, state } from '../state.js';
 import { _cssEscape } from '../util/dom.js';
+import { copyToClipboard } from '../util/clipboard.js';
 
 let _setStatus = null;
 let _loadNeighborhood = null;
@@ -603,32 +604,6 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
     return [...anc, self].filter((s) => s).join(' > ');
   };
 
-  const _copyText = async (text) => {
-    const t = String(text || '');
-    if (!t) return false;
-    try {
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(t);
-        return true;
-      }
-    } catch (_) {}
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = t;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      ta.style.top = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return !!ok;
-    } catch (_) {
-      return false;
-    }
-  };
-
   const selectThisPlace = (rowEl, { emitMapEvent = true } = {}) => {
     const pid = String(node.id || '').trim();
     if (!pid) return;
@@ -697,7 +672,7 @@ function _renderPlacesTreeNode(node, byId, childrenByParent, opts) {
       const idPart = gid ? `${gid} (${internal})` : internal;
       const crumb = _placeBreadcrumb();
       const text = `${idPart}\t${crumb}`;
-      const ok = await _copyText(text);
+      const ok = await copyToClipboard(text);
       _setStatusSafe(ok ? `Copied: ${idPart} · ${crumb}` : 'Copy failed.');
     });
     nameRow.appendChild(name);

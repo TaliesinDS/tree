@@ -9,11 +9,14 @@
 **Status (as of 2026-01-20):**
 - Backend modularization is complete: `api/main.py` is now wiring-only (~35 lines) and endpoints live under `api/routes/`.
 - Backend tests are implemented (`tests/test_privacy.py`, `tests/test_names.py`, plus graph payload regression/contract tests).
-- Frontend modularization is mostly complete (`api/static/relchart/js/app.js` is ~433 lines and primarily wiring).
+- Frontend modularization is complete (`api/static/relchart/js/app.js` is ~301 lines and primarily wiring).
 - Completed frontend extractions:
     - `api/static/relchart/js/state.js`
     - `api/static/relchart/js/util/dom.js`
+    - `api/static/relchart/js/util/clipboard.js`
+    - `api/static/relchart/js/util/event_format.js`
     - `api/static/relchart/js/features/portal.js`
+    - `api/static/relchart/js/features/options.js`
     - `api/static/relchart/js/features/people.js`
     - `api/static/relchart/js/features/families.js`
     - `api/static/relchart/js/features/map.js`
@@ -323,11 +326,6 @@ export function _writeSetting(key, value) { ... }
 - Keyboard shortcuts
 
 **Why:** Keeps the entrypoint focused on wiring.
-
-**What to move:**
-- Places list rendering
-- Place selection
-- Events panel for places
 
 ---
 
