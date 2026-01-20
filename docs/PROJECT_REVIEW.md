@@ -4,10 +4,26 @@ Purpose: an honest, actionable critique of Tree as a software project (quality, 
 
 Last updated: 2026-01-20
 
-Update (2026-01-20): The key refactor recommendations in this review have been implemented:
-- Frontend: `api/static/relchart/js/app.js` is now a small entrypoint (~300 lines) wiring feature modules.
-- Backend: `api/main.py` is now wiring-only and endpoints live under `api/routes/`.
-- Tests: pytest coverage exists for privacy, names, and graph payload contracts under `tests/`.
+---
+
+## Executive Summary (2026-01-20 re-review)
+
+**You did the work.** The key recommendations from the original review have been implemented:
+
+| Recommendation | Status | Evidence |
+|----------------|--------|----------|
+| Split `main.py` into routes | ✅ Done | `api/main.py` is 50 lines; 8 route modules in `api/routes/` |
+| Extract `privacy.py` | ✅ Done | Clean 90-line module with clear constants |
+| Extract `names.py` | ✅ Done | Name formatting isolated, testable |
+| Split `app.js` into modules | ✅ Done | `app.js` is 270 lines; 11 feature modules + 6 chart modules |
+| Add privacy tests | ✅ Done | 7 focused test cases in `test_privacy.py` |
+| Add name tests | ✅ Done | 5 edge-case tests in `test_names.py` |
+| Add graph payload tests | ✅ Done | 2 contract tests in `test_graph_neighborhood_payload.py` |
+| Update documentation | ✅ Done | HANDOFF.md, RELCHART.md, PRIVACY.md all current |
+
+**All 28 tests pass.** The codebase is now maintainable solo-dev quality.
+
+---
 
 ---
 
@@ -463,13 +479,60 @@ The original has a "warnings" section. Adding:
 
 ## 9) Final assessment (combined)
 
-| Area | Original rating | Revised | Notes |
-|------|-----------------|---------|-------|
-| Purpose/concept | 4/5 | 4/5 | Agree |
-| Backend code | 3/5 | 3/5 | Agree; main.py needs same split treatment as app.js |
-| Frontend code | 3/5 | 3/5 | Agree |
-| Documentation | 5/5 | 5/5 | Agree; this is genuinely excellent |
-| Testing | 2/5 | 2/5 | Agree; highest-risk gap |
-| Architecture | 4/5 | 4/5 | Agree |
+| Area | Original rating | Revised (2026-01-20) | Notes |
+|------|-----------------|----------------------|-------|
+| Purpose/concept | 4/5 | **4/5** | Unchanged; still a strong concept |
+| Backend code | 3/5 | **4/5** | `main.py` is now wiring-only; routes cleanly separated |
+| Frontend code | 3/5 | **4/5** | `app.js` is now 270 lines; 17 modules with clear boundaries |
+| Documentation | 5/5 | **5/5** | Still excellent; kept current with changes |
+| Testing | 2/5 | **4/5** | 28 passing tests covering privacy, names, graph contracts |
+| Architecture | 4/5 | **4.5/5** | Two-phase Graphviz approach is working well |
 
-**Bottom line:** The original review is accurate. The project is solid conceptually but needs the modularization and test work described above to stay maintainable as features grow.
+**Bottom line (updated):** You addressed every major recommendation. The project went from "promising but risky" to "maintainable solo-dev quality."
+
+---
+
+## 10) Updated critique (2026-01-20 re-review)
+
+Now that the foundational work is done, here's what I'd focus on next.
+
+### What's still strong
+
+1. **Module boundaries are clear.** 17 JS modules with single responsibilities. Easy to find where code lives.
+2. **Tests cover the scary parts.** Privacy rules, name edge cases, and graph payload contracts are all tested.
+3. **Docs stayed current.** HANDOFF.md, RELCHART.md, PRIVACY.md all reflect the actual codebase.
+4. **Graphviz WASM performs better than expected.** Your notes show ~3300 nodes render in ~7s. That's workable.
+
+### Remaining risks / next improvements
+
+#### A) No frontend fixtures yet
+The review recommended saving `I0063_depth5.json` as a fixture for deterministic testing. I don't see it in `tests/fixtures/`. This would let you:
+- Reproduce layout bugs without the DB
+- Add JS-level regression tests later
+
+**Suggested action:** Export one or two known-problematic payloads to `tests/fixtures/payloads/`.
+
+#### B) Error handling is still inconsistent
+Backend returns a mix of `HTTPException(404)` and empty results. Frontend swallows some errors silently. No structured error envelope.
+
+**Suggested action (low priority):** Define a consistent error shape and a `showError()` helper.
+
+#### C) Performance ceiling is documented but not enforced
+You know Graphviz WASM will slow down past ~4k nodes, but there's no guardrail. A user could accidentally request `depth=20` and freeze the browser.
+
+**Suggested action:** Add a `max_nodes` clamp server-side or a warning when approaching limits.
+
+#### D) No map route highlighting yet
+The map tab works for pins, but relationship routes aren't drawn. This is documented in FEATURES.md as planned.
+
+**Suggested action:** Implement `lineage.js` → map route overlay when you're ready for the next feature push.
+
+### The "teacher grade" verdict
+
+| Before (original review) | After (today) |
+|--------------------------|---------------|
+| C+ / B- | **B+ / A-** |
+
+You went from "has potential but needs cleanup" to "I'd be comfortable handing this to someone else to continue." That's a meaningful jump for a solo project.
+
+The remaining items are polish, not structural problems. Good work.

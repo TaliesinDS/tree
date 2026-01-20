@@ -197,3 +197,62 @@ These contain detailed root cause analysis and failed approaches — consult bef
 - Don't move SVG nodes without tracking offsets for edge re-snapping
 - Don't weaken single-parent anchoring edges (causes "float to top row" bug)
 - Don't use `getBBox()` alone for cross-transform coordinate math
+
+## Code Organization Rules (IMPORTANT — do not regress)
+
+The codebase was refactored from "god files" into modules. **Do not undo this.**
+
+### Backend: `api/main.py` is WIRING ONLY
+
+`main.py` must stay small (~50 lines). It should only:
+- Import routers from `api/routes/`
+- Register routers with `app.include_router()`
+- Mount static files
+
+**Never add endpoint logic, database queries, or helper functions to `main.py`.**
+
+When adding a new endpoint:
+1. Create or use an existing file in `api/routes/` (e.g., `api/routes/people.py`)
+2. Define your route handler there
+3. Import and register the router in `main.py`
+
+### Frontend: `app.js` is WIRING ONLY
+
+`app.js` must stay small (~300 lines). It should only:
+- Import feature modules
+- Initialize features with `initXxxFeature()`
+- Wire cross-feature callbacks
+- Handle the initial page load
+
+**Never add DOM manipulation, fetch logic, or rendering code to `app.js`.**
+
+When adding a new feature:
+1. Create a new file in `api/static/relchart/js/features/` (e.g., `features/newFeature.js`)
+2. Export an `initNewFeature()` function and any needed helpers
+3. Import and call it from `app.js`
+
+### Module locations
+
+| Type of code | Put it in |
+|--------------|-----------|
+| API fetch wrappers | `js/api.js` |
+| Shared state/settings | `js/state.js` |
+| DOT generation | `js/chart/dot.js` |
+| SVG post-processing | `js/chart/render.js` |
+| Graph interactions | `js/features/graph.js` |
+| People sidebar | `js/features/people.js` |
+| Families sidebar | `js/features/families.js` |
+| Map tab | `js/features/map.js` |
+| Detail panel | `js/features/detailPanel.js` |
+| New backend endpoint | `api/routes/<domain>.py` |
+| Privacy logic | `api/privacy.py` |
+| Name formatting | `api/names.py` |
+
+### Why this matters
+
+Before refactoring, `app.js` was 5000+ lines and `main.py` was 3000+ lines. This caused:
+- Regressions when adding features (everything touched everything)
+- Fear of refactoring ("don't touch it")
+- Bugs from load-order dependencies
+
+The modular structure exists to prevent these problems. **Maintain it.**
