@@ -132,6 +132,11 @@ const state = {
     size: { h: null },
     peek: { url: '', name: '', loading: false },
   },
+
+  status: {
+    lastNonMapMsg: 'Ready.',
+    lastNonMapIsError: false,
+  },
 };
 
 const MAP_SETTINGS = {
@@ -177,9 +182,130 @@ function _setTopbarControlsMode(kind) {
   if (els.mapControls) els.mapControls.hidden = !showMap;
 }
 
+// --- Topbar popover portaling ---
+// The topbar uses `position: sticky` + a z-index, which forms a stacking context.
+// That means dropdown panels inside it cannot rise above other fixed overlays
+// (like the person detail panel) even if they have a higher z-index.
+//
+// Solution: when a <details> menu opens, temporarily move its panel element to
+// document.body and position it using fixed coordinates.
+const _portalState = {
+  byDetails: new Map(),
+};
+
+function _getPortaledPanel(detailsEl) {
+  return _portalState.byDetails.get(detailsEl) || null;
+}
+
+function _isInsideDetailsOrPortal(detailsEl, target) {
+  const t = target;
+  if (!t) return false;
+  try {
+    if (detailsEl?.contains?.(t)) return true;
+  } catch (_) {}
+  try {
+    const p = _getPortaledPanel(detailsEl);
+    if (p && p.contains && p.contains(t)) return true;
+  } catch (_) {}
+  return false;
+}
+
+function _positionPortaledPanel(detailsEl) {
+  const info = _portalState.byDetails.get(detailsEl);
+  if (!info) return;
+  const { panel, align } = info;
+  if (!panel) return;
+
+  const r = detailsEl?.querySelector?.('summary')?.getBoundingClientRect?.()
+    || detailsEl?.getBoundingClientRect?.();
+  if (!r) return;
+
+  // Ensure it has a measurable size.
+  const panelW = panel.offsetWidth || 260;
+  const panelH = panel.offsetHeight || 180;
+  const vw = window.innerWidth || 1200;
+  const vh = window.innerHeight || 800;
+
+  let left = r.left;
+  if (align === 'right') left = r.right - panelW;
+  left = Math.max(8, Math.min(left, vw - panelW - 8));
+
+  let top = r.bottom + 8;
+  top = Math.max(8, Math.min(top, vh - panelH - 8));
+
+  panel.style.left = `${Math.round(left)}px`;
+  panel.style.top = `${Math.round(top)}px`;
+}
+
+function _portalDetailsPanel(detailsEl, panelSelector, { align = 'left' } = {}) {
+  if (!detailsEl) return;
+  const existing = _portalState.byDetails.get(detailsEl);
+  if (existing?.panel) {
+    _positionPortaledPanel(detailsEl);
+    return;
+  }
+
+  const panel = detailsEl.querySelector(panelSelector);
+  if (!panel) return;
+
+  const homeParent = panel.parentElement;
+  const homeNextSibling = panel.nextSibling;
+  const homeStyle = panel.getAttribute('style');
+
+  _portalState.byDetails.set(detailsEl, {
+    panel,
+    homeParent,
+    homeNextSibling,
+    homeStyle,
+    align,
+  });
+
+  try { document.body.appendChild(panel); } catch (_) {}
+  try {
+    panel.style.position = 'fixed';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.margin = '0';
+  } catch (_) {}
+
+  _positionPortaledPanel(detailsEl);
+}
+
+function _unportalDetailsPanel(detailsEl) {
+  const info = _portalState.byDetails.get(detailsEl);
+  if (!info) return;
+  _portalState.byDetails.delete(detailsEl);
+
+  const { panel, homeParent, homeNextSibling, homeStyle } = info;
+  if (!panel) return;
+
+  try {
+    if (homeParent) {
+      if (homeNextSibling && homeNextSibling.parentNode === homeParent) {
+        homeParent.insertBefore(panel, homeNextSibling);
+      } else {
+        homeParent.appendChild(panel);
+      }
+    }
+  } catch (_) {}
+
+  try {
+    if (homeStyle === null || homeStyle === undefined) panel.removeAttribute('style');
+    else panel.setAttribute('style', homeStyle);
+  } catch (_) {}
+}
+
+window.addEventListener('resize', () => {
+  for (const detailsEl of _portalState.byDetails.keys()) {
+    try { _positionPortaledPanel(detailsEl); } catch (_) {}
+  }
+});
+
 function _closeMapPopovers() {
   try { if (els.mapPinsMenu) els.mapPinsMenu.open = false; } catch (_) {}
   try { if (els.mapRoutesMenu) els.mapRoutesMenu.open = false; } catch (_) {}
+  try { if (els.mapPinsMenu) _unportalDetailsPanel(els.mapPinsMenu); } catch (_) {}
+  try { if (els.mapRoutesMenu) _unportalDetailsPanel(els.mapRoutesMenu); } catch (_) {}
 }
 
 function _clampPinsMax(n) {
@@ -563,7 +689,7 @@ async function _renderMapOverlaysNow() {
     if (state.mapUi.autoFitPending) {
       state.mapUi.autoFitPending = false;
       if (state.mapUi.pinsEnabled && (state.mapUi.pinsCount || 0) > 0) {
-        _fitMapToOverlays();
+        _fitMapToOverlays({ quiet: true });
       }
     }
   } catch (_) {}
@@ -579,7 +705,7 @@ function _scheduleMapOverlayRefresh() {
   }, 80);
 }
 
-function _fitMapToOverlays() {
+function _fitMapToOverlays({ quiet = false } = {}) {
   if (!state.map.map || !window.L) return;
   _ensureOverlayLayers();
   const map = state.map.map;
@@ -593,7 +719,7 @@ function _fitMapToOverlays() {
     if (b2 && b2.isValid && b2.isValid()) bounds.push(b2);
   } catch (_) {}
   if (!bounds.length) {
-    setStatus('Map: nothing to fit.', true);
+    if (!quiet) setStatus('Map: nothing to fit.', true);
     return;
   }
   const merged = bounds.reduce((acc, b) => (acc ? acc.extend(b) : b), null);
@@ -606,13 +732,32 @@ function _initMapTopbarControls() {
   _loadMapUiSettings();
   _applyMapUiToDom();
 
+  // Portal popover panels above the detail panel.
+  try {
+    if (els.mapPinsMenu) {
+      els.mapPinsMenu.addEventListener('toggle', () => {
+        if (els.mapPinsMenu.open) _portalDetailsPanel(els.mapPinsMenu, '.topbarPanel', { align: 'left' });
+        else _unportalDetailsPanel(els.mapPinsMenu);
+      });
+    }
+    if (els.mapRoutesMenu) {
+      els.mapRoutesMenu.addEventListener('toggle', () => {
+        if (els.mapRoutesMenu.open) _portalDetailsPanel(els.mapRoutesMenu, '.topbarPanel', { align: 'left' });
+        else _unportalDetailsPanel(els.mapRoutesMenu);
+      });
+    }
+  } catch (_) {}
+
   // Close the popovers when clicking outside.
   document.addEventListener('click', (e) => {
     const pinsOpen = !!(els.mapPinsMenu && els.mapPinsMenu.open);
     const routesOpen = !!(els.mapRoutesMenu && els.mapRoutesMenu.open);
     if (!pinsOpen && !routesOpen) return;
     const t = e?.target;
-    if (t && (els.mapPinsMenu?.contains?.(t) || els.mapRoutesMenu?.contains?.(t))) return;
+    if (t && (
+      _isInsideDetailsOrPortal(els.mapPinsMenu, t)
+      || _isInsideDetailsOrPortal(els.mapRoutesMenu, t)
+    )) return;
     _closeMapPopovers();
   });
   document.addEventListener('keydown', (e) => {
@@ -688,7 +833,7 @@ function _initMapTopbarControls() {
 
   if (els.mapFitPinsBtn) {
     els.mapFitPinsBtn.addEventListener('click', () => {
-      _fitMapToOverlays();
+      _fitMapToOverlays({ quiet: false });
     });
   }
 
@@ -2548,11 +2693,18 @@ function _initPeopleExpanded() {
 
   // Close the menu when clicking outside.
   if (els.optionsMenu) {
+    try {
+      els.optionsMenu.addEventListener('toggle', () => {
+        if (els.optionsMenu.open) _portalDetailsPanel(els.optionsMenu, '.optionsPanel', { align: 'right' });
+        else _unportalDetailsPanel(els.optionsMenu);
+      });
+    } catch (_) {}
+
     document.addEventListener('click', (e) => {
       const open = els.optionsMenu.open;
       if (!open) return;
       const t = e.target;
-      if (t && els.optionsMenu.contains(t)) return;
+      if (t && _isInsideDetailsOrPortal(els.optionsMenu, t)) return;
       els.optionsMenu.open = false;
     });
     document.addEventListener('keydown', (e) => {
@@ -2599,6 +2751,13 @@ function _setSidebarActiveTab(tabName) {
     if (name !== 'map') {
       _closeMapPopovers();
       _setMapOverlaysVisible(false);
+
+      try {
+        const cur = String(els.status?.textContent || '').trim();
+        if (/^map\s*:/i.test(cur)) {
+          setStatus(state.status.lastNonMapMsg, state.status.lastNonMapIsError);
+        }
+      } catch (_) {}
     }
 
     if (name === 'map') {
@@ -3934,9 +4093,19 @@ function _restoreViewAnchorForPerson(anchor) {
 }
 
 function setStatus(msg, isError = false) {
-  els.status.textContent = String(msg ?? '');
-  els.status.title = String(msg ?? '');
+  const m = String(msg ?? '');
+  els.status.textContent = m;
+  els.status.title = m;
   els.status.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+
+  // Remember the last non-Map status so leaving the Map tab doesn't keep a
+  // stale "Map: ..." message in the topbar.
+  try {
+    if (!/^map\s*:/i.test(m)) {
+      state.status.lastNonMapMsg = m;
+      state.status.lastNonMapIsError = !!isError;
+    }
+  } catch (_) {}
 }
 
 async function copyToClipboard(text) {
