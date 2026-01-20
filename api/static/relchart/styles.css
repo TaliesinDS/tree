@@ -310,6 +310,115 @@ html[data-theme="light"] .personDetailAvatar {
   cursor: pointer;
 }
 
+.personDetailIconBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.personDetailIconBtn:hover,
+.personDetailClose:hover {
+  background: rgba(255,255,255,0.10);
+}
+
+html[data-theme="light"] .personDetailIconBtn {
+  border-color: var(--border);
+  background: #ffffff;
+  color: var(--text);
+}
+
+html[data-theme="light"] .personDetailIconBtn:hover,
+html[data-theme="light"] .personDetailClose:hover {
+  background: #e0e0e0;
+}
+
+.personDetailActions { position: relative; }
+
+/* When the search popover is open, the close button occupies the same visual slot
+   as the search icon button, so hide the icon button. */
+.personDetailPanel.searchOpen [data-panel-search="1"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.personDetailSearchPopover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  width: min(460px, 86vw);
+  max-height: 360px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  z-index: calc(var(--detail-panel-z) + 2);
+  display: grid;
+  gap: 8px;
+  cursor: default;
+}
+
+.personDetailSearchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.personDetailSearchInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.personDetailSearchClose {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.personDetailSearchResults {
+  overflow: auto;
+  max-height: 260px;
+  border-radius: 12px;
+
+  /* Match People tab typography */
+  font-family: var(--card-font);
+  font-weight: var(--sidebar-list-font-weight, 500);
+  font-size: 14px;
+  color: var(--text);
+  background: rgba(0,0,0,0.14);
+  padding: 6px;
+}
+
+/* These buttons reuse `.peopleItem` styling; add a small radius for the popover list. */
+.personDetailSearchResults .peopleItem {
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+
+.personDetailSearchResults .peopleItem + .peopleItem {
+  margin-top: 0px;
+}
+
+.personDetailSearchHint,
+.personDetailSearchEmpty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 html[data-theme="light"] .personDetailClose {
   border-color: var(--border);
   background: #ffffff;

@@ -1990,6 +1990,19 @@ function _renderPersonDetailPanelSkeleton() {
         </div>
       </div>
       <div class="personDetailActions">
+        <button class="personDetailIconBtn" type="button" data-panel-search="1" title="Search people" aria-label="Search people">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M10 4a6 6 0 1 1 0 12a6 6 0 0 1 0-12m0-2a8 8 0 1 0 4.9 14.3l4.4 4.4a1 1 0 0 0 1.4-1.4l-4.4-4.4A8 8 0 0 0 10 2z"/>
+          </svg>
+        </button>
+        <div class="personDetailSearchPopover" data-panel-search-popover="1" hidden>
+          <div class="personDetailSearchRow">
+            <input class="personDetailSearchInput" type="text" data-panel-search-input="1" placeholder="Search people…" autocomplete="off" spellcheck="false" />
+            <button class="personDetailSearchClose" type="button" data-panel-search-close="1" title="Close" aria-label="Close search">×</button>
+          </div>
+          <div class="personDetailSearchResults" data-panel-search-results="1"></div>
+          <div class="personDetailSearchHint">Enter a name or ID (e.g. I0063).</div>
+        </div>
         <button class="personDetailClose" type="button" data-panel-close="1" title="Close">×</button>
       </div>
     </div>
@@ -2033,6 +2046,194 @@ function _renderPersonDetailPanelSkeleton() {
     e.stopPropagation();
   });
 
+  // Search popover (in header)
+  const getSearchEls = () => {
+    const pop = host.querySelector('[data-panel-search-popover="1"]');
+    return {
+      pop,
+      input: pop ? pop.querySelector('[data-panel-search-input="1"]') : null,
+      results: pop ? pop.querySelector('[data-panel-search-results="1"]') : null,
+    };
+  };
+
+  const closeSearch = () => {
+    const { pop } = getSearchEls();
+    if (!pop) return;
+    try { pop.hidden = true; } catch (_) {}
+    try { host.classList.remove('searchOpen'); } catch (_) {}
+  };
+
+  const openSearch = async () => {
+    const { pop, input } = getSearchEls();
+    if (!pop || !input) return;
+    try { pop.hidden = false; } catch (_) {}
+    try { host.classList.add('searchOpen'); } catch (_) {}
+    try { await ensurePeopleIndexLoaded(); } catch (_) {}
+    try { input.focus(); input.select(); } catch (_) {}
+  };
+
+  const renderSearchResults = (qRaw) => {
+    const { results } = getSearchEls();
+    if (!results) return;
+
+    const q = String(qRaw || '').trim();
+    const people = Array.isArray(state.people) ? state.people : [];
+    if (!q) {
+      results.innerHTML = '';
+      return;
+    }
+
+    const qNorm = _normKey(q);
+    const out = [];
+    for (const p of people) {
+      if (!p) continue;
+      const gid = String(p?.gramps_id || '').trim();
+      const pid = String(p?.id || '').trim();
+      const name = String(p?.display_name || p?.name || '').trim();
+      const given = String(p?.given_name || '').trim();
+      const sur = String(p?.surname || '').trim();
+      const hay = _normKey(`${gid} ${pid} ${name} ${given} ${sur}`);
+      if (!hay.includes(qNorm)) continue;
+
+      const by = (typeof p?.birth_year === 'number') ? p.birth_year : null;
+      const dy = (typeof p?.death_year === 'number') ? p.death_year : null;
+      out.push({
+        apiId: pid || null,
+        grampsId: gid || null,
+        name: name || gid || pid,
+        birthYear: by,
+        deathYear: dy,
+      });
+      if (out.length >= 30) break;
+    }
+
+    if (!out.length) {
+      results.innerHTML = '<div class="personDetailSearchEmpty">No matches.</div>';
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
+    for (const r of out) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'peopleItem personDetailSearchItem';
+      b.dataset.personApiId = r.apiId || '';
+      b.dataset.personGrampsId = r.grampsId || '';
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'name';
+      nameEl.textContent = r.name;
+
+      const metaRow = document.createElement('div');
+      metaRow.className = 'metaRow';
+
+      // Always render dates for consistent alignment (matches People tab “expanded” layout).
+      const datesBlock = document.createElement('span');
+      datesBlock.className = 'datesBlock';
+
+      const birthEl = document.createElement('span');
+      birthEl.className = 'dateBirth';
+      birthEl.textContent = (typeof r.birthYear === 'number' && Number.isFinite(r.birthYear)) ? String(r.birthYear) : '';
+
+      const dashEl = document.createElement('span');
+      dashEl.className = 'dateDash';
+      const hasBirth = (r.birthYear !== null && r.birthYear !== undefined);
+      const hasDeath = (r.deathYear !== null && r.deathYear !== undefined);
+      dashEl.textContent = (hasBirth || hasDeath) ? ' - ' : '';
+
+      const deathEl = document.createElement('span');
+      deathEl.className = 'dateDeath';
+      deathEl.textContent = (typeof r.deathYear === 'number' && Number.isFinite(r.deathYear)) ? String(r.deathYear) : '';
+
+      datesBlock.appendChild(birthEl);
+      datesBlock.appendChild(dashEl);
+      datesBlock.appendChild(deathEl);
+      metaRow.appendChild(datesBlock);
+
+      const metaEl = document.createElement('span');
+      metaEl.className = 'meta';
+      metaEl.textContent = String(r.grampsId || r.apiId || '');
+      metaRow.appendChild(metaEl);
+
+      b.appendChild(nameEl);
+      b.appendChild(metaRow);
+      frag.appendChild(b);
+    }
+    results.innerHTML = '';
+    results.appendChild(frag);
+  };
+
+  // Toggle + close/search click handlers (delegation)
+  host.addEventListener('click', (e) => {
+    const t = e?.target;
+    const el = (t && t.nodeType === 1) ? t : t?.parentElement;
+    if (!el) return;
+
+    const searchBtn = el.closest ? el.closest('[data-panel-search="1"]') : null;
+    const closeBtn = el.closest ? el.closest('[data-panel-search-close="1"]') : null;
+    const itemBtn = el.closest ? el.closest('.personDetailSearchItem') : null;
+
+    if (searchBtn) {
+      const { pop } = getSearchEls();
+      const open = !!(pop && !pop.hidden);
+      Promise.resolve(open ? closeSearch() : openSearch()).catch(() => {});
+      try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+      return;
+    }
+    if (closeBtn) {
+      closeSearch();
+      try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+      return;
+    }
+    if (itemBtn) {
+      const apiId = String(itemBtn.dataset.personApiId || '').trim() || null;
+      const grampsId = String(itemBtn.dataset.personGrampsId || '').trim() || null;
+      selection.selectPerson({ apiId, grampsId }, { source: 'detail-search', scrollPeople: false, updateInput: true });
+      // Match People-tab click behavior: treat this as a new seed and reload.
+      Promise.resolve(loadNeighborhood()).catch(() => {});
+      closeSearch();
+      try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+      return;
+    }
+  });
+
+  // Search-as-you-type
+  const { input: searchInput } = getSearchEls();
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      try { if (state.detailPanel.searchTimer) clearTimeout(state.detailPanel.searchTimer); } catch (_) {}
+      state.detailPanel.searchTimer = setTimeout(() => {
+        state.detailPanel.searchTimer = null;
+        renderSearchResults(searchInput.value);
+      }, 60);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeSearch();
+        try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+      }
+    });
+  }
+
+  // Close on outside click / Escape (wire once per host)
+  if (!state.detailPanel.searchWired) {
+    state.detailPanel.searchWired = true;
+    document.addEventListener('click', (e) => {
+      const { pop } = getSearchEls();
+      if (!pop || pop.hidden) return;
+      const t = e?.target;
+      if (t && pop.contains(t)) return;
+      closeSearch();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const { pop } = getSearchEls();
+      if (!pop || pop.hidden) return;
+      closeSearch();
+    });
+  }
+
   // Place link inside Event metadata (Details tab)
   host.addEventListener('click', (e) => {
     const t = e?.target;
@@ -2069,6 +2270,8 @@ function _renderPersonDetailPanelSkeleton() {
       const t = e?.target;
       const el = (t && t.nodeType === 1) ? t : t?.parentElement;
       if (el && el.closest && el.closest('[data-panel-close="1"]')) return;
+      if (el && el.closest && el.closest('[data-panel-search="1"]')) return;
+      if (el && el.closest && el.closest('[data-panel-search-popover="1"]')) return;
       state.detailPanel.drag.active = true;
       const rect = host.getBoundingClientRect();
       state.detailPanel.drag.dx = (e.clientX - rect.left);
@@ -4576,11 +4779,29 @@ function _renderPeopleList(people, query) {
 }
 
 async function ensurePeopleLoaded() {
-  if (state.peopleLoaded) return;
   if (!els.peopleStatus || !els.peopleList) return;
 
-  els.peopleStatus.textContent = 'Loading people…';
+  if (!state.peopleLoaded) {
+    els.peopleStatus.textContent = 'Loading people…';
+  }
   try {
+    await ensurePeopleIndexLoaded();
+    const results = Array.isArray(state.people) ? state.people : [];
+    _renderPeopleList(results, els.peopleSearch?.value || '');
+    // In case a person was selected from the graph before the People tab loaded.
+    _applyPeopleSelectionToDom({ scroll: true });
+  } catch (e) {
+    els.peopleStatus.textContent = `Failed to load people: ${e?.message || e}`;
+  }
+}
+
+let _peopleIndexPromise = null;
+
+async function ensurePeopleIndexLoaded() {
+  if (state.peopleLoaded) return;
+  if (_peopleIndexPromise) return _peopleIndexPromise;
+
+  _peopleIndexPromise = (async () => {
     // 50k hard limit on the endpoint; typical trees are much smaller (you have ~4k).
     const r = await fetch('/people?limit=50000&offset=0');
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -4588,11 +4809,12 @@ async function ensurePeopleLoaded() {
     const results = Array.isArray(data?.results) ? data.results : [];
     state.people = results;
     state.peopleLoaded = true;
-    _renderPeopleList(results, els.peopleSearch?.value || '');
-    // In case a person was selected from the graph before the People tab loaded.
-    _applyPeopleSelectionToDom({ scroll: true });
-  } catch (e) {
-    els.peopleStatus.textContent = `Failed to load people: ${e?.message || e}`;
+  })();
+
+  try {
+    await _peopleIndexPromise;
+  } finally {
+    _peopleIndexPromise = null;
   }
 }
 
