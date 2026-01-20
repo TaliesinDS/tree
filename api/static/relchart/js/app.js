@@ -16,6 +16,23 @@ const els = {
   chart: $('chart'),
   graphView: $('graphView'),
   mapView: $('mapView'),
+  mapAttribution: $('mapAttribution'),
+
+  graphControls: $('graphControls'),
+  mapControls: $('mapControls'),
+  mapBasemap: $('mapBasemap'),
+  mapPinsMenu: $('mapPinsMenu'),
+  mapPinsBtn: $('mapPinsBtn'),
+  mapPinsEnabled: $('mapPinsEnabled'),
+  mapPinsMax: $('mapPinsMax'),
+  mapScope: $('mapScope'),
+  mapRoutesToggle: $('mapRoutesToggle'),
+  mapRoutesMode: $('mapRoutesMode'),
+  mapRoutesMenu: $('mapRoutesMenu'),
+  mapRoutesSkipRepeated: $('mapRoutesSkipRepeated'),
+  mapFitPinsBtn: $('mapFitPinsBtn'),
+  mapClearOverlaysBtn: $('mapClearOverlaysBtn'),
+
   peopleSearch: $('peopleSearch'),
   peopleSearchClear: $('peopleSearchClear'),
   peopleStatus: $('peopleStatus'),
@@ -83,6 +100,24 @@ const state = {
     marker: null,
     lastCenteredPlaceId: null,
     pendingPlaceId: null,
+    baseLayer: null,
+    baseLayers: null,
+    pinsLayer: null,
+    routesLayer: null,
+  },
+  mapUi: {
+    basemap: 'topo',
+    pinsEnabled: true,
+    pinsMax: 2000,
+    scope: 'selected_person',
+    routesEnabled: false,
+    routesMode: 'person',
+    routesSkipRepeated: true,
+    pinsCount: 0,
+    routePoints: 0,
+    overlayRenderKey: '',
+    overlayRefreshTimer: null,
+    personDetailsCache: new Map(),
   },
   nodeById: new Map(),
   detailPanel: {
@@ -97,6 +132,550 @@ const state = {
     peek: { url: '', name: '', loading: false },
   },
 };
+
+const MAP_SETTINGS = {
+  basemap: 'tree_relchart_map_basemap',
+  pinsEnabled: 'tree_relchart_map_pins_enabled',
+  pinsMax: 'tree_relchart_map_pins_max',
+  scope: 'tree_relchart_map_scope',
+  routesEnabled: 'tree_relchart_map_routes_enabled',
+  routesMode: 'tree_relchart_map_routes_mode',
+  routesSkipRepeated: 'tree_relchart_map_routes_skip_repeated',
+};
+
+function _readBool(key, fallback) {
+  try {
+    const v = String(localStorage.getItem(key) || '').trim().toLowerCase();
+    if (!v) return !!fallback;
+    if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+    if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false;
+    return !!fallback;
+  } catch (_) {
+    return !!fallback;
+  }
+}
+
+function _readInt(key, fallback) {
+  try {
+    const raw = String(localStorage.getItem(key) || '').trim();
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.trunc(n) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function _writeSetting(key, value) {
+  try { localStorage.setItem(key, String(value)); } catch (_) {}
+}
+
+function _setTopbarControlsMode(kind) {
+  const k = String(kind || '').trim().toLowerCase();
+  const showMap = (k === 'map');
+  if (els.graphControls) els.graphControls.hidden = showMap;
+  if (els.mapControls) els.mapControls.hidden = !showMap;
+}
+
+function _closeMapPopovers() {
+  try { if (els.mapPinsMenu) els.mapPinsMenu.open = false; } catch (_) {}
+  try { if (els.mapRoutesMenu) els.mapRoutesMenu.open = false; } catch (_) {}
+}
+
+function _clampPinsMax(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 2000;
+  return Math.max(50, Math.min(50_000, Math.trunc(x)));
+}
+
+function _applyMapUiToDom() {
+  if (els.mapBasemap) els.mapBasemap.value = String(state.mapUi.basemap || 'topo');
+  if (els.mapPinsEnabled) els.mapPinsEnabled.checked = !!state.mapUi.pinsEnabled;
+  if (els.mapPinsMax) els.mapPinsMax.value = String(_clampPinsMax(state.mapUi.pinsMax));
+  if (els.mapScope) els.mapScope.value = String(state.mapUi.scope || 'selected_person');
+  if (els.mapRoutesMode) els.mapRoutesMode.value = String(state.mapUi.routesMode || 'person');
+  if (els.mapRoutesSkipRepeated) els.mapRoutesSkipRepeated.checked = !!state.mapUi.routesSkipRepeated;
+
+  if (els.mapPinsBtn) {
+    const on = !!state.mapUi.pinsEnabled;
+    els.mapPinsBtn.classList.toggle('active', on);
+    const count = Number(state.mapUi.pinsCount || 0);
+    els.mapPinsBtn.textContent = on && count > 0 ? `Pins (${count}) ▾` : 'Pins ▾';
+  }
+
+  if (els.mapRoutesToggle) {
+    const on = !!state.mapUi.routesEnabled;
+    const seg = Number(state.mapUi.routePoints || 0);
+    els.mapRoutesToggle.classList.toggle('active', on);
+    els.mapRoutesToggle.textContent = on
+      ? (seg > 1 ? `Routes: On (${seg - 1})` : 'Routes: On')
+      : 'Routes: Off';
+  }
+}
+
+function _loadMapUiSettings() {
+  const basemap = String(localStorage.getItem(MAP_SETTINGS.basemap) || '').trim().toLowerCase();
+  state.mapUi.basemap = (basemap === 'aerial' || basemap === 'topo') ? basemap : 'topo';
+  state.mapUi.pinsEnabled = _readBool(MAP_SETTINGS.pinsEnabled, true);
+  state.mapUi.pinsMax = _clampPinsMax(_readInt(MAP_SETTINGS.pinsMax, 2000));
+
+  const scope = String(localStorage.getItem(MAP_SETTINGS.scope) || '').trim().toLowerCase();
+  state.mapUi.scope = (scope === 'graph' || scope === 'db' || scope === 'selected_person') ? scope : 'selected_person';
+
+  state.mapUi.routesEnabled = _readBool(MAP_SETTINGS.routesEnabled, false);
+  const mode = String(localStorage.getItem(MAP_SETTINGS.routesMode) || '').trim().toLowerCase();
+  state.mapUi.routesMode = (mode === 'person' || mode === 'graph' || mode === 'family') ? mode : 'person';
+  state.mapUi.routesSkipRepeated = _readBool(MAP_SETTINGS.routesSkipRepeated, true);
+}
+
+function _setMapAttribution(label) {
+  if (!els.mapAttribution) return;
+  const l = String(label || '').trim();
+  if (!l) {
+    els.mapAttribution.textContent = '';
+    return;
+  }
+  els.mapAttribution.textContent = l;
+}
+
+function _nasaGibsDate() {
+  // Use a small backoff to avoid requesting "future"/missing tiles.
+  const d = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function _ensureBaseLayers() {
+  if (!state.map.map || !window.L) return;
+  if (state.map.baseLayers) return;
+  const L = window.L;
+  const aerialDate = _nasaGibsDate();
+
+  state.map.baseLayers = {
+    topo: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      crossOrigin: true,
+    }),
+    aerial: L.tileLayer(
+      `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/${aerialDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
+      {
+        maxZoom: 9,
+        crossOrigin: true,
+      }
+    ),
+  };
+}
+
+function _applyBasemap() {
+  if (!state.map.map || !window.L) return;
+  _ensureBaseLayers();
+  const kind = String(state.mapUi.basemap || 'topo').trim().toLowerCase();
+  const map = state.map.map;
+  const layers = state.map.baseLayers || {};
+  const next = layers[kind] || layers.topo;
+  if (!next) return;
+
+  try {
+    if (state.map.baseLayer && map.hasLayer(state.map.baseLayer)) {
+      map.removeLayer(state.map.baseLayer);
+    }
+  } catch (_) {}
+
+  try {
+    next.addTo(map);
+    state.map.baseLayer = next;
+  } catch (_) {}
+
+  if (kind === 'aerial') {
+    _setMapAttribution('Map tiles © NASA GIBS');
+  } else {
+    _setMapAttribution('Map tiles © OpenStreetMap contributors');
+  }
+}
+
+function _ensureOverlayLayers() {
+  if (!state.map.map || !window.L) return;
+  const L = window.L;
+  if (!state.map.pinsLayer) state.map.pinsLayer = L.layerGroup();
+  if (!state.map.routesLayer) state.map.routesLayer = L.layerGroup();
+}
+
+function _setMapOverlaysVisible(visible) {
+  if (!state.map.map || !window.L) return;
+  _ensureOverlayLayers();
+  const map = state.map.map;
+  const on = !!visible;
+  const addOrRemove = (layer) => {
+    if (!layer) return;
+    try {
+      const has = map.hasLayer(layer);
+      if (on && !has) layer.addTo(map);
+      if (!on && has) map.removeLayer(layer);
+    } catch (_) {}
+  };
+  addOrRemove(state.map.pinsLayer);
+  addOrRemove(state.map.routesLayer);
+}
+
+async function _getPersonDetailsCached(personId) {
+  const pid = String(personId || '').trim();
+  if (!pid) return null;
+  const cached = state.mapUi.personDetailsCache.get(pid) || null;
+  if (cached && cached.events) return cached;
+
+  // Reuse detail panel data if it matches.
+  try {
+    const ref = String(state.detailPanel?.lastPersonId || '').trim();
+    if (ref === pid && state.detailPanel?.data?.events) {
+      const data = { events: state.detailPanel.data.events };
+      state.mapUi.personDetailsCache.set(pid, data);
+      return data;
+    }
+  } catch (_) {}
+
+  const r = await fetch(`/people/${encodeURIComponent(pid)}/details`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  const out = { events: Array.isArray(data?.events) ? data.events : [] };
+  state.mapUi.personDetailsCache.set(pid, out);
+  return out;
+}
+
+function _placeHasCoords(p) {
+  const lat = Number(p?.lat);
+  const lon = Number(p?.lon);
+  return Number.isFinite(lat) && Number.isFinite(lon);
+}
+
+function _placeLatLng(p) {
+  const lat = Number(p?.lat);
+  const lon = Number(p?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return [lat, lon];
+}
+
+function _eventSortKey(ev) {
+  const iso = String(ev?.date || '').trim();
+  if (iso) {
+    const d = Date.parse(iso);
+    if (Number.isFinite(d)) return d;
+  }
+  const y = _eventYearHint(ev);
+  if (typeof y === 'number' && Number.isFinite(y)) {
+    // Middle of year heuristic.
+    return Date.UTC(y, 5, 30);
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+async function _computePlacesForScope() {
+  const scope = String(state.mapUi.scope || 'selected_person').trim().toLowerCase();
+  const maxPins = _clampPinsMax(state.mapUi.pinsMax);
+  const byId = state.placeById || new Map();
+
+  const takePlaces = (placeIds) => {
+    const out = [];
+    for (const pid of placeIds) {
+      if (out.length >= maxPins) break;
+      const p = byId.get(String(pid)) || null;
+      if (!p || !_placeHasCoords(p)) continue;
+      out.push(p);
+    }
+    return out;
+  };
+
+  if (scope === 'db') {
+    const places = Array.isArray(state.places) ? state.places : [];
+    const ids = [];
+    for (const p of places) {
+      const pid = String(p?.id || '').trim();
+      if (!pid) continue;
+      if (!_placeHasCoords(p)) continue;
+      const count = Number(state.placeEventCountById?.get?.(pid) ?? 0);
+      if (count <= 0) continue;
+      ids.push(pid);
+      if (ids.length >= maxPins) break;
+    }
+    return takePlaces(ids);
+  }
+
+  if (scope === 'graph') {
+    const nodes = Array.isArray(state.payload?.nodes) ? state.payload.nodes : [];
+    const people = nodes.filter(n => n?.type === 'person' && n?.id).map(n => String(n.id));
+    const personLimit = Math.min(200, people.length);
+    const selectedPeople = people.slice(0, personLimit);
+
+    const placeIds = [];
+    const seen = new Set();
+    for (const pid of selectedPeople) {
+      if (seen.size >= maxPins) break;
+      try {
+        const d = await _getPersonDetailsCached(pid);
+        const events = Array.isArray(d?.events) ? d.events : [];
+        for (const ev of events) {
+          const plid = String(ev?.place?.id || '').trim();
+          if (!plid || seen.has(plid)) continue;
+          seen.add(plid);
+          placeIds.push(plid);
+          if (seen.size >= maxPins) break;
+        }
+      } catch (_) {}
+    }
+
+    return takePlaces(placeIds);
+  }
+
+  // selected_person
+  const root = _resolveRelationsRootPersonId();
+  if (!root) return [];
+  const d = await _getPersonDetailsCached(root);
+  const events = Array.isArray(d?.events) ? d.events : [];
+  const seen = new Set();
+  const placeIds = [];
+  for (const ev of events) {
+    const plid = String(ev?.place?.id || '').trim();
+    if (!plid || seen.has(plid)) continue;
+    seen.add(plid);
+    placeIds.push(plid);
+    if (placeIds.length >= maxPins) break;
+  }
+  return takePlaces(placeIds);
+}
+
+async function _computeRouteLatLngs() {
+  if (!state.mapUi.routesEnabled) return [];
+  const scope = String(state.mapUi.scope || 'selected_person').trim().toLowerCase();
+  const mode = String(state.mapUi.routesMode || 'person').trim().toLowerCase();
+  if (scope !== 'selected_person' || mode !== 'person') return [];
+
+  const root = _resolveRelationsRootPersonId();
+  if (!root) return [];
+
+  const d = await _getPersonDetailsCached(root);
+  const events = Array.isArray(d?.events) ? d.events : [];
+  const byId = state.placeById || new Map();
+  const ordered = events.slice().sort((a, b) => _eventSortKey(a) - _eventSortKey(b));
+
+  const out = [];
+  let lastPlaceId = null;
+  for (const ev of ordered) {
+    const plid = String(ev?.place?.id || '').trim();
+    if (!plid) continue;
+    if (state.mapUi.routesSkipRepeated && lastPlaceId && plid === lastPlaceId) continue;
+    const p = byId.get(plid) || null;
+    if (!p || !_placeHasCoords(p)) continue;
+    const ll = _placeLatLng(p);
+    if (!ll) continue;
+    out.push(ll);
+    lastPlaceId = plid;
+  }
+  return out;
+}
+
+async function _renderMapOverlaysNow() {
+  if (!state.map.map || !window.L) return;
+  if (els.chart?.dataset?.mainView !== 'map') return;
+  await ensurePlacesLoaded();
+  _ensureOverlayLayers();
+
+  // Ensure overlay layers are mounted.
+  _setMapOverlaysVisible(true);
+
+  // Clear existing overlays.
+  try { state.map.pinsLayer?.clearLayers?.(); } catch (_) {}
+  try { state.map.routesLayer?.clearLayers?.(); } catch (_) {}
+
+  state.mapUi.pinsCount = 0;
+  state.mapUi.routePoints = 0;
+
+  if (state.mapUi.pinsEnabled) {
+    let places = [];
+    try {
+      places = await _computePlacesForScope();
+    } catch (e) {
+      setStatus(`Map: pins failed (${e?.message || e})`, true);
+      places = [];
+    }
+
+    const L = window.L;
+    for (const p of places) {
+      const ll = _placeLatLng(p);
+      if (!ll) continue;
+      const pid = String(p?.id || '').trim();
+      const label = String(p?.name || pid || '').trim();
+      const count = Number(state.placeEventCountById?.get?.(pid) ?? 0);
+
+      const marker = L.circleMarker(ll, {
+        radius: 5,
+        color: '#7aa2ff',
+        weight: 2,
+        opacity: 0.9,
+        fillColor: '#7aa2ff',
+        fillOpacity: 0.25,
+      });
+      marker.bindPopup(`${_escapeHtml(label)}${count > 0 ? `<div style="opacity:0.75;font-size:12px">Events: ${count}</div>` : ''}`);
+      marker.addTo(state.map.pinsLayer);
+    }
+    state.mapUi.pinsCount = places.length;
+  }
+
+  if (state.mapUi.routesEnabled) {
+    const L = window.L;
+    let latlngs = [];
+    try {
+      latlngs = await _computeRouteLatLngs();
+    } catch (e) {
+      setStatus(`Map: routes failed (${e?.message || e})`, true);
+      latlngs = [];
+    }
+    if (latlngs.length >= 2) {
+      L.polyline(latlngs, { color: '#7aa2ff', weight: 3, opacity: 0.8 }).addTo(state.map.routesLayer);
+      state.mapUi.routePoints = latlngs.length;
+    }
+  }
+
+  _applyMapUiToDom();
+}
+
+function _scheduleMapOverlayRefresh() {
+  try {
+    if (state.mapUi.overlayRefreshTimer) clearTimeout(state.mapUi.overlayRefreshTimer);
+  } catch (_) {}
+  state.mapUi.overlayRefreshTimer = setTimeout(() => {
+    state.mapUi.overlayRefreshTimer = null;
+    Promise.resolve(_renderMapOverlaysNow()).catch(() => {});
+  }, 80);
+}
+
+function _fitMapToOverlays() {
+  if (!state.map.map || !window.L) return;
+  _ensureOverlayLayers();
+  const map = state.map.map;
+  const bounds = [];
+  try {
+    const b1 = state.map.pinsLayer?.getBounds?.();
+    if (b1 && b1.isValid && b1.isValid()) bounds.push(b1);
+  } catch (_) {}
+  try {
+    const b2 = state.map.routesLayer?.getBounds?.();
+    if (b2 && b2.isValid && b2.isValid()) bounds.push(b2);
+  } catch (_) {}
+  if (!bounds.length) {
+    setStatus('Map: nothing to fit.', true);
+    return;
+  }
+  const merged = bounds.reduce((acc, b) => (acc ? acc.extend(b) : b), null);
+  try { map.fitBounds(merged, { padding: [30, 30], animate: true, duration: 0.25 }); } catch (_) {
+    try { map.fitBounds(merged, { padding: [30, 30] }); } catch (_err2) {}
+  }
+}
+
+function _initMapTopbarControls() {
+  _loadMapUiSettings();
+  _applyMapUiToDom();
+
+  // Close the popovers when clicking outside.
+  document.addEventListener('click', (e) => {
+    const pinsOpen = !!(els.mapPinsMenu && els.mapPinsMenu.open);
+    const routesOpen = !!(els.mapRoutesMenu && els.mapRoutesMenu.open);
+    if (!pinsOpen && !routesOpen) return;
+    const t = e?.target;
+    if (t && (els.mapPinsMenu?.contains?.(t) || els.mapRoutesMenu?.contains?.(t))) return;
+    _closeMapPopovers();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') _closeMapPopovers();
+  });
+
+  if (els.mapBasemap) {
+    els.mapBasemap.addEventListener('change', () => {
+      state.mapUi.basemap = String(els.mapBasemap.value || 'topo').trim().toLowerCase();
+      _writeSetting(MAP_SETTINGS.basemap, state.mapUi.basemap);
+      _applyBasemap();
+      setStatus(`Map: Basemap ${state.mapUi.basemap === 'aerial' ? 'Aerial' : 'Topo'}`);
+    });
+  }
+
+  if (els.mapPinsEnabled) {
+    els.mapPinsEnabled.addEventListener('change', () => {
+      state.mapUi.pinsEnabled = !!els.mapPinsEnabled.checked;
+      _writeSetting(MAP_SETTINGS.pinsEnabled, state.mapUi.pinsEnabled ? '1' : '0');
+      setStatus(state.mapUi.pinsEnabled ? 'Map: Pins on' : 'Map: Pins off');
+      if (els.chart?.dataset?.mainView === 'map') _scheduleMapOverlayRefresh();
+      _applyMapUiToDom();
+    });
+  }
+
+  if (els.mapPinsMax) {
+    els.mapPinsMax.addEventListener('change', () => {
+      state.mapUi.pinsMax = _clampPinsMax(els.mapPinsMax.value);
+      els.mapPinsMax.value = String(state.mapUi.pinsMax);
+      _writeSetting(MAP_SETTINGS.pinsMax, String(state.mapUi.pinsMax));
+      setStatus(`Map: Max pins ${state.mapUi.pinsMax}`);
+      if (els.chart?.dataset?.mainView === 'map' && state.mapUi.pinsEnabled) _scheduleMapOverlayRefresh();
+    });
+  }
+
+  if (els.mapScope) {
+    els.mapScope.addEventListener('change', () => {
+      const scope = String(els.mapScope.value || 'selected_person').trim().toLowerCase();
+      state.mapUi.scope = scope;
+      _writeSetting(MAP_SETTINGS.scope, scope);
+      setStatus(`Map: Scope ${scope.replace('_', ' ')}`);
+      if (els.chart?.dataset?.mainView === 'map') _scheduleMapOverlayRefresh();
+    });
+  }
+
+  if (els.mapRoutesToggle) {
+    els.mapRoutesToggle.addEventListener('click', () => {
+      state.mapUi.routesEnabled = !state.mapUi.routesEnabled;
+      _writeSetting(MAP_SETTINGS.routesEnabled, state.mapUi.routesEnabled ? '1' : '0');
+      setStatus(state.mapUi.routesEnabled ? 'Map: Routes on' : 'Map: Routes off');
+      if (els.chart?.dataset?.mainView === 'map') _scheduleMapOverlayRefresh();
+      _applyMapUiToDom();
+    });
+  }
+
+  if (els.mapRoutesMode) {
+    els.mapRoutesMode.addEventListener('change', () => {
+      const mode = String(els.mapRoutesMode.value || 'person').trim().toLowerCase();
+      state.mapUi.routesMode = mode;
+      _writeSetting(MAP_SETTINGS.routesMode, mode);
+      setStatus(`Map: Routes mode ${mode}`);
+      if (els.chart?.dataset?.mainView === 'map' && state.mapUi.routesEnabled) _scheduleMapOverlayRefresh();
+    });
+  }
+
+  if (els.mapRoutesSkipRepeated) {
+    els.mapRoutesSkipRepeated.addEventListener('change', () => {
+      state.mapUi.routesSkipRepeated = !!els.mapRoutesSkipRepeated.checked;
+      _writeSetting(MAP_SETTINGS.routesSkipRepeated, state.mapUi.routesSkipRepeated ? '1' : '0');
+      if (els.chart?.dataset?.mainView === 'map' && state.mapUi.routesEnabled) _scheduleMapOverlayRefresh();
+    });
+  }
+
+  if (els.mapFitPinsBtn) {
+    els.mapFitPinsBtn.addEventListener('click', () => {
+      _fitMapToOverlays();
+    });
+  }
+
+  if (els.mapClearOverlaysBtn) {
+    els.mapClearOverlaysBtn.addEventListener('click', () => {
+      state.mapUi.pinsEnabled = false;
+      state.mapUi.routesEnabled = false;
+      _writeSetting(MAP_SETTINGS.pinsEnabled, '0');
+      _writeSetting(MAP_SETTINGS.routesEnabled, '0');
+      try { state.map.pinsLayer?.clearLayers?.(); } catch (_) {}
+      try { state.map.routesLayer?.clearLayers?.(); } catch (_) {}
+      state.mapUi.pinsCount = 0;
+      state.mapUi.routePoints = 0;
+      _applyMapUiToDom();
+      setStatus('Map: Overlays cleared');
+    });
+  }
+}
 
 function _applyPlacesMenuButtonVisibility() {
   if (!els.placesList) return;
@@ -412,12 +991,13 @@ async function ensureMapInitialized() {
   // Default view: Netherlands-ish.
   map.setView([52.2, 5.3], 7);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    crossOrigin: true,
-  }).addTo(map);
-
   state.map.map = map;
+  _ensureBaseLayers();
+  _applyBasemap();
+
+  // Overlay layers (pins/routes)
+  _ensureOverlayLayers();
+  _setMapOverlaysVisible(true);
 
   // Keep the map responsive when the main view toggles.
   try {
@@ -1982,10 +2562,23 @@ function _setSidebarActiveTab(tabName) {
   // Main viewport: show map only for the Map tab; otherwise show graph.
   try {
     _setMainView(name === 'map' ? 'map' : 'graph');
+    _setTopbarControlsMode(name === 'map' ? 'map' : 'graph');
+
+    // Map-only UI and overlays.
+    if (name !== 'map') {
+      _closeMapPopovers();
+      _setMapOverlaysVisible(false);
+    }
+
     if (name === 'map') {
       // Lazy-init map; also invalidate size after the fade completes.
       Promise.resolve(ensureMapInitialized()).then(() => {
         try { state.map.map?.invalidateSize?.(false); } catch (_) {}
+
+        // Ensure overlays reflect current settings.
+        try { _applyMapUiToDom(); } catch (_) {}
+        try { _applyBasemap(); } catch (_) {}
+        try { _scheduleMapOverlayRefresh(); } catch (_) {}
 
         // If we already have a selected place, center it now that the map is visible.
         try {
@@ -2089,7 +2682,7 @@ function _normalizePlaceNameDisplay(rawName) {
   };
 
   const capWord = (word, isFirstWord) => {
-    let w = String(word || '');
+    const w = String(word || '');
     if (!w) return w;
 
     // Preserve pure punctuation/number tokens.
@@ -2903,6 +3496,14 @@ selection.subscribe((next) => {
   // Avoid redundant fetches.
   if (state.detailPanel.lastPersonId && state.detailPanel.lastPersonId === ref && state.detailPanel.open) return;
   try { loadPersonDetailsIntoPanel(ref, { openPanel: state.detailPanel.open }); } catch (_) {}
+
+  // If the user is on the Map tab and scope is "selected person", refresh overlays.
+  try {
+    const activeTab = _getSidebarActiveTab();
+    if (activeTab === 'map' && String(state.mapUi.scope || '') === 'selected_person') {
+      _scheduleMapOverlayRefresh();
+    }
+  } catch (_) {}
 });
 
 function _normalizeGraphvizTitleToId(title) {
@@ -3465,7 +4066,7 @@ async function loadNeighborhood() {
       return (gid && gid === requested) || (apiId && apiId === requested);
     }) || null;
 
-    let resolvedApiId = directHit?.id ? String(directHit.id) : null;
+    const resolvedApiId = directHit?.id ? String(directHit.id) : null;
     let resolvedGrampsId = String(directHit?.gramps_id || '').trim() || null;
 
     // For a manual Load, prefer the requested person (so we don't keep a stale
@@ -3535,6 +4136,8 @@ els.fitBtn.addEventListener('click', () => {
 // Initial
 setStatus('Ready.');
 _initPeopleExpanded();
+try { _initMapTopbarControls(); } catch (_) {}
+try { _setTopbarControlsMode(_getSidebarActiveTab() === 'map' ? 'map' : 'graph'); } catch (_) {}
 
 _loadDetailPanelPos();
 _loadDetailPanelSize();

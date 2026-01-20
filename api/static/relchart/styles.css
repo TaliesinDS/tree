@@ -864,6 +864,11 @@ html[data-theme="light"] .miniNumber {
 
 .miniToggle:hover { background: rgba(255,255,255,0.10); }
 
+.miniToggle.active {
+  border-color: rgba(122,162,255,0.70);
+  background: rgba(122,162,255,0.20);
+}
+
 html[data-theme="light"] .miniToggle {
   border-color: var(--border);
   background: #ffffff;
@@ -978,6 +983,20 @@ html[data-theme="light"] .topbar {
   align-items: center;
 }
 
+.controlsGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.mapRoutesInline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .topRight {
   margin-left: auto;
   display: flex;
@@ -988,6 +1007,67 @@ html[data-theme="light"] .topbar {
 .optionsMenu {
   position: relative;
   z-index: calc(var(--topbar-z) + 1);
+}
+
+.topbarMenu {
+  position: relative;
+  z-index: calc(var(--topbar-z) + 1);
+}
+
+.topbarMenu summary {
+  list-style: none;
+}
+
+.topbarMenu summary::-webkit-details-marker { display: none; }
+
+.topbarPanel {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  width: 260px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  z-index: calc(var(--topbar-z) + 2);
+}
+
+.topbarCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  margin: 0;
+}
+
+.topbarCheck input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  padding: 0;
+  border-radius: 4px;
+}
+
+.topbarRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.topbarRowLabel {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.topbarHint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .optionsMenu summary {

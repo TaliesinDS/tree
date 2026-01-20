@@ -126,29 +126,88 @@
     <main class="right" id="canvas">
       <header class="topbar">
         <div class="row">
-          <div class="brand">
-            <h1>Relationship Chart</h1>
-            <div class="sub">Graphviz WASM</div>
-          </div>
+          <div class="controls" aria-label="Topbar controls">
+            <div id="graphControls" class="controlsGroup" data-controls="graph">
+              <label>
+                Person ID
+                <input id="personId" value="I0001" placeholder="I0001 or _handle" />
+              </label>
+              <label>
+                Depth
+                <input id="depth" type="number" min="0" max="12" value="4" />
+              </label>
+              <label>
+                Max nodes
+                <input id="maxNodes" type="number" min="1" max="5000" value="1200" />
+              </label>
 
-          <div class="controls">
-            <label>
-              Person ID
-              <input id="personId" value="I0001" placeholder="I0001 or _handle" />
-            </label>
-            <label>
-              Depth
-              <input id="depth" type="number" min="0" max="12" value="4" />
-            </label>
-            <label>
-              Max nodes
-              <input id="maxNodes" type="number" min="1" max="5000" value="1200" />
-            </label>
+              <div class="buttons">
+                <button id="loadBtn" type="button">Load</button>
+                <button id="fitBtn" type="button" class="secondary">Fit</button>
+                <button id="resetBtn" type="button" class="secondary">Reset</button>
+              </div>
+            </div>
 
-            <div class="buttons">
-              <button id="loadBtn" type="button">Load</button>
-              <button id="fitBtn" type="button" class="secondary">Fit</button>
-              <button id="resetBtn" type="button" class="secondary">Reset</button>
+            <div id="mapControls" class="controlsGroup" data-controls="map" hidden>
+              <label class="miniLabel">
+                Basemap
+                <select id="mapBasemap" class="miniSelect" aria-label="Basemap">
+                  <option value="topo" selected>Topo</option>
+                  <option value="aerial">Aerial</option>
+                </select>
+              </label>
+
+              <details id="mapPinsMenu" class="topbarMenu">
+                <summary class="miniToggle" id="mapPinsBtn" title="Pins">Pins ▾</summary>
+                <div class="topbarPanel" role="menu" aria-label="Pins">
+                  <label class="topbarCheck">
+                    <input id="mapPinsEnabled" type="checkbox" />
+                    <span>Show place pins</span>
+                  </label>
+                  <div class="topbarRow">
+                    <div class="topbarRowLabel">Max pins</div>
+                    <input id="mapPinsMax" class="miniNumber" type="number" min="50" max="50000" step="50" value="2000" />
+                  </div>
+                  <div class="topbarHint">Higher values can get heavy in whole-database scope.</div>
+                </div>
+              </details>
+
+              <label class="miniLabel">
+                Scope
+                <select id="mapScope" class="miniSelect" aria-label="Map scope">
+                  <option value="selected_person" selected>Selected person</option>
+                  <option value="graph">Current graph</option>
+                  <option value="db">Whole database</option>
+                </select>
+              </label>
+
+              <div class="mapRoutesInline" aria-label="Routes controls">
+                <button id="mapRoutesToggle" class="miniToggle" type="button" title="Toggle routes">Routes: Off</button>
+                <label class="miniLabel">
+                  <span class="srOnly">Route mode</span>
+                  <select id="mapRoutesMode" class="miniSelect" aria-label="Route mode">
+                    <option value="person" selected>Person timeline</option>
+                    <option value="graph" disabled>Graph-visible (later)</option>
+                    <option value="family" disabled>Family combined (later)</option>
+                  </select>
+                </label>
+
+                <details id="mapRoutesMenu" class="topbarMenu">
+                  <summary class="miniToggle" title="Route options">⋯</summary>
+                  <div class="topbarPanel" role="menu" aria-label="Route options">
+                    <label class="topbarCheck">
+                      <input id="mapRoutesSkipRepeated" type="checkbox" />
+                      <span>Skip repeated places</span>
+                    </label>
+                    <div class="topbarHint">Draws a cleaner route when multiple events happen in the same place.</div>
+                  </div>
+                </details>
+              </div>
+
+              <div class="buttons">
+                <button id="mapFitPinsBtn" type="button" class="secondary">Fit pins</button>
+                <button id="mapClearOverlaysBtn" type="button" class="secondary">Clear overlays</button>
+              </div>
             </div>
           </div>
 
