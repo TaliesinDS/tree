@@ -671,6 +671,13 @@ async function _renderMapOverlaysNow() {
         fillColor: '#d10000e5',
         fillOpacity: 0.6,
       });
+      // Clicking a marker should behave like selecting the place anywhere else:
+      // highlight it in the Places list, update status, and center it (Map tab).
+      try {
+        marker.on('click', () => {
+          try { _selectPlaceGlobal(p, { emitMapEvent: true }); } catch (_) {}
+        });
+      } catch (_) {}
       marker.bindPopup(`${_escapeHtml(label)}${count > 0 ? `<div style="opacity:0.75;font-size:12px">Events: ${count}</div>` : ''}`);
       marker.addTo(state.map.pinsLayer);
     }
