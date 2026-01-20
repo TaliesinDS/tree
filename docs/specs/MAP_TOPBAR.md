@@ -1,6 +1,8 @@
-# Map Tab Topbar Proposal (relchart v3)
+# Map Tab Topbar (relchart v3)
 
 Date: 2026-01-20
+
+Status: **Implemented (2026-01-20)**
 
 ## Summary
 
@@ -207,6 +209,12 @@ Store map settings under a stable key namespace, e.g.:
   - toggle topbar control containers
   - close Map-only popovers when leaving Map
 
+Notes (as-built):
+
+- Auto-fit on Map-tab entry should be “quiet” (avoid noisy `Map: nothing to fit` status).
+- Leaving the Map tab should restore the last non-Map status message (avoid Map status “sticking”).
+- Topbar popovers must render above the person detail panel (see below).
+
 ### Backend alignment
 
 - Basemap switching is frontend-only.
@@ -214,6 +222,21 @@ Store map settings under a stable key namespace, e.g.:
 - The “event counts by place” endpoint can power:
   - pin badges
   - “places with events” filtering
+
+Additional backend endpoint (as-built):
+
+- `POST /graph/places` with `{ person_ids: [...], limit }` returns distinct public places referenced by non-private events for those people.
+  - This exists specifically to make `Scope: Current graph` pins fast (avoid N calls to `/people/{id}/details`).
+
+### Z-index / popover layering
+
+The person detail panel is allowed to float above the topbar.
+
+Because `position: sticky` creates a stacking context, topbar dropdown panels (Options, Pins, Routes) can render *under* the detail panel unless they escape that stacking context.
+
+Current solution (as-built):
+
+- When a topbar `<details>` menu opens, its panel is temporarily moved to `document.body` and positioned with `position: fixed` (a small “portal” helper).
 
 ## Rollout Plan
 

@@ -164,6 +164,29 @@ Implementation notes:
   - clicking the **row/box** selects/highlights and (if expandable) toggles open/closed, but does **not** move the map
   - clicking the **place name text** copies the place id + breadcrumb and also centers/drops a marker on the map (when coords exist)
 
+### Map pins performance note (Current graph scope)
+
+The `Scope: Current graph` mode needs “places referenced by events for the people in the visible neighborhood”.
+
+Do **not** implement this as N sequential `/people/{id}/details` calls; it becomes very slow even for ~50–200 people.
+
+Instead, use the bulk endpoint:
+
+- `POST /graph/places` with `{ person_ids: [...], limit }` → `{ results: [place...], total }`
+
+This returns distinct public places (with coordinates) for privacy-safe events.
+
+### UI layering gotcha (topbar vs overlays)
+
+The topbar uses `position: sticky` and a z-index, which creates a stacking context. Dropdown panels inside the topbar can end up rendering **under** other fixed overlays (like the person detail panel) even if their own z-index is high.
+
+Current solution:
+
+- The person detail panel is allowed to float above the topbar.
+- Topbar dropdown panels (Options, Map Pins, Map Routes) are “portaled” to `document.body` while open and positioned with `position: fixed`.
+
+If you add new topbar popovers, follow the same pattern or you’ll reintroduce z-index bugs.
+
 ## Key tradeoffs (explicit)
 
 - **No bundler:** deliberate. This keeps iteration fast and avoids maintaining an npm toolchain for the demo.

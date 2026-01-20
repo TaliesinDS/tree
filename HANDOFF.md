@@ -68,6 +68,7 @@ Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
 - ✅ People/Families/Events sidebars
 - ✅ Person detail panel
 - ✅ Map tab MVP (Leaflet + OSM tiles)
+- ✅ Map pins performance: “Current graph” scope loads fast (bulk endpoint)
 - ✅ Privacy enforcement (server-side)
 
 **In Progress / Planned:**
@@ -76,6 +77,14 @@ Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
 - 🔲 Note search (full-text index exists)
 - 🔲 Map markers/routes
 - 🔲 Offline map support
+
+---
+
+## Recent Work (2026-01-20)
+
+- Map “Scope: Current graph” pins are now fetched in one call (`POST /graph/places`) instead of many `/people/{id}/details` calls.
+- Map auto-fit no longer spams `Map: nothing to fit`, and leaving the Map tab restores the last non-Map status message.
+- Person detail panel is intentionally above the topbar; topbar dropdown panels (Pins/Routes/Options) are “portaled” to `document.body` so they can still appear above the detail panel.
 
 ---
 
