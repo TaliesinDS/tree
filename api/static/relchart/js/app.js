@@ -252,12 +252,21 @@ function _portalDetailsPanel(detailsEl, panelSelector, { align = 'left' } = {}) 
   const homeNextSibling = panel.nextSibling;
   const homeStyle = panel.getAttribute('style');
 
+  // Prevent "click outside" handlers from closing the popover while interacting
+  // with the portaled panel (checkboxes, number spinners, selects).
+  const stopPropagationCapture = (e) => {
+    try { e.stopPropagation(); } catch (_) {}
+  };
+  try { panel.addEventListener('pointerdown', stopPropagationCapture, true); } catch (_) {}
+  try { panel.addEventListener('click', stopPropagationCapture, true); } catch (_) {}
+
   _portalState.byDetails.set(detailsEl, {
     panel,
     homeParent,
     homeNextSibling,
     homeStyle,
     align,
+    stopPropagationCapture,
   });
 
   try { document.body.appendChild(panel); } catch (_) {}
@@ -276,8 +285,11 @@ function _unportalDetailsPanel(detailsEl) {
   if (!info) return;
   _portalState.byDetails.delete(detailsEl);
 
-  const { panel, homeParent, homeNextSibling, homeStyle } = info;
+  const { panel, homeParent, homeNextSibling, homeStyle, stopPropagationCapture } = info;
   if (!panel) return;
+
+  try { if (stopPropagationCapture) panel.removeEventListener('pointerdown', stopPropagationCapture, true); } catch (_) {}
+  try { if (stopPropagationCapture) panel.removeEventListener('click', stopPropagationCapture, true); } catch (_) {}
 
   try {
     if (homeParent) {
@@ -653,11 +665,11 @@ async function _renderMapOverlaysNow() {
 
       const marker = L.circleMarker(ll, {
         radius: 5,
-        color: '#7aa2ff',
+        color: '#000000dc',
         weight: 2,
-        opacity: 0.9,
-        fillColor: '#7aa2ff',
-        fillOpacity: 0.25,
+        opacity: 0.6,
+        fillColor: '#d10000e5',
+        fillOpacity: 0.6,
       });
       marker.bindPopup(`${_escapeHtml(label)}${count > 0 ? `<div style="opacity:0.75;font-size:12px">Events: ${count}</div>` : ''}`);
       marker.addTo(state.map.pinsLayer);
