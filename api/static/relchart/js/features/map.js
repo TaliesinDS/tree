@@ -5,19 +5,51 @@ let _setStatus = null;
 let _ensurePlacesLoaded = null;
 let _selectPlaceGlobal = null;
 let _resolveRelationsRootPersonId = null;
+let _applyPlacesSelectionToDom = null;
+
+let _placeSelectedListenerInstalled = false;
 
 export function initMapFeature({
   setStatus,
   ensurePlacesLoaded,
   selectPlaceGlobal,
+  applyPlacesSelectionToDom,
   resolveRelationsRootPersonId,
 } = {}) {
   _setStatus = typeof setStatus === 'function' ? setStatus : null;
   _ensurePlacesLoaded = typeof ensurePlacesLoaded === 'function' ? ensurePlacesLoaded : null;
   _selectPlaceGlobal = typeof selectPlaceGlobal === 'function' ? selectPlaceGlobal : null;
+  _applyPlacesSelectionToDom = typeof applyPlacesSelectionToDom === 'function' ? applyPlacesSelectionToDom : null;
   _resolveRelationsRootPersonId = typeof resolveRelationsRootPersonId === 'function' ? resolveRelationsRootPersonId : null;
 
   try { _initMapTopbarControls(); } catch (_) {}
+  try { _wirePlaceSelectedCentering(); } catch (_) {}
+}
+
+function _wirePlaceSelectedCentering() {
+  if (_placeSelectedListenerInstalled) return;
+  _placeSelectedListenerInstalled = true;
+
+  window.addEventListener('relchart:place-selected', (e) => {
+    const detail = e?.detail || null;
+    const pid = String(detail?.id || '').trim();
+    if (!pid) return;
+
+    // Always remember the last requested place selection.
+    state.map.pendingPlaceId = pid;
+    state.placesSelected = pid;
+
+    // Only center when the map is actually visible.
+    if (els.chart?.dataset?.mainView !== 'map') return;
+
+    Promise.resolve(ensureMapInitialized()).then(() => {
+      Promise.resolve(_ensurePlacesLoaded?.()).then(() => {
+        const place = resolvePlaceForMap(detail);
+        centerMapOnPlace(place);
+        try { _applyPlacesSelectionToDom?.({ scroll: true }); } catch (_) {}
+      });
+    });
+  });
 }
 
 function _setStatusSafe(msg, isError) {
