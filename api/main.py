@@ -29,6 +29,12 @@ except ImportError:  # pragma: no cover
     # Support running with CWD=genealogy/api (e.g., `python -m uvicorn main:app`).
     from names import _format_public_person_names, _normalize_public_name_fields, _smart_title_case_name
 
+try:
+    from .graph import _bfs_neighborhood, _bfs_neighborhood_distances, _fetch_neighbors, _fetch_spouses
+except ImportError:  # pragma: no cover
+    # Support running with CWD=genealogy/api (e.g., `python -m uvicorn main:app`).
+    from graph import _bfs_neighborhood, _bfs_neighborhood_distances, _fetch_neighbors, _fetch_spouses
+
 app = FastAPI(title="Genealogy API", version="0.0.1")
 
 # If someone is connected (parent/child) to a clearly-historic public person,
@@ -1555,150 +1561,6 @@ def search_people(q: str = Query(min_length=1, max_length=200)) -> dict[str, Any
             results.append({"id": r[0], "gramps_id": r[1], "display_name": _smart_title_case_name(r[2])})
 
     return {"query": q, "results": results}
-
-
-def _fetch_neighbors(conn: psycopg.Connection, node_ids: list[str]) -> dict[str, list[str]]:
-    if not node_ids:
-        return {}
-
-    out: dict[str, list[str]] = {nid: [] for nid in node_ids}
-
-    # Parents
-    for child_id, parent_id in conn.execute(
-        "SELECT child_id, parent_id FROM person_parent WHERE child_id = ANY(%s)",
-        (node_ids,),
-    ).fetchall():
-        out.setdefault(child_id, []).append(parent_id)
-
-    # Children
-    for parent_id, child_id in conn.execute(
-        "SELECT parent_id, child_id FROM person_parent WHERE parent_id = ANY(%s)",
-        (node_ids,),
-    ).fetchall():
-        out.setdefault(parent_id, []).append(child_id)
-
-    return out
-
-
-def _fetch_spouses(conn: psycopg.Connection, node_ids: list[str]) -> dict[str, list[str]]:
-    """Return person->list(spouse/partner person_ids) for any family where they are a parent.
-
-    Note: We treat spouse links as "same generation" (depth cost 0) and we *do not*
-    expand further through spouse links during neighborhood BFS to avoid pulling in
-    large lateral marriage networks.
-    """
-
-    if not node_ids:
-        return {}
-
-    out: dict[str, list[str]] = {nid: [] for nid in node_ids}
-
-    # Spouses/partners are inferred via family rows with both parents set.
-    rows = conn.execute(
-        """
-        SELECT father_id, mother_id
-        FROM family
-        WHERE father_id IS NOT NULL
-          AND mother_id IS NOT NULL
-          AND (father_id = ANY(%s) OR mother_id = ANY(%s))
-        """.strip(),
-        (node_ids, node_ids),
-    ).fetchall()
-
-    for father_id, mother_id in rows:
-        if father_id in out:
-            out[father_id].append(mother_id)
-        if mother_id in out:
-            out[mother_id].append(father_id)
-
-    return out
-
-
-def _bfs_neighborhood(
-    conn: psycopg.Connection,
-    start: str,
-    *,
-    depth: int,
-    max_nodes: int,
-) -> list[str]:
-    if depth <= 0:
-        return [start]
-
-    seen: set[str] = {start}
-    frontier = [start]
-    for _ in range(depth):
-        neigh = _fetch_neighbors(conn, frontier)
-        next_frontier: list[str] = []
-        for node in frontier:
-            for nb in neigh.get(node, []):
-                if nb in seen:
-                    continue
-                seen.add(nb)
-                next_frontier.append(nb)
-                if len(seen) >= max_nodes:
-                    return list(seen)
-        frontier = next_frontier
-        if not frontier:
-            break
-
-    return list(seen)
-
-
-def _bfs_neighborhood_distances(
-    conn: psycopg.Connection,
-    start: str,
-    *,
-    depth: int,
-    max_nodes: int,
-) -> dict[str, int]:
-    """Return node->distance for an undirected person neighborhood BFS."""
-
-    distances: dict[str, int] = {start: 0}
-
-    # Attach spouses for the root immediately (same generation; do not expand via spouse links).
-    for sp in _fetch_spouses(conn, [start]).get(start, []):
-        if sp in distances:
-            continue
-        distances[sp] = 0
-        if len(distances) >= max_nodes:
-            return distances
-
-    if depth <= 0:
-        return distances
-
-    frontier = [start]
-    for d in range(1, depth + 1):
-        neigh = _fetch_neighbors(conn, frontier)
-        next_frontier: list[str] = []
-
-        # Expand only through parent/child edges (generation distance).
-        for node in frontier:
-            for nb in neigh.get(node, []):
-                if nb in distances:
-                    continue
-                distances[nb] = d
-                next_frontier.append(nb)
-                if len(distances) >= max_nodes:
-                    return distances
-
-        # Attach spouses for newly discovered nodes at this generation.
-        if next_frontier:
-            sp_map = _fetch_spouses(conn, next_frontier)
-            for pid in next_frontier:
-                for sp in sp_map.get(pid, []):
-                    if sp in distances:
-                        continue
-                    distances[sp] = d
-                    if len(distances) >= max_nodes:
-                        return distances
-
-        frontier = next_frontier
-        if not frontier:
-            break
-
-    return distances
-
-
 def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = None) -> dict[str, Any]:
     # r = (
     #   id, gramps_id, display_name, given_name, surname, gender,
@@ -1727,8 +1589,8 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
         is_living=is_living_flag,
         birth_date=birth_date,
         death_date=death_date,
-            birth_text=birth_text,
-            death_text=death_text,
+        birth_text=birth_text,
+        death_text=death_text,
     ):
         return {
             "id": pid,
@@ -1742,12 +1604,12 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
             "death": None,
             "distance": distance,
         }
+
     display_name_out, given_name_out, surname_out = _format_public_person_names(
         display_name=name,
         given_name=given_name,
         surname=surname,
     )
-
     return {
         "id": pid,
         "gramps_id": gid,
