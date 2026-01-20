@@ -946,6 +946,7 @@ html[data-theme="light"] .miniSelect {
 }
 
 .miniToggle {
+  height: 30px;
   white-space: nowrap;
   padding: 6px 9px;
   border-radius: 10px;
@@ -958,13 +959,31 @@ html[data-theme="light"] .miniSelect {
 }
 
 .miniNumber {
-  width: 76px;
+  width: 70px;
+  height: 30px;
   padding: 6px 8px;
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.16);
   background: rgba(255,255,255,0.06);
   color: var(--text);
   font-size: 12px;
+}
+
+.miniText {
+  width: 56px;
+  height: 30px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  font-size: 12px;
+}
+
+html[data-theme="light"] .miniText {
+  border-color: var(--border);
+  background: #ffffff;
+  color: var(--text);
 }
 
 html[data-theme="light"] .miniNumber {
@@ -1207,8 +1226,12 @@ html[data-theme="light"] .topbar {
 .optionsMenu summary::-webkit-details-marker { display: none; }
 
 .optionsBtn {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   white-space: nowrap;
-  padding: 8px 10px;
+  padding: 6px 9px;
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.16);
   background: rgba(255,255,255,0.06);
@@ -1907,7 +1930,7 @@ input {
   border-radius: 10px;
   padding: 8px 10px;
   outline: none;
-  min-width: 140px;
+  min-width: 50px;
 }
 
 .inputWithClear {
@@ -1956,14 +1979,14 @@ html[data-theme="light"] input {
   color: var(--text);
 }
 
-input[type="number"] { min-width: 90px; }
+input[type="number"] { min-width: 60px; }
 
 input:focus {
   border-color: rgba(122,162,255,0.55);
   box-shadow: 0 0 0 4px rgba(122,162,255,0.12);
 }
 
-.buttons { display: flex; gap: 10px; align-items: end; }
+.buttons { display: flex; gap: 10px; align-items: center; }
 
 button {
   border: 1px solid rgba(122,162,255,0.45);
@@ -1984,6 +2007,9 @@ button.secondary {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--muted);
+  min-height: 30px;
+  display: flex;
+  align-items: center;
   padding: 8px 10px;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -1993,7 +2019,7 @@ button.secondary {
   white-space: normal;
   word-break: break-word;
   user-select: text;
-  margin-top: 10px;
+  margin-top: 0;
 }
 
 html[data-theme="light"] .status {

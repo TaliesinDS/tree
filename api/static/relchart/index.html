@@ -128,23 +128,25 @@
         <div class="row">
           <div class="controls" aria-label="Topbar controls">
             <div id="graphControls" class="controlsGroup" data-controls="graph">
-              <label>
-                Person ID
-                <input id="personId" value="I0001" placeholder="I0001 or _handle" />
+              <label class="miniLabel">
+                <span>Person</span>
+                <input id="personId" class="miniText" value="I0001" placeholder="I0001 or _handle" />
               </label>
-              <label>
-                Depth
-                <input id="depth" type="number" min="0" max="100" value="4" />
+
+              <label class="miniLabel">
+                <span>Depth</span>
+                <input id="depth" class="miniNumber" type="number" min="0" max="100" value="4" />
               </label>
-              <label>
-                Max nodes
-                <input id="maxNodes" type="number" min="1" max="6000" value="1200" />
+
+              <label class="miniLabel">
+                <span>Max nodes</span>
+                <input id="maxNodes" class="miniNumber" type="number" min="1" max="6000" value="1200" />
               </label>
 
               <div class="buttons">
-                <button id="loadBtn" type="button">Load</button>
-                <button id="fitBtn" type="button" class="secondary">Fit</button>
-                <button id="resetBtn" type="button" class="secondary">Reset</button>
+                <button id="loadBtn" type="button" class="miniToggle">Load</button>
+                <button id="fitBtn" type="button" class="miniToggle">Fit</button>
+                <button id="resetBtn" type="button" class="miniToggle">Reset</button>
               </div>
             </div>
 
@@ -205,8 +207,8 @@
               </div>
 
               <div class="buttons">
-                <button id="mapFitPinsBtn" type="button" class="secondary">Fit pins</button>
-                <button id="mapClearOverlaysBtn" type="button" class="secondary">Clear overlays</button>
+                <button id="mapFitPinsBtn" type="button" class="miniToggle">Fit pins</button>
+                <button id="mapClearOverlaysBtn" type="button" class="miniToggle">Clear overlays</button>
               </div>
             </div>
           </div>
