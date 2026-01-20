@@ -35,6 +35,12 @@ except ImportError:  # pragma: no cover
     # Support running with CWD=genealogy/api (e.g., `python -m uvicorn main:app`).
     from graph import _bfs_neighborhood, _bfs_neighborhood_distances, _fetch_neighbors, _fetch_spouses
 
+try:
+    from .queries import _fetch_family_marriage_date_map, _people_core_many, _year_hint_from_fields
+except ImportError:  # pragma: no cover
+    # Support running with CWD=genealogy/api (e.g., `python -m uvicorn main:app`).
+    from queries import _fetch_family_marriage_date_map, _people_core_many, _year_hint_from_fields
+
 app = FastAPI(title="Genealogy API", version="0.0.1")
 
 # If someone is connected (parent/child) to a clearly-historic public person,
@@ -1561,6 +1567,8 @@ def search_people(q: str = Query(min_length=1, max_length=200)) -> dict[str, Any
             results.append({"id": r[0], "gramps_id": r[1], "display_name": _smart_title_case_name(r[2])})
 
     return {"query": q, "results": results}
+
+
 def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = None) -> dict[str, Any]:
     # r = (
     #   id, gramps_id, display_name, given_name, surname, gender,
@@ -1622,131 +1630,6 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
         "death": death_text,
         "distance": distance,
     }
-
-
-def _fetch_family_marriage_date_map(
-    conn: psycopg.Connection,
-    family_ids: list[str],
-) -> dict[str, str]:
-    """Return a best-effort marriage date/text for each family id.
-
-    Output value is either an ISO date (YYYY-MM-DD) from event.event_date,
-    or a raw Gramps date text from event.event_date_text.
-
-    Privacy: only returns dates for non-private events (event.is_private = false).
-    Callers should still avoid attaching this to private families.
-    """
-
-    if not family_ids:
-        return {}
-
-    # Use parameterized ILIKE patterns so psycopg doesn't treat literal '%' as placeholders.
-    pat_marriage = "%marriage%"
-    pat_wedding = "%wedding%"
-
-    rows = conn.execute(
-        """
-        SELECT DISTINCT ON (fe.family_id)
-               fe.family_id,
-               e.event_date,
-               e.event_date_text
-        FROM family_event fe
-        JOIN event e ON e.id = fe.event_id
-        WHERE fe.family_id = ANY(%s)
-          AND COALESCE(e.is_private, FALSE) = FALSE
-          AND (
-            e.event_type ILIKE %s
-            OR e.event_type ILIKE %s
-          )
-        ORDER BY fe.family_id,
-                 e.event_date NULLS LAST,
-                 e.event_date_text NULLS LAST,
-                 e.id
-        """.strip(),
-        (family_ids, pat_marriage, pat_wedding),
-    ).fetchall()
-
-    out: dict[str, str] = {}
-    for fid, ev_date, ev_text in rows:
-        if ev_date is not None:
-            out[str(fid)] = ev_date.isoformat()
-        elif ev_text:
-            out[str(fid)] = str(ev_text)
-
-    # Fallback: some DBs may not have family_event populated.
-    # In that case, Gramps often links the marriage event to both spouses as person_event.
-    missing = [str(fid) for fid in family_ids if str(fid) not in out]
-    if missing:
-        # Fallback: infer “marriage” as any shared marriage-type event between the two parents
-        # of the family (since this dataset has 0 rows in family_event).
-        rows2 = conn.execute(
-            """
-            WITH fam AS (
-              SELECT id, father_id, mother_id
-              FROM family
-              WHERE id = ANY(%s)
-                AND father_id IS NOT NULL
-                AND mother_id IS NOT NULL
-            )
-            SELECT DISTINCT ON (fam.id)
-                   fam.id,
-                   e.event_date,
-                   e.event_date_text
-            FROM fam
-            JOIN person_event pe_fa ON pe_fa.person_id = fam.father_id
-            JOIN person_event pe_mo ON pe_mo.person_id = fam.mother_id
-                                 AND pe_mo.event_id = pe_fa.event_id
-            JOIN event e ON e.id = pe_fa.event_id
-            WHERE COALESCE(e.is_private, FALSE) = FALSE
-              AND (
-                e.event_type ILIKE %s
-                OR e.event_type ILIKE %s
-              )
-            ORDER BY fam.id,
-                     e.event_date NULLS LAST,
-                     e.event_date_text NULLS LAST,
-                     e.id
-            """.strip(),
-            (missing, pat_marriage, pat_wedding),
-        ).fetchall()
-
-        for fid, ev_date, ev_text in rows2:
-            if str(fid) in out:
-                continue
-            if ev_date is not None:
-                out[str(fid)] = ev_date.isoformat()
-            elif ev_text:
-                out[str(fid)] = str(ev_text)
-
-    return out
-
-
-def _year_hint_from_fields(
-    *,
-    birth_date: date | None,
-    death_date: date | None,
-    birth_text: str | None,
-    death_text: str | None,
-) -> int | None:
-    """Return a best-effort year hint from structured and text dates."""
-
-    if birth_date is not None:
-        return birth_date.year
-    if death_date is not None:
-        return death_date.year
-    for s in (birth_text, death_text):
-        if not s:
-            continue
-        m = re.search(r"\b(\d{4})\b", str(s))
-        if not m:
-            continue
-        try:
-            y = int(m.group(1))
-        except ValueError:
-            continue
-        if 1 <= y <= date.today().year + 5:
-            return y
-    return None
 
 
 @app.post("/graph/places")
