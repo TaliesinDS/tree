@@ -1,0 +1,52 @@
+{
+  "nodes": [
+    {
+      "id": "P1",
+      "type": "person",
+      "display_name": "Root",
+      "gender": "M",
+      "birth": "1800",
+      "death": "1870"
+    },
+    {
+      "id": "P2",
+      "type": "person",
+      "display_name": "Spouse",
+      "gender": "F",
+      "birth": "1802",
+      "death": "1872"
+    },
+    {
+      "id": "C1",
+      "type": "person",
+      "display_name": "Child",
+      "gender": "U",
+      "birth": "1830",
+      "death": "1900"
+    },
+    {
+      "id": "F1",
+      "type": "family",
+      "parents_total": 2,
+      "children_total": 1,
+      "has_more_children": false
+    }
+  ],
+  "edges": [
+    {
+      "from": "P1",
+      "to": "F1",
+      "type": "parent"
+    },
+    {
+      "from": "P2",
+      "to": "F1",
+      "type": "parent"
+    },
+    {
+      "from": "F1",
+      "to": "C1",
+      "type": "child"
+    }
+  ]
+}

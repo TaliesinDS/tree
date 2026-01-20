@@ -7,7 +7,7 @@
 2. Add automated tests for privacy logic and critical rules
 
 **Status (as of 2026-01-20):**
-- Backend modularization is mostly complete (modules + routes exist), but `api/main.py` is still ~952 lines and has remaining consolidation work.
+- Backend modularization is complete: `api/main.py` is now wiring-only (~35 lines) and endpoints live under `api/routes/`.
 - Backend tests are implemented (`tests/test_privacy.py`, `tests/test_names.py`, plus graph payload regression/contract tests).
 - Frontend modularization is mostly complete (`api/static/relchart/js/app.js` is ~433 lines and primarily wiring).
 - Completed frontend extractions:
@@ -27,7 +27,7 @@
 
 ---
 
-## Phase 1: Backend Modularization (DONE, follow-up needed)
+## Phase 1: Backend Modularization (DONE)
 
 Break `api/main.py` (~2,755 lines) into focused modules.
 
@@ -127,12 +127,22 @@ def _fetch_event_details(...)
 
 ```
 api/
-├── main.py          # FastAPI app + route registration only (~500 lines)
+├── main.py          # FastAPI app wiring only (~35 lines)
 ├── db.py            # Database connection (existing)
 ├── privacy.py       # Privacy logic (~150 lines)
 ├── names.py         # Name formatting (~200 lines)
 ├── graph.py         # Graph traversal (~400 lines)
 └── queries.py       # Bulk query helpers (~300 lines)
+
+api/routes/
+├── demo.py
+├── health.py
+├── graph.py
+├── people.py        # includes /people and /people/{id}
+├── families.py      # /families
+├── events.py        # /events
+├── places.py        # /places and /places/events_counts
+└── relationship.py  # /relationship/path
 ```
 
 ---
@@ -401,10 +411,9 @@ Run after any significant change:
 
 ---
 
-## Handoff: Finish Backend Consolidation + Fixtures (New Chat)
+## Handoff: Fixtures + Smoke Tests (New Chat)
 
 **Goal:** Finish the remaining “cleanup” work:
-- Reduce `api/main.py` further (target: route registration + app wiring only)
 - Add on-disk graph fixtures + a manual smoke checklist for repeatable UI verification
 
 **What’s already done:**
@@ -413,9 +422,8 @@ Run after any significant change:
 - Frontend feature modules exist under `api/static/relchart/js/features/` and `app.js` is mostly wiring
 
 **Next targets:**
-1. **Backend:** Identify what remains in `api/main.py` that can move into `api/routes/*` (or into `api/graph.py` / `api/queries.py`) and remove duplicate legacy code.
-2. **Fixtures:** Populate `tests/fixtures/payloads/` with a couple of known-problem neighborhood payload JSONs.
-3. **Smoke checklist:** Add `tests/SMOKE_TEST.md` to make UI verification repeatable.
+1. **Fixtures:** Populate `tests/fixtures/payloads/` with a couple of known-problem neighborhood payload JSONs.
+2. **Smoke checklist:** Add `tests/SMOKE_TEST.md` to make UI verification repeatable.
 
 **Smoke check after backend consolidation:**
 - Run `pytest tests/`.
@@ -480,6 +488,7 @@ git merge refactor/backend-modules
 After completing this plan:
 
 1. `api/main.py` is under 600 lines (route registration only)
+    - Current: wiring-only (~35 lines) ✅
 2. `app.js` is under 600 lines (module wiring only) ✅
 3. `pytest tests/` passes ✅
 4. Privacy rules are tested ✅
