@@ -24,7 +24,7 @@ The API decides whether to redact a person using (in order):
 	- else if age is less than **90 years** → private
 	- otherwise → public
 
-These thresholds are defined in api/main.py:
+These thresholds are defined in `api/privacy.py`:
 - `_PRIVACY_BORN_ON_OR_AFTER = 1946-01-01`
 - `_PRIVACY_AGE_CUTOFF_YEARS = 90`
 

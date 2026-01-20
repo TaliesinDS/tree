@@ -51,7 +51,7 @@ Example flags
 
 - Docs/spec: this file
 - Implementation options:
-  - FastAPI endpoint(s): `api/main.py`
+  - FastAPI endpoint(s): `api/routes/` (add a debug router when implementing)
   - One-off report script(s): `reports/` (preferred first step)
 
 ---

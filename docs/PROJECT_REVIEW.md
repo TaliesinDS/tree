@@ -4,6 +4,11 @@ Purpose: an honest, actionable critique of Tree as a software project (quality, 
 
 Last updated: 2026-01-20
 
+Update (2026-01-20): The key refactor recommendations in this review have been implemented:
+- Frontend: `api/static/relchart/js/app.js` is now a small entrypoint (~300 lines) wiring feature modules.
+- Backend: `api/main.py` is now wiring-only and endpoints live under `api/routes/`.
+- Tests: pytest coverage exists for privacy, names, and graph payload contracts under `tests/`.
+
 ---
 
 ## 1) What the project is (and why it’s a good idea)
@@ -43,10 +48,12 @@ Your privacy approach is conservative and server-side. That’s the correct stan
 
 I’ll be blunt here, because you asked for “no glazing”.
 
-### A) You have “god files” now
-Two files are already large enough that they behave like mini-codebases:
-- `api/static/relchart/js/app.js` (~5k+ lines)
-- `api/main.py` (~3k+ lines)
+### A) You had “god files”
+Two files were large enough that they behaved like mini-codebases:
+- `api/static/relchart/js/app.js` (was ~5k+ lines)
+- `api/main.py` (was ~3k+ lines)
+
+This has since been addressed via modularization (see update note at top).
 
 That is not automatically “bad”, but it creates predictable problems:
 - regressions when adding features (because everything touches everything)
@@ -56,7 +63,9 @@ That is not automatically “bad”, but it creates predictable problems:
 Concrete example from recent work: you had a feature (global search) that worked in the detail panel but changed behavior in the People tab depending on load order. That kind of issue is exactly what large glue files tend to produce.
 
 ### B) Minimal automated tests (high risk for privacy + graph logic)
-From the repo structure, there’s no obvious test suite.
+Originally there was no obvious test suite.
+
+This has since been addressed: `tests/` contains focused pytest coverage for privacy, name formatting, and graph payload contracts.
 
 For a project with:
 - privacy rules,
@@ -68,12 +77,14 @@ For a project with:
 Even a small test set would pay for itself quickly.
 
 ### C) Frontend maintainability risk: state + UI + map + lists all in one place
-The relchart v3 module split is good overall, but `app.js` still mixes:
+Previously, `app.js` mixed:
 - global state store
 - fetch orchestration
 - DOM manipulation/rendering for lists
 - map initialization + pin logic
 - detail panel UI
+
+This has since been addressed by extracting feature modules under `api/static/relchart/js/features/` and small shared utilities.
 
 This makes the file hard to reason about and encourages patchy fixes.
 
@@ -187,7 +198,7 @@ The above analysis is accurate. Here are **additions, expansions, and concrete i
 
 ### 8.1) Backend modularization (missed in original)
 
-The original review focuses on frontend `app.js` but **`api/main.py` (2,755 lines)** deserves the same treatment. Suggested split:
+The original review focuses on frontend `app.js` but **`api/main.py` (was 2,755 lines)** also deserved the same treatment. Suggested split:
 
 | New file | Contents | Why |
 |----------|----------|-----|
@@ -196,7 +207,7 @@ The original review focuses on frontend `app.js` but **`api/main.py` (2,755 line
 | `api/graph.py` | `_bfs_neighborhood`, `_bfs_neighborhood_distances`, `_fetch_neighbors`, `_fetch_spouses`, graph endpoint handlers | Isolates graph traversal algorithms |
 | `api/queries.py` | Bulk fetch helpers (`_people_core_many`, `_fetch_family_marriage_date_map`, etc.) | Reusable query patterns |
 
-Keep `main.py` as the FastAPI app + route registration only.
+Keep `main.py` as the FastAPI app + route registration only (implemented; routes live under `api/routes/`).
 
 **Concrete first step:** Extract `api/privacy.py` (~150 lines). This is the highest-value extraction because:
 - Privacy is the most critical correctness requirement

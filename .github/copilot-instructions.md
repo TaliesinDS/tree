@@ -27,8 +27,11 @@ When working on the viewer, **always use the relchart v3 files** under `api/stat
 ### Frontend (no-build ES modules)
 - `api/static/relchart/index.html` — UI shell
 - `api/static/relchart/styles.css` — styling
-- `api/static/relchart/js/app.js` — main app logic, expansion handling
+- `api/static/relchart/js/app.js` — entrypoint + wiring (initialization)
 - `api/static/relchart/js/api.js` — fetch wrappers for API endpoints
+- `api/static/relchart/js/state.js` — shared state + settings
+- `api/static/relchart/js/util/clipboard.js` — clipboard helper
+- `api/static/relchart/js/util/event_format.js` — event formatting helpers
 - `api/static/relchart/js/chart/dot.js` — **DOT generation** (payload → Graphviz DOT string)
 - `api/static/relchart/js/chart/render.js` — **SVG post-processing** (Graphviz SVG → interactive chart)
 - `api/static/relchart/js/chart/graphviz.js` — Graphviz WASM loader
@@ -37,7 +40,8 @@ When working on the viewer, **always use the relchart v3 files** under `api/stat
 - `api/static/relchart/js/chart/lineage.js` — **ancestor/descendant line tracing** for edge highlighting
 
 ### Backend
-- `api/main.py` — FastAPI endpoints, privacy filtering, graph queries
+- `api/main.py` — FastAPI app wiring (router registration + static mount)
+- `api/routes/*.py` — route handlers (read-only endpoints)
 - `api/db.py` — database connection helper
 - `sql/schema.sql` — PostgreSQL schema
 
@@ -147,7 +151,7 @@ Privacy is **enforced server-side** (anything sent to browser is public):
    - Otherwise → public
 3. Unknown birth date with unknown living status → **private** (conservative)
 
-Key constants in `api/main.py`:
+Key constants in `api/privacy.py`:
 ```python
 _PRIVACY_BORN_ON_OR_AFTER = date(1946, 1, 1)
 _PRIVACY_AGE_CUTOFF_YEARS = 90

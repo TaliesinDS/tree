@@ -16,7 +16,7 @@ This repo is a **view-only genealogy browser** that visualizes data exported fro
 
 | Component | Location | Notes |
 |-----------|----------|-------|
-| **API** | `api/main.py` | FastAPI + privacy filtering |
+| **API** | `api/main.py` + `api/routes/` | FastAPI app wiring + route handlers (read-only + privacy filtering) |
 | **Frontend** | `api/static/relchart/` | Graphviz WASM relationship chart (v3) |
 | **Export pipeline** | `export/` | Gramps XML → JSONL → Postgres |
 | **Schema** | `sql/schema.sql` | Postgres + PostGIS |

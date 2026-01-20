@@ -32,7 +32,7 @@
 
 ## Phase 1: Backend Modularization (DONE)
 
-Break `api/main.py` (~2,755 lines) into focused modules.
+Break `api/main.py` (was ~2,755 lines) into focused modules.
 
 ### Step 1.1: Extract `api/privacy.py` (DONE)
 
@@ -214,7 +214,7 @@ pytest-cov  # optional
 
 ---
 
-## Phase 3: Frontend Modularization (MOSTLY DONE)
+## Phase 3: Frontend Modularization (DONE)
 
 Break `api/static/relchart/js/app.js` into focused modules.
 
@@ -333,7 +333,7 @@ export function _writeSetting(key, value) { ... }
 
 ```
 api/static/relchart/js/
-├── app.js              # Entrypoint + wiring (~500 lines)
+├── app.js              # Entrypoint + wiring (~301 lines)
 ├── api.js              # API fetch wrappers (existing)
 ├── state.js            # Shared state + settings (~100 lines)
 ├── util/
@@ -463,9 +463,9 @@ git merge refactor/backend-modules
 
 | Phase | Duration | Outcome |
 |-------|----------|---------|
-| Phase 1: Backend modules | 3-4 days | `main.py` reduced to ~500 lines |
+| Phase 1: Backend modules | 3-4 days | `main.py` reduced to wiring-only (~35 lines) |
 | Phase 2: Backend tests | 2-3 days | Privacy + name tests passing |
-| Phase 3: Frontend modules | 4-5 days | `app.js` reduced to ~500 lines |
+| Phase 3: Frontend modules | 4-5 days | `app.js` reduced to wiring-only (~301 lines) |
 | Phase 4: Fixtures | 1 day | Smoke tests + JSON fixtures |
 | **Total** | **~2 weeks** | Maintainable codebase with test coverage |
 

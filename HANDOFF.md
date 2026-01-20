@@ -38,7 +38,7 @@ Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
 
 | Component | Location | Notes |
 |-----------|----------|-------|
-| **API** | `api/main.py` | FastAPI endpoints, privacy filtering |
+| **API** | `api/main.py` + `api/routes/` | FastAPI app wiring + route handlers (privacy filtering is server-side) |
 | **Frontend (v3)** | `api/static/relchart/` | Graphviz WASM relationship chart |
 | **Export pipeline** | `export/` | Gramps XML → JSONL → Postgres |
 | **Schema** | `sql/schema.sql` | Postgres + PostGIS tables |
@@ -96,8 +96,11 @@ api/static/relchart/
 ├── index.html          # UI shell
 ├── styles.css          # Styling
 └── js/
-    ├── app.js          # Main app logic
+    ├── app.js          # Entrypoint + wiring
     ├── api.js          # Fetch wrappers
+    ├── state.js        # Shared state + settings
+    ├── util/           # Small shared utilities
+    ├── features/       # UI feature modules (people/families/map/graph/etc)
     └── chart/
         ├── dot.js      # DOT generation (payload → Graphviz)
         ├── render.js   # SVG post-processing
@@ -109,7 +112,8 @@ api/static/relchart/
 
 ### Backend
 ```
-api/main.py        # Endpoints + privacy
+api/main.py        # FastAPI app wiring (router registration + static mount)
+api/routes/        # Route handlers (people/graph/families/events/places/etc)
 api/db.py          # DB connection
 sql/schema.sql     # Tables + indexes
 ```

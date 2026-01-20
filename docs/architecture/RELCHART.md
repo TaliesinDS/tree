@@ -74,11 +74,8 @@ Files:
 
 JavaScript modules:
 - `api/static/relchart/js/app.js`
-  - glue code (load neighborhood, store payload, rerender)
-  - wires UI controls and status
-  - performs incremental expansions (calls API then merges payload)
-  - switches the main viewport between graph/map when tabs change
-  - lazy-loads Leaflet and initializes the map on first Map-tab open
+  - entrypoint + wiring (initial load + feature initialization)
+  - keeps the module boundaries explicit (minimal logic)
 - `api/static/relchart/js/api.js`
   - tiny fetch wrappers:
     - `/graph/neighborhood?layout=family`
@@ -105,6 +102,23 @@ JavaScript modules:
   - See the file's JSDoc for usage examples
 - `api/static/relchart/js/chart/render.js`
   - render pipeline (DOT → Graphviz SVG → attach interactions + badges)
+
+Feature modules (UI behavior):
+- `api/static/relchart/js/state.js` — shared state and element refs
+- `api/static/relchart/js/features/graph.js` — chart render + expand + selection sync
+- `api/static/relchart/js/features/people.js` — people sidebar
+- `api/static/relchart/js/features/families.js` — families sidebar
+- `api/static/relchart/js/features/events.js` — events sidebar
+- `api/static/relchart/js/features/places.js` — places sidebar + place-events panel
+- `api/static/relchart/js/features/map.js` — Leaflet initialization + pins
+- `api/static/relchart/js/features/detailPanel.js` — person detail panel
+- `api/static/relchart/js/features/tabs.js` — tab switching + topbar mode
+- `api/static/relchart/js/features/keybinds.js` — keyboard shortcuts
+- `api/static/relchart/js/features/options.js` — options menu + people list width toggle
+
+Shared utilities:
+- `api/static/relchart/js/util/clipboard.js`
+- `api/static/relchart/js/util/event_format.js`
 
 ## Data contract with the backend
 
