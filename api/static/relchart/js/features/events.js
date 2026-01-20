@@ -4,7 +4,6 @@ let _selection = null;
 let _loadNeighborhood = null;
 let _setStatus = null;
 let _copyToClipboard = null;
-let _setSidebarActiveTab = null;
 let _getSidebarActiveTab = null;
 
 let _formatEventTitle = null;
@@ -18,7 +17,6 @@ export function initEventsFeature({
   loadNeighborhood,
   setStatus,
   copyToClipboard,
-  setSidebarActiveTab,
   getSidebarActiveTab,
   formatEventTitle,
   formatEventSubLine,
@@ -27,13 +25,11 @@ export function initEventsFeature({
   _loadNeighborhood = typeof loadNeighborhood === 'function' ? loadNeighborhood : null;
   _setStatus = typeof setStatus === 'function' ? setStatus : null;
   _copyToClipboard = typeof copyToClipboard === 'function' ? copyToClipboard : null;
-  _setSidebarActiveTab = typeof setSidebarActiveTab === 'function' ? setSidebarActiveTab : null;
   _getSidebarActiveTab = typeof getSidebarActiveTab === 'function' ? getSidebarActiveTab : null;
 
   _formatEventTitle = typeof formatEventTitle === 'function' ? formatEventTitle : (ev) => String(ev?.type || ev?.event_type || 'Event').trim() || 'Event';
   _formatEventSubLine = typeof formatEventSubLine === 'function' ? formatEventSubLine : (ev) => String(ev?.date || ev?.date_text || '').trim();
 
-  _wireEventsTabButton();
   _wireSearch();
   _wireSort();
   _wireInfiniteScroll();
@@ -319,14 +315,6 @@ async function _fetchMoreEventsPage() {
   } finally {
     if (seq === state.eventsReqSeq) state.eventsLoading = false;
   }
-}
-
-function _wireEventsTabButton() {
-  const eventsTabBtn = document.querySelector('.tabbtn[data-tab="events"]');
-  if (!eventsTabBtn) return;
-  eventsTabBtn.addEventListener('click', () => {
-    try { _setSidebarActiveTab?.('events'); } catch (_) {}
-  });
 }
 
 function _wireSearch() {

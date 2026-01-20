@@ -52,19 +52,12 @@ import {
   initEventsFeature,
   ensureEventsLoaded,
 } from './features/events.js';
-
-function _setTopbarControlsMode(kind) {
-  const k = String(kind || '').trim().toLowerCase();
-  const showMap = (k === 'map');
-  if (els.graphControls) els.graphControls.hidden = showMap;
-  if (els.mapControls) els.mapControls.hidden = !showMap;
-}
-
-function _setMainView(viewName) {
-  const v = String(viewName || '').trim().toLowerCase();
-  if (!els.chart) return;
-  els.chart.dataset.mainView = (v === 'map') ? 'map' : 'graph';
-}
+import {
+  initTabsFeature,
+  getSidebarActiveTab,
+  setSidebarActiveTab,
+  setTopbarControlsMode,
+} from './features/tabs.js';
 
 function _formatEventTitle(ev) {
   const t = String(ev?.type || ev?.event_type || 'Event').trim();
@@ -190,112 +183,10 @@ function _initPeopleExpanded() {
   }
 }
 
-function _setSidebarActiveTab(tabName) {
-  const name = String(tabName || '').trim();
-  if (!name) return;
-
-  // Place-events popover is Map-tab-only.
-  try {
-    if (name !== 'map') closePlaceEventsPanel();
-  } catch (_) {}
-
-  const tabButtons = Array.from(document.querySelectorAll('.tabbtn[data-tab]'));
-  const tabPanels = Array.from(document.querySelectorAll('.tabpanel[data-panel]'));
-  for (const b of tabButtons) {
-    const active = b.dataset.tab === name;
-    b.classList.toggle('active', active);
-    b.setAttribute('aria-selected', active ? 'true' : 'false');
-  }
-  for (const p of tabPanels) {
-    p.classList.toggle('active', p.dataset.panel === name);
-  }
-
-  // Main viewport: show map only for the Map tab; otherwise show graph.
-  try {
-    _setMainView(name === 'map' ? 'map' : 'graph');
-    _setTopbarControlsMode(name === 'map' ? 'map' : 'graph');
-
-    // Map-only UI and overlays.
-    if (name !== 'map') {
-      try { onLeaveMapTab(); } catch (_) {}
-
-      try {
-        const cur = String(els.status?.textContent || '').trim();
-        if (/^map\s*:/i.test(cur)) {
-          setStatus(state.status.lastNonMapMsg, state.status.lastNonMapIsError);
-        }
-      } catch (_) {}
-    }
-
-    if (name === 'map') {
-      try { onEnterMapTab(); } catch (_) {}
-    }
-  } catch (_) {}
-
-  // Lazy-load + scroll-to-selection on explicit tab open.
-  // (Selection changes elsewhere should not force the sidebar to switch tabs.)
-  try {
-    if (name === 'people') {
-      Promise.resolve(ensurePeopleLoaded()).then(() => {
-        try { _applyPeopleSelectionToDom({ scroll: true }); } catch (_) {}
-      });
-    }
-    if (name === 'families') {
-      Promise.resolve(ensureFamiliesLoaded()).then(() => {
-        // Fresh page loads often have a selected person but no selected family yet.
-        // When opening Families, pick a relevant family for the selected person so
-        // the list highlights immediately.
-        try {
-          if (!state.familiesSelected) {
-            const cur = selection?.get?.() || {};
-            if (cur?.apiId) _selectParentFamilyForPersonInSidebar(cur.apiId);
-          }
-        } catch (_) {}
-        try { _applyFamiliesSelectionToDom({ scroll: true }); } catch (_) {}
-      });
-    }
-
-    if (name === 'events') {
-      Promise.resolve(ensureEventsLoaded()).then(() => {
-        // Nothing else to sync yet.
-      });
-    }
-
-    if (name === 'map') {
-      Promise.resolve(ensurePlacesLoaded()).then(() => {
-        // Now that places are loaded, upgrade any pending selection so the map can center.
-        try {
-          const pid = String(state.map.pendingPlaceId || state.placesSelected || '').trim();
-          if (pid && state.map.map && els.chart?.dataset?.mainView === 'map') {
-            const p = resolvePlaceForMap(pid);
-            centerMapOnPlace(p);
-          }
-        } catch (_) {}
-
-        // Ensure the selected place is visible in the Places tree.
-        try { _applyPlacesSelectionToDom({ scroll: true }); } catch (_) {}
-      });
-    }
-  } catch (_) {}
-}
-
-// Allow the HTML shell to delegate tab switching to app.js so lazy-loading
-// (people/families/events/places) actually triggers.
-try {
-  window.relchartSetSidebarActiveTab = _setSidebarActiveTab;
-  window.relchartGetSidebarActiveTab = _getSidebarActiveTab;
-} catch (_) {}
-
-function _getSidebarActiveTab() {
-  const b = document.querySelector('.tabbtn.active[data-tab]');
-  const t = String(b?.dataset?.tab || '').trim();
-  return t || null;
-}
-
 function _selectParentFamilyForPersonInSidebar(personApiId) {
   const pid = String(personApiId || '').trim();
   if (!pid) return;
-  if (_getSidebarActiveTab() !== 'families') return;
+  if (getSidebarActiveTab() !== 'families') return;
 
   const edges = Array.isArray(state.payload?.edges) ? state.payload.edges : [];
   let familyId = null;
@@ -348,7 +239,7 @@ selection.subscribe((next) => {
 
   // If the user is viewing Families, prefer selecting a relevant family.
   try {
-    const tab = _getSidebarActiveTab();
+    const tab = getSidebarActiveTab();
     const apiId = String(next?.apiId || '').trim();
     if (tab === 'families' && apiId) {
       _selectParentFamilyForPersonInSidebar(apiId);
@@ -831,7 +722,7 @@ async function rerender() {
 
       const node = state.nodeById.get(String(pid)) || null;
       // Graph click behaves like a global selection, but should not force sidebar tab switches.
-      const activeTab = _getSidebarActiveTab();
+      const activeTab = getSidebarActiveTab();
       selection.selectPerson(
         { apiId: pid, grampsId: node?.gramps_id },
         { source: 'graph', scrollPeople: activeTab === 'people', updateInput: true },
@@ -855,7 +746,7 @@ async function rerender() {
       const node = state.nodeById.get(String(fid)) || null;
 
       // Behave like a global selection: switch to Families and scroll-highlight.
-      try { _setSidebarActiveTab('families'); } catch (_) {}
+      try { setSidebarActiveTab('families'); } catch (_) {}
       try { ensureFamiliesLoaded(); } catch (_) {}
       try { setSelectedFamilyKey(String(node?.gramps_id || fid || '').trim(), { source: 'graph', scrollFamilies: true }); } catch (_) {}
 
@@ -943,7 +834,7 @@ async function loadNeighborhood() {
 
     // Finally, make the selection store reflect what we just loaded.
     // Prefer gramps id for keying the People list; always include api id when known.
-    const activeTab = _getSidebarActiveTab();
+    const activeTab = getSidebarActiveTab();
     selection.selectPerson(
       {
         apiId: state.selectedPersonId || null,
@@ -1010,12 +901,30 @@ initDetailPanelFeature({
   selection,
   loadNeighborhood,
   ensurePeopleIndexLoaded,
-  getSidebarActiveTab: _getSidebarActiveTab,
+  getSidebarActiveTab,
   selectPlaceGlobal,
   resolveRelationsRootPersonId: _resolveRelationsRootPersonId,
   formatEventPlaceForSidebar: _formatEventPlaceForSidebar,
 });
-try { _setTopbarControlsMode(_getSidebarActiveTab() === 'map' ? 'map' : 'graph'); } catch (_) {}
+try { setTopbarControlsMode(getSidebarActiveTab() === 'map' ? 'map' : 'graph'); } catch (_) {}
+
+initTabsFeature({
+  setStatus,
+  onEnterMapTab,
+  onLeaveMapTab,
+  closePlaceEventsPanel,
+  ensurePeopleLoaded,
+  applyPeopleSelectionToDom: _applyPeopleSelectionToDom,
+  ensureFamiliesLoaded,
+  applyFamiliesSelectionToDom: _applyFamiliesSelectionToDom,
+  ensureEventsLoaded,
+  ensurePlacesLoaded,
+  resolvePlaceForMap,
+  centerMapOnPlace,
+  applyPlacesSelectionToDom: _applyPlacesSelectionToDom,
+  selection,
+  selectParentFamilyForPersonInSidebar: _selectParentFamilyForPersonInSidebar,
+});
 
 loadDetailPanelPos();
 loadDetailPanelSize();
@@ -1036,26 +945,6 @@ try {
 // Auto-load the graph on first page load (using the current form values).
 try { loadNeighborhood(); } catch (_) {}
 
-function _normKey(s) {
-  return String(s || '').trim().toLowerCase();
-}
-
-// Load people list lazily when the People tab is opened.
-const peopleTabBtn = document.querySelector('.tabbtn[data-tab="people"]');
-if (peopleTabBtn) {
-  peopleTabBtn.addEventListener('click', () => {
-    try { _setSidebarActiveTab('people'); } catch (_) {}
-  });
-}
-
-// Load families list lazily when the Families tab is opened.
-const familiesTabBtn = document.querySelector('.tabbtn[data-tab="families"]');
-if (familiesTabBtn) {
-  familiesTabBtn.addEventListener('click', () => {
-    try { _setSidebarActiveTab('families'); } catch (_) {}
-  });
-}
-
 initPeopleFeature({ loadNeighborhood });
 
 initFamiliesFeature({ setStatus, loadNeighborhood });
@@ -1065,8 +954,7 @@ initEventsFeature({
   loadNeighborhood,
   setStatus,
   copyToClipboard,
-  setSidebarActiveTab: _setSidebarActiveTab,
-  getSidebarActiveTab: _getSidebarActiveTab,
+  getSidebarActiveTab,
   formatEventTitle: _formatEventTitle,
   formatEventSubLine: _formatEventSubLine,
 });
@@ -1075,7 +963,7 @@ initPlacesFeature({
   setStatus,
   loadNeighborhood,
   selection,
-  getSidebarActiveTab: _getSidebarActiveTab,
+  getSidebarActiveTab,
   formatEventTitle: _formatEventTitle,
   formatEventSubLineNoPlace: _formatEventSubLineNoPlace,
 });
