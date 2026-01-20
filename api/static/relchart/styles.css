@@ -448,8 +448,8 @@ html[data-theme="light"] .personDetailClose {
   white-space: nowrap;
   font-family: inherit;
 
-  /* Size by content (not equal-width); allow shrinking + ellipsis if cramped */
-  flex: 0 1 auto;
+  /* Fill the full row width with equal segments (so the tab 'boxes' span all space). */
+  flex: 1 1 0;
   min-width: 0;
   text-align: center;
   overflow: hidden;
@@ -835,12 +835,12 @@ html[data-theme="light"] .sidebar {
   padding: 8px 10px;
   margin: 0;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 17px;
   white-space: nowrap;
-  font-family: inherit;
+  font-family: var(--panel-font);
 
-  /* Size by content; shrink with ellipsis if cramped */
-  flex: 0 1 auto;
+  /* Fill the full tab row with equal-width segments. */
+  flex: 1 1 0;
   min-width: 0;
   text-align: center;
   overflow: hidden;
@@ -1461,8 +1461,8 @@ html[data-theme="light"] .optionsSection {
 }
 
 .placeName {
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 500;
+  font-size: 16px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1562,14 +1562,14 @@ html[data-theme="light"] .placeEventsMenuBtn {
   gap: 10px;
   padding: 10px 10px;
   border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  background: #fafdfd;
 }
 
 .placeEventsPanelTitle {
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.2px;
-  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--muted);
   font-family: var(--panel-font);
   overflow: hidden;
   text-overflow: ellipsis;
