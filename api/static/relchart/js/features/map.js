@@ -78,6 +78,11 @@ function _applyMapUiToDom() {
     els.mapNlAerialToggle.classList.toggle('active', on);
     els.mapNlAerialToggle.textContent = on ? 'NL aerial: On' : 'NL aerial: Off';
   }
+  if (els.mapFrAerialToggle) {
+    const on = !!state.mapUi.frAerialEnabled;
+    els.mapFrAerialToggle.classList.toggle('active', on);
+    els.mapFrAerialToggle.textContent = on ? 'FR aerial: On' : 'FR aerial: Off';
+  }
   if (els.mapPinsEnabled) els.mapPinsEnabled.checked = !!state.mapUi.pinsEnabled;
   if (els.mapPinsMax) els.mapPinsMax.value = String(_clampPinsMax(state.mapUi.pinsMax));
   if (els.mapScope) els.mapScope.value = String(state.mapUi.scope || 'selected_person');
@@ -103,8 +108,9 @@ function _applyMapUiToDom() {
 
 function _loadMapUiSettings() {
   const basemap = String(localStorage.getItem(MAP_SETTINGS.basemap) || '').trim().toLowerCase();
-  state.mapUi.basemap = (basemap === 'satellite' || basemap === 'topo') ? basemap : 'topo';
+  state.mapUi.basemap = (basemap === 'satellite' || basemap === 'esri' || basemap === 'stadia' || basemap === 'topo') ? basemap : 'topo';
   state.mapUi.nlAerialEnabled = _readBool(MAP_SETTINGS.nlAerialEnabled, false);
+  state.mapUi.frAerialEnabled = _readBool(MAP_SETTINGS.frAerialEnabled, false);
   state.mapUi.pinsEnabled = _readBool(MAP_SETTINGS.pinsEnabled, true);
   state.mapUi.pinsMax = _clampPinsMax(_readInt(MAP_SETTINGS.pinsMax, 2000));
 
@@ -171,15 +177,17 @@ function _pdokLuchtfotoLayer({ layerId, minZoom = 0, maxZoom = 21, bounds = null
 
 function _updateMapAttribution() {
   const kind = String(state.mapUi.basemap || 'topo').trim().toLowerCase();
-  const base = (kind === 'satellite')
-    ? 'Base: © EOX (Sentinel-2 cloudless)'
-    : 'Base: © OpenStreetMap contributors';
+  let base = 'Base: © OpenStreetMap contributors';
+  if (kind === 'satellite') base = 'Base: © EOX (Sentinel-2 cloudless)';
+  else if (kind === 'esri') base = 'Base: Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community';
+  else if (kind === 'stadia') base = 'Base: © Stadia Maps © OpenMapTiles © OpenStreetMap contributors (imagery sources vary by area)';
 
-  const overlay = state.mapUi.nlAerialEnabled
-    ? ' • NL aerial: © PDOK (Luchtfoto), CC BY 4.0'
-    : '';
+  const overlays = [];
+  if (state.mapUi.nlAerialEnabled) overlays.push('NL aerial: © PDOK (Luchtfoto), CC BY 4.0');
+  if (state.mapUi.frAerialEnabled) overlays.push('FR aerial: © Geoportail France (IGN / GéoServices)');
 
-  _setMapAttribution(base + overlay);
+  const tail = overlays.length ? ` • ${overlays.join(' • ')}` : '';
+  _setMapAttribution(base + tail);
 }
 
 function _ensureBaseLayers() {
@@ -199,6 +207,25 @@ function _ensureBaseLayers() {
       {
         maxZoom: 13,
         subdomains: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
+        crossOrigin: true,
+      }
+    ),
+
+    // Global-ish recent imagery (free to use with attribution; provider terms apply).
+    esri: L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: 19,
+        crossOrigin: true,
+      }
+    ),
+
+    // Stadia raster tiles: works keyless on localhost, and via domain auth in production.
+    // See: https://docs.stadiamaps.com/authentication/
+    stadia: L.tileLayer(
+      'https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}.jpg',
+      {
+        maxZoom: 20,
         crossOrigin: true,
       }
     ),
@@ -224,6 +251,79 @@ function _ensureNlAerialLayer() {
     bounds: nlBounds,
     opacity: 1,
   });
+}
+
+function _geopfFranceOrthoLayer() {
+  if (!window.L) return null;
+  const L = window.L;
+
+  // Geoportail France (GeoPF) WMTS KVP.
+  // Service endpoint: https://data.geopf.fr/wmts
+  const base = 'https://data.geopf.fr/wmts';
+  // Capabilities indicate HR.ORTHOIMAGERY.ORTHOPHOTOS uses TileMatrixSet PM_6_19.
+  const tileMatrixSet = 'PM_6_19';
+  const layerId = 'HR.ORTHOIMAGERY.ORTHOPHOTOS';
+
+  const France = L.TileLayer.extend({
+    getTileUrl(coords) {
+      const params = new URLSearchParams({
+        SERVICE: 'WMTS',
+        REQUEST: 'GetTile',
+        VERSION: '1.0.0',
+        LAYER: layerId,
+        STYLE: 'normal',
+        TILEMATRIXSET: tileMatrixSet,
+        FORMAT: 'image/jpeg',
+        TILEMATRIX: String(coords.z),
+        TILEROW: String(coords.y),
+        TILECOL: String(coords.x),
+      });
+      return `${base}?${params.toString()}`;
+    },
+  });
+
+  return new France('', {
+    minZoom: 12,
+    // Native imagery available up to 19; allow additional zoom by upscaling.
+    maxZoom: 21,
+    maxNativeZoom: 19,
+    crossOrigin: true,
+    updateWhenIdle: true,
+  });
+}
+
+function _ensureFrAerialLayer() {
+  if (!state.map.map || !window.L) return;
+  if (state.map.frAerialLayer) return;
+  const L = window.L;
+
+  // Metropolitan France bounds (+ Corsica). Keeps this as a clean overlay.
+  const frBounds = L.latLngBounds(
+    [41.0, -5.6],
+    [51.6, 10.1]
+  );
+
+  const layer = _geopfFranceOrthoLayer();
+  if (!layer) return;
+  try { layer.options.bounds = frBounds; } catch (_) {}
+  state.map.frAerialLayer = layer;
+}
+
+function _applyFrAerialOverlay() {
+  if (!state.map.map || !window.L) return;
+  const map = state.map.map;
+  _ensureFrAerialLayer();
+  const layer = state.map.frAerialLayer;
+  if (!layer) return;
+
+  const on = !!state.mapUi.frAerialEnabled;
+  try {
+    const has = map.hasLayer(layer);
+    if (on && !has) layer.addTo(map);
+    if (!on && has) map.removeLayer(layer);
+  } catch (_) {}
+
+  _updateMapAttribution();
 }
 
 function _applyNlAerialOverlay() {
@@ -678,6 +778,16 @@ function _initMapTopbarControls() {
     });
   }
 
+  if (els.mapFrAerialToggle) {
+    els.mapFrAerialToggle.addEventListener('click', () => {
+      state.mapUi.frAerialEnabled = !state.mapUi.frAerialEnabled;
+      _writeSetting(MAP_SETTINGS.frAerialEnabled, state.mapUi.frAerialEnabled ? '1' : '0');
+      _applyFrAerialOverlay();
+      _applyMapUiToDom();
+      _setStatusSafe(state.mapUi.frAerialEnabled ? 'Map: FR aerial on' : 'Map: FR aerial off');
+    });
+  }
+
   if (els.mapPinsEnabled) {
     els.mapPinsEnabled.addEventListener('change', () => {
       state.mapUi.pinsEnabled = !!els.mapPinsEnabled.checked;
@@ -834,6 +944,7 @@ export async function ensureMapInitialized() {
   _ensureBaseLayers();
   _applyBasemap();
   _applyNlAerialOverlay();
+  _applyFrAerialOverlay();
 
   // Overlay layers (pins/routes)
   _ensureOverlayLayers();
@@ -916,6 +1027,7 @@ export function onEnterMapTab() {
     try { _applyMapUiToDom(); } catch (_) {}
     try { _applyBasemap(); } catch (_) {}
     try { _applyNlAerialOverlay(); } catch (_) {}
+    try { _applyFrAerialOverlay(); } catch (_) {}
     try { _scheduleMapOverlayRefresh(); } catch (_) {}
 
     // If we already have a selected place, center it now that the map is visible.
