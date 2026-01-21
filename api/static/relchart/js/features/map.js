@@ -121,30 +121,24 @@ function _setMapAttribution(label) {
   els.mapAttribution.textContent = l;
 }
 
-function _nasaGibsDate() {
-  // Use a small backoff to avoid requesting "future"/missing tiles.
-  const d = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
 function _ensureBaseLayers() {
   if (!state.map.map || !window.L) return;
   if (state.map.baseLayers) return;
   const L = window.L;
-  const aerialDate = _nasaGibsDate();
 
   state.map.baseLayers = {
     topo: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       crossOrigin: true,
     }),
+    // Cloud-free (mosaic) satellite imagery.
+    // Source URL: EOX::Maps "Sentinel-2 cloudless" (TMS, EPSG:3857).
+    // Note: This is a mosaic compiled from many dates (not “live” imagery).
     aerial: L.tileLayer(
-      `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/${aerialDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
+      'https://{s}.tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
       {
-        maxZoom: 9,
+        maxZoom: 13,
+        subdomains: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
         crossOrigin: true,
       }
     ),
@@ -172,7 +166,7 @@ function _applyBasemap() {
   } catch (_) {}
 
   if (kind === 'aerial') {
-    _setMapAttribution('Map tiles © NASA GIBS');
+    _setMapAttribution('Map tiles © EOX (Sentinel-2 cloudless)');
   } else {
     _setMapAttribution('Map tiles © OpenStreetMap contributors');
   }
