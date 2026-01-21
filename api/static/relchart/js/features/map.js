@@ -71,6 +71,87 @@ function _clampPinsMax(n) {
   return Math.max(50, Math.min(50_000, Math.trunc(x)));
 }
 
+function _readNum(key, fallback) {
+  try {
+    const raw = String(localStorage.getItem(key) || '').trim();
+    if (!raw) return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function _snapshotMapView() {
+  if (!state.map.map || !window.L) return null;
+  try {
+    const c = state.map.map.getCenter();
+    const z = state.map.map.getZoom();
+    if (!Number.isFinite(c?.lat) || !Number.isFinite(c?.lng) || !Number.isFinite(z)) return null;
+    return { lat: c.lat, lon: c.lng, zoom: z };
+  } catch (_) {
+    return null;
+  }
+}
+
+function _applyMapView(view, { animate = false } = {}) {
+  if (!state.map.map || !view) return;
+  const lat = Number(view.lat);
+  const lon = Number(view.lon);
+  const zoom = Number(view.zoom);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(zoom)) return;
+  try {
+    const map = state.map.map;
+    const minZ = (typeof map.getMinZoom === 'function') ? map.getMinZoom() : 0;
+    const maxZ = (typeof map.getMaxZoom === 'function') ? map.getMaxZoom() : 30;
+    const z = Math.max(minZ, Math.min(maxZ, zoom));
+    map.setView([lat, lon], z, { animate: !!animate, duration: animate ? 0.25 : 0 });
+  } catch (_) {}
+}
+
+function _restoreMapViewIfChanged(view, { animate = false } = {}) {
+  if (!state.map.map || !view) return;
+  const cur = _snapshotMapView();
+  if (!cur) {
+    _applyMapView(view, { animate });
+    return;
+  }
+  const dz = Math.abs(Number(cur.zoom) - Number(view.zoom));
+  const dlat = Math.abs(Number(cur.lat) - Number(view.lat));
+  const dlon = Math.abs(Number(cur.lon) - Number(view.lon));
+  if (dz > 0.01 || dlat > 1e-7 || dlon > 1e-7) {
+    _applyMapView(view, { animate });
+  }
+}
+
+function _loadSavedMapView() {
+  const lat = _readNum(MAP_SETTINGS.viewLat, null);
+  const lon = _readNum(MAP_SETTINGS.viewLon, null);
+  const zoom = _readNum(MAP_SETTINGS.viewZoom, null);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(zoom)) return null;
+  return { lat, lon, zoom };
+}
+
+function _saveMapViewNow() {
+  const v = _snapshotMapView();
+  if (!v) return;
+  try {
+    _writeSetting(MAP_SETTINGS.viewLat, v.lat.toFixed(6));
+    _writeSetting(MAP_SETTINGS.viewLon, v.lon.toFixed(6));
+    _writeSetting(MAP_SETTINGS.viewZoom, String(Math.round(v.zoom)));
+  } catch (_) {}
+}
+
+function _scheduleSaveMapView() {
+  try {
+    if (state.mapUi.viewSaveTimer) clearTimeout(state.mapUi.viewSaveTimer);
+  } catch (_) {}
+  state.mapUi.viewSaveTimer = setTimeout(() => {
+    state.mapUi.viewSaveTimer = null;
+    _saveMapViewNow();
+  }, 150);
+}
+
 function _applyMapUiToDom() {
   if (els.mapBasemap) els.mapBasemap.value = String(state.mapUi.basemap || 'topo');
   if (els.mapNlAerialToggle) {
@@ -345,6 +426,7 @@ function _applyNlAerialOverlay() {
 
 function _applyBasemap() {
   if (!state.map.map || !window.L) return;
+  const view = _snapshotMapView();
   _ensureBaseLayers();
   const kind = String(state.mapUi.basemap || 'topo').trim().toLowerCase();
   const map = state.map.map;
@@ -362,6 +444,9 @@ function _applyBasemap() {
     next.addTo(map);
     state.map.baseLayer = next;
   } catch (_) {}
+
+  // Defensive: some tile layers may clamp zoom; attempt to preserve view anyway.
+  if (view) _applyMapView(view, { animate: false });
 
   _updateMapAttribution();
 }
@@ -675,18 +760,6 @@ async function _renderMapOverlaysNow() {
   }
 
   _applyMapUiToDom();
-
-  // After a hard refresh it's easy to think pins "didn't render" when the map
-  // is just centered somewhere else. When entering the Map tab with no specific
-  // place selection pending, auto-fit once so markers are immediately visible.
-  try {
-    if (state.mapUi.autoFitPending) {
-      state.mapUi.autoFitPending = false;
-      if (state.mapUi.pinsEnabled && (state.mapUi.pinsCount || 0) > 0) {
-        _fitMapToOverlays({ quiet: true });
-      }
-    }
-  } catch (_) {}
 }
 
 function _scheduleMapOverlayRefresh() {
@@ -762,7 +835,22 @@ function _initMapTopbarControls() {
     els.mapBasemap.addEventListener('change', () => {
       state.mapUi.basemap = String(els.mapBasemap.value || 'topo').trim().toLowerCase();
       _writeSetting(MAP_SETTINGS.basemap, state.mapUi.basemap);
+      // Preserve view across basemap changes.
+      const view = _snapshotMapView();
       _applyBasemap();
+      // Leaflet can sometimes adjust zoom asynchronously when layers change
+      // (especially around native zoom thresholds). Re-assert the old view
+      // for a short window.
+      if (view) {
+        _restoreMapViewIfChanged(view, { animate: false });
+        try {
+          requestAnimationFrame(() => _restoreMapViewIfChanged(view, { animate: false }));
+        } catch (_) {
+          // ignore
+        }
+        setTimeout(() => _restoreMapViewIfChanged(view, { animate: false }), 60);
+        setTimeout(() => _restoreMapViewIfChanged(view, { animate: false }), 220);
+      }
       const label = state.mapUi.basemap === 'satellite' ? 'Satellite' : 'Topo';
       _setStatusSafe(`Map: Basemap ${label}`);
     });
@@ -935,10 +1023,16 @@ export async function ensureMapInitialized() {
     zoomControl: true,
     attributionControl: false,
     preferCanvas: true,
+    // Important: do NOT let overlay layers (e.g., NL/FR aerial with minZoom=12)
+    // raise the map's minZoom, or Leaflet will clamp/zoom-in when layers change.
+    minZoom: 0,
+    maxZoom: 21,
   });
 
-  // Default view: Netherlands-ish.
-  map.setView([52.2, 5.3], 7);
+  // Default view: Netherlands-ish, but prefer a persisted view if we have one.
+  const saved = _loadSavedMapView();
+  if (saved) map.setView([saved.lat, saved.lon], saved.zoom);
+  else map.setView([52.2, 5.3], 7);
 
   state.map.map = map;
   _ensureBaseLayers();
@@ -949,6 +1043,12 @@ export async function ensureMapInitialized() {
   // Overlay layers (pins/routes)
   _ensureOverlayLayers();
   _setMapOverlaysVisible(true);
+
+  // Persist view so hard refreshes don't reset zoom/center.
+  try {
+    map.on('moveend', _scheduleSaveMapView);
+    map.on('zoomend', _scheduleSaveMapView);
+  } catch (_) {}
 
   // Keep the map responsive when the main view toggles.
   try {
@@ -988,7 +1088,10 @@ export function centerMapOnPlace(place) {
   const label = String(p?.name || '').trim();
 
   try {
-    map.setView([lat, lon], Math.max(10, map.getZoom() || 10), { animate: true, duration: 0.25 });
+    // Keep current zoom; only recenter.
+    const z = map.getZoom();
+    const targetZoom = Number.isFinite(z) ? z : 10;
+    map.setView([lat, lon], targetZoom, { animate: true, duration: 0.25 });
   } catch (_err) {
     try { map.setView([lat, lon], 10); } catch (_err2) {}
   }
@@ -1012,13 +1115,6 @@ export function onLeaveMapTab() {
 }
 
 export function onEnterMapTab() {
-  // If we're not going to center a specific place, auto-fit once after the
-  // overlays render so pins are discoverable.
-  try {
-    const hasPendingPlace = !!String(state.map.pendingPlaceId || state.placesSelected || '').trim();
-    state.mapUi.autoFitPending = !hasPendingPlace;
-  } catch (_) {}
-
   // Lazy-init map; also invalidate size after the fade completes.
   Promise.resolve(ensureMapInitialized()).then(() => {
     try { state.map.map?.invalidateSize?.(false); } catch (_) {}

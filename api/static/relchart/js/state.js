@@ -150,6 +150,9 @@ export const MAP_SETTINGS = {
   routesEnabled: 'tree_relchart_map_routes_enabled',
   routesMode: 'tree_relchart_map_routes_mode',
   routesSkipRepeated: 'tree_relchart_map_routes_skip_repeated',
+  viewLat: 'tree_relchart_map_view_lat',
+  viewLon: 'tree_relchart_map_view_lon',
+  viewZoom: 'tree_relchart_map_view_zoom',
 };
 
 export function _readBool(key, fallback) {
