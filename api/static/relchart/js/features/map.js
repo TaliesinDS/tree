@@ -73,6 +73,11 @@ function _clampPinsMax(n) {
 
 function _applyMapUiToDom() {
   if (els.mapBasemap) els.mapBasemap.value = String(state.mapUi.basemap || 'topo');
+  if (els.mapNlAerialToggle) {
+    const on = !!state.mapUi.nlAerialEnabled;
+    els.mapNlAerialToggle.classList.toggle('active', on);
+    els.mapNlAerialToggle.textContent = on ? 'NL aerial: On' : 'NL aerial: Off';
+  }
   if (els.mapPinsEnabled) els.mapPinsEnabled.checked = !!state.mapUi.pinsEnabled;
   if (els.mapPinsMax) els.mapPinsMax.value = String(_clampPinsMax(state.mapUi.pinsMax));
   if (els.mapScope) els.mapScope.value = String(state.mapUi.scope || 'selected_person');
@@ -98,7 +103,8 @@ function _applyMapUiToDom() {
 
 function _loadMapUiSettings() {
   const basemap = String(localStorage.getItem(MAP_SETTINGS.basemap) || '').trim().toLowerCase();
-  state.mapUi.basemap = (basemap === 'aerial' || basemap === 'topo') ? basemap : 'topo';
+  state.mapUi.basemap = (basemap === 'satellite' || basemap === 'topo') ? basemap : 'topo';
+  state.mapUi.nlAerialEnabled = _readBool(MAP_SETTINGS.nlAerialEnabled, false);
   state.mapUi.pinsEnabled = _readBool(MAP_SETTINGS.pinsEnabled, true);
   state.mapUi.pinsMax = _clampPinsMax(_readInt(MAP_SETTINGS.pinsMax, 2000));
 
@@ -121,6 +127,61 @@ function _setMapAttribution(label) {
   els.mapAttribution.textContent = l;
 }
 
+function _pdokLuchtfotoLayer({ layerId, minZoom = 0, maxZoom = 21, bounds = null, opacity = 1 } = {}) {
+  if (!window.L) return null;
+  const L = window.L;
+  const layer = String(layerId || 'Actueel_orthoHR').trim() || 'Actueel_orthoHR';
+
+  // PDOK WMTS (KVP) — uses GoogleMapsCompatible tile matrix set.
+  // Docs/capabilities:
+  // https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0?request=GetCapabilities&service=wmts
+  const base = 'https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0';
+  const matrixSet = 'OGC:1.0:GoogleMapsCompatible';
+  const format = 'image/jpeg';
+
+  const Pdok = L.TileLayer.extend({
+    getTileUrl(coords) {
+      const z = String(coords.z).padStart(2, '0');
+      const params = new URLSearchParams({
+        SERVICE: 'WMTS',
+        REQUEST: 'GetTile',
+        VERSION: '1.0.0',
+        LAYER: layer,
+        STYLE: 'default',
+        TILEMATRIXSET: matrixSet,
+        TILEMATRIX: z,
+        TILEROW: String(coords.y),
+        TILECOL: String(coords.x),
+        FORMAT: format,
+      });
+      return `${base}?${params.toString()}`;
+    },
+  });
+
+  return new Pdok('', {
+    minZoom,
+    maxZoom,
+    maxNativeZoom: maxZoom,
+    bounds: bounds || undefined,
+    opacity,
+    crossOrigin: true,
+    updateWhenIdle: true,
+  });
+}
+
+function _updateMapAttribution() {
+  const kind = String(state.mapUi.basemap || 'topo').trim().toLowerCase();
+  const base = (kind === 'satellite')
+    ? 'Base: © EOX (Sentinel-2 cloudless)'
+    : 'Base: © OpenStreetMap contributors';
+
+  const overlay = state.mapUi.nlAerialEnabled
+    ? ' • NL aerial: © PDOK (Luchtfoto), CC BY 4.0'
+    : '';
+
+  _setMapAttribution(base + overlay);
+}
+
 function _ensureBaseLayers() {
   if (!state.map.map || !window.L) return;
   if (state.map.baseLayers) return;
@@ -133,8 +194,7 @@ function _ensureBaseLayers() {
     }),
     // Cloud-free (mosaic) satellite imagery.
     // Source URL: EOX::Maps "Sentinel-2 cloudless" (TMS, EPSG:3857).
-    // Note: This is a mosaic compiled from many dates (not “live” imagery).
-    aerial: L.tileLayer(
+    satellite: L.tileLayer(
       'https://{s}.tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
       {
         maxZoom: 13,
@@ -143,6 +203,44 @@ function _ensureBaseLayers() {
       }
     ),
   };
+}
+
+function _ensureNlAerialLayer() {
+  if (!state.map.map || !window.L) return;
+  if (state.map.nlAerialLayer) return;
+
+  const L = window.L;
+
+  // Keep this as an overlay only. Bounded + minZoom avoids the "NL only / white elsewhere" look.
+  const nlBounds = L.latLngBounds(
+    [50.65, 3.10],
+    [53.80, 7.35]
+  );
+
+  state.map.nlAerialLayer = _pdokLuchtfotoLayer({
+    layerId: 'Actueel_orthoHR',
+    minZoom: 12,
+    maxZoom: 21,
+    bounds: nlBounds,
+    opacity: 1,
+  });
+}
+
+function _applyNlAerialOverlay() {
+  if (!state.map.map || !window.L) return;
+  const map = state.map.map;
+  _ensureNlAerialLayer();
+  const layer = state.map.nlAerialLayer;
+  if (!layer) return;
+
+  const on = !!state.mapUi.nlAerialEnabled;
+  try {
+    const has = map.hasLayer(layer);
+    if (on && !has) layer.addTo(map);
+    if (!on && has) map.removeLayer(layer);
+  } catch (_) {}
+
+  _updateMapAttribution();
 }
 
 function _applyBasemap() {
@@ -165,11 +263,7 @@ function _applyBasemap() {
     state.map.baseLayer = next;
   } catch (_) {}
 
-  if (kind === 'aerial') {
-    _setMapAttribution('Map tiles © EOX (Sentinel-2 cloudless)');
-  } else {
-    _setMapAttribution('Map tiles © OpenStreetMap contributors');
-  }
+  _updateMapAttribution();
 }
 
 function _ensureOverlayLayers() {
@@ -569,7 +663,18 @@ function _initMapTopbarControls() {
       state.mapUi.basemap = String(els.mapBasemap.value || 'topo').trim().toLowerCase();
       _writeSetting(MAP_SETTINGS.basemap, state.mapUi.basemap);
       _applyBasemap();
-      _setStatusSafe(`Map: Basemap ${state.mapUi.basemap === 'aerial' ? 'Aerial' : 'Topo'}`);
+      const label = state.mapUi.basemap === 'satellite' ? 'Satellite' : 'Topo';
+      _setStatusSafe(`Map: Basemap ${label}`);
+    });
+  }
+
+  if (els.mapNlAerialToggle) {
+    els.mapNlAerialToggle.addEventListener('click', () => {
+      state.mapUi.nlAerialEnabled = !state.mapUi.nlAerialEnabled;
+      _writeSetting(MAP_SETTINGS.nlAerialEnabled, state.mapUi.nlAerialEnabled ? '1' : '0');
+      _applyNlAerialOverlay();
+      _applyMapUiToDom();
+      _setStatusSafe(state.mapUi.nlAerialEnabled ? 'Map: NL aerial on' : 'Map: NL aerial off');
     });
   }
 
@@ -728,6 +833,7 @@ export async function ensureMapInitialized() {
   state.map.map = map;
   _ensureBaseLayers();
   _applyBasemap();
+  _applyNlAerialOverlay();
 
   // Overlay layers (pins/routes)
   _ensureOverlayLayers();
@@ -809,6 +915,7 @@ export function onEnterMapTab() {
     // Ensure overlays reflect current settings.
     try { _applyMapUiToDom(); } catch (_) {}
     try { _applyBasemap(); } catch (_) {}
+    try { _applyNlAerialOverlay(); } catch (_) {}
     try { _scheduleMapOverlayRefresh(); } catch (_) {}
 
     // If we already have a selected place, center it now that the map is visible.

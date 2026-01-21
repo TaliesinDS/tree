@@ -16,6 +16,7 @@ export const els = {
   graphControls: $('graphControls'),
   mapControls: $('mapControls'),
   mapBasemap: $('mapBasemap'),
+  mapNlAerialToggle: $('mapNlAerialToggle'),
   mapPinsMenu: $('mapPinsMenu'),
   mapPinsBtn: $('mapPinsBtn'),
   mapPinsEnabled: $('mapPinsEnabled'),
@@ -97,11 +98,13 @@ export const state = {
     pendingPlaceId: null,
     baseLayer: null,
     baseLayers: null,
+    nlAerialLayer: null,
     pinsLayer: null,
     routesLayer: null,
   },
   mapUi: {
     basemap: 'topo',
+    nlAerialEnabled: false,
     pinsEnabled: true,
     pinsMax: 2000,
     scope: 'selected_person',
@@ -136,6 +139,7 @@ export const state = {
 
 export const MAP_SETTINGS = {
   basemap: 'tree_relchart_map_basemap',
+  nlAerialEnabled: 'tree_relchart_map_nl_aerial_enabled',
   pinsEnabled: 'tree_relchart_map_pins_enabled',
   pinsMax: 'tree_relchart_map_pins_max',
   scope: 'tree_relchart_map_scope',
