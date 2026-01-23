@@ -1,14 +1,16 @@
 $ErrorActionPreference = 'Stop'
 
-$root = "C:\Users\akortekaas\Documents\GitHub\TaliesinDS.github.io"
-$apiDir = Join-Path $root "genealogy\api"
+$apiDir = $PSScriptRoot
+$root = Split-Path -Parent $apiDir
 $py = Join-Path $root ".venv\Scripts\python.exe"
 
 if (-not (Test-Path $py)) {
   throw "Missing venv python: $py"
 }
 
-$env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
+if (-not $env:DATABASE_URL) {
+  $env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
+}
 
 # Stop current listener (if any)
 $conn = Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue | Select-Object -First 1

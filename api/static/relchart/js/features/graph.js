@@ -1,7 +1,8 @@
 import * as api from '../api.js';
 import { renderRelationshipChart } from '../chart/render.js';
 import { mergeGraphPayload } from '../chart/payload.js';
-import { els, state } from '../state.js';
+import { els, state, GRAPH_SETTINGS, _readBool, _writeSetting } from '../state.js';
+import { createViewportCuller } from '../chart/culling.js';
 
 let _selection = null;
 let _getSidebarActiveTab = null;
@@ -15,6 +16,38 @@ let _setStatus = null;
 let _copyToClipboard = null;
 
 let _selectParentFamilyForPersonInSidebar = null;
+
+let _cullWired = false;
+let _viewportCuller = null;
+
+function _applyCullToggleUi() {
+  const el = els.graphCullToggle;
+  if (!el) return;
+  const on = !!state.graphUi?.cullingEnabled;
+  el.textContent = on ? 'Cull: On' : 'Cull: Off';
+  try { el.classList.toggle('active', on); } catch (_) {}
+}
+
+export function setGraphCullingEnabled(enabled) {
+  const on = !!enabled;
+  if (!state.graphUi) state.graphUi = { cullingEnabled: false };
+  state.graphUi.cullingEnabled = on;
+  try { _writeSetting(GRAPH_SETTINGS.cullingEnabled, on ? '1' : '0'); } catch (_) {}
+  _applyCullToggleUi();
+
+  try {
+    const svg = (els.graphView || els.chart)?.querySelector?.('svg');
+    if (!_viewportCuller && svg) {
+      _viewportCuller = createViewportCuller(svg, { marginFactor: 0.35, marginPx: 900 });
+    }
+  } catch (_) {}
+
+  try { _viewportCuller?.setEnabled?.(on); } catch (_) {}
+}
+
+export function toggleGraphCulling() {
+  setGraphCullingEnabled(!state.graphUi?.cullingEnabled);
+}
 
 export function initGraphFeature({
   selection,
@@ -41,6 +74,18 @@ export function initGraphFeature({
   _selectParentFamilyForPersonInSidebar = typeof selectParentFamilyForPersonInSidebar === 'function'
     ? selectParentFamilyForPersonInSidebar
     : null;
+
+  if (!_cullWired) {
+    _cullWired = true;
+    try {
+      if (!state.graphUi) state.graphUi = { cullingEnabled: false };
+      state.graphUi.cullingEnabled = _readBool(GRAPH_SETTINGS.cullingEnabled, false);
+    } catch (_) {}
+    try { _applyCullToggleUi(); } catch (_) {}
+    try {
+      els.graphCullToggle?.addEventListener?.('click', () => toggleGraphCulling());
+    } catch (_) {}
+  }
 }
 
 function _setStatusSafe(msg, isError) {
@@ -504,9 +549,23 @@ export async function rerenderGraph() {
     onFit: (fn) => {
       els.fitBtn.onclick = fn;
     },
+    onViewBoxChange: (_vb) => {
+      try { _viewportCuller?.scheduleUpdate?.(); } catch (_) {}
+    },
   });
 
   state.panZoom = panZoom;
+
+  // Rebuild the culler every render (new SVG DOM) and apply current setting.
+  try { _viewportCuller?.dispose?.(); } catch (_) {}
+  _viewportCuller = null;
+  try {
+    const svg = (els.graphView || els.chart)?.querySelector?.('svg');
+    if (svg) {
+      _viewportCuller = createViewportCuller(svg, { marginFactor: 0.35, marginPx: 900 });
+      _viewportCuller.setEnabled(!!state.graphUi?.cullingEnabled);
+    }
+  } catch (_) {}
 
   // Re-apply the latched person selection after every full rerender.
   try {

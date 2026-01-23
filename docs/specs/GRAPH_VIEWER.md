@@ -47,9 +47,23 @@ Required:
 Current implementation note (demo):
 - The maintained `/demo/relationship` (relchart v3) uses viewBox-based pan/zoom (pointer-drag + wheel zoom).
 - Because the SVG uses `preserveAspectRatio="xMinYMin meet"`, pan math must account for letterboxing so vertical dragging stays 1:1.
+- The demo includes a **Cull** toggle (viewport culling) to keep interaction responsive on extreme graphs.
 
 Not required:
 - Graphviz does not handle interaction; it only helps with initial layout.
+
+#### Viewport culling (current implementation)
+
+For “whole-tree / extreme” graphs, the relchart v3 demo supports a **Cull** toggle that hides off-screen SVG nodes/edges.
+
+Design goals:
+- keep pointer-drag + wheel zoom responsive at very large node counts
+- avoid layout-thrashing APIs (e.g. per-frame `getBoundingClientRect()` over thousands of elements)
+
+High-level approach:
+- cache node bounds once in SVG user-space right after render
+- on each pan/zoom, transform cached bounds via `svg.getScreenCTM()` and compare against the visible viewport rect
+- show an edge only if both endpoint nodes are visible
 
 ### 3.2 Click to select + show details panel
 

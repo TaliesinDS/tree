@@ -13,6 +13,7 @@ Current implementation note (Jan 2026):
 Implemented (working today):
 - [x] Relationship chart render (Graphviz WASM) from `GET /graph/neighborhood?layout=family`
 - [x] Map-like pan/zoom (drag + strong cursor-centered wheel zoom)
+- [x] Viewport culling toggle (Cull) for huge graphs (hides off-screen nodes; edges shown only when endpoints are visible)
 - [x] Incremental expand-in-place:
   - expand parents via `GET /graph/family/parents?family_id=<fid>&child_id=<pid>`
   - expand children via `GET /graph/family/children?family_id=<fid>&include_spouses=true`
@@ -31,6 +32,10 @@ Implemented (working today):
 
 Partially implemented / placeholders:
 - [~] Events and Places as standalone browsers (global search/filter/map) are planned; current work is mostly per-person detail rendering.
+
+Performance note (Cull):
+- The culling implementation is designed to remain responsive when zoomed in.
+- It caches node bounds once after render and uses `svg.getScreenCTM()` to test visibility during pan/zoom without per-frame layout reads.
 
 Not implemented yet (planned):
 - [ ] Relationship-path highlight on the graph UI (API exists: `GET /relationship/path?from_id=...&to_id=...`)

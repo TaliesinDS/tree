@@ -7,6 +7,7 @@ export const els = {
   loadBtn: $('loadBtn'),
   fitBtn: $('fitBtn'),
   resetBtn: $('resetBtn'),
+  graphCullToggle: $('graphCullToggle'),
   status: $('status'),
   chart: $('chart'),
   graphView: $('graphView'),
@@ -58,6 +59,9 @@ export const state = {
   payload: null,
   selectedPersonId: null,
   panZoom: null,
+  graphUi: {
+    cullingEnabled: false,
+  },
   people: null,
   peopleLoaded: false,
   peopleSelected: null,
@@ -153,6 +157,10 @@ export const MAP_SETTINGS = {
   viewLat: 'tree_relchart_map_view_lat',
   viewLon: 'tree_relchart_map_view_lon',
   viewZoom: 'tree_relchart_map_view_zoom',
+};
+
+export const GRAPH_SETTINGS = {
+  cullingEnabled: 'tree_relchart_graph_culling_enabled',
 };
 
 export function _readBool(key, fallback) {

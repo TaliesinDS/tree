@@ -42,6 +42,9 @@ Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
 ## Demo UI
 
 **Primary UI:** `/demo/relationship` — relchart v3 (Graphviz WASM)
+
+Notes:
+- For very large graphs, use the **Cull** toggle to hide off-screen SVG elements and keep pan/zoom responsive.
 - Gramps-Web-like relationship chart: couples + family hubs + children
 - Expand-in-place (parents/children)
 - People/Families/Events sidebars

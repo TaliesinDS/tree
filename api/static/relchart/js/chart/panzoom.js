@@ -1,4 +1,4 @@
-export function enableSvgPanZoom(svg, { container } = {}) {
+export function enableSvgPanZoom(svg, { container, onChange } = {}) {
   const ensureViewBox = () => {
     const vb = svg.viewBox?.baseVal;
     if (vb && Number.isFinite(vb.width) && vb.width > 0 && Number.isFinite(vb.height) && vb.height > 0) return vb;
@@ -22,6 +22,7 @@ export function enableSvgPanZoom(svg, { container } = {}) {
 
   const apply = () => {
     svg.setAttribute('viewBox', `${state.x} ${state.y} ${state.w} ${state.h}`);
+    try { onChange?.(getViewBox()); } catch (_) {}
   };
 
   const getViewBox = () => ({ x: state.x, y: state.y, w: state.w, h: state.h });

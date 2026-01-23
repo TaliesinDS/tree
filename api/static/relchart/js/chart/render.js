@@ -1142,6 +1142,7 @@ export async function renderRelationshipChart({
   onExpandParents,
   onExpandChildren,
   onFit,
+  onViewBoxChange,
 }) {
   const gv = await getGraphviz();
   const dot = buildRelationshipDot(payload, { couplePriority: true });
@@ -1161,7 +1162,7 @@ export async function renderRelationshipChart({
   svg.setAttribute('preserveAspectRatio', 'xMinYMin meet');
   svg.style.touchAction = 'none';
 
-  const panZoom = enableSvgPanZoom(svg, { container });
+  const panZoom = enableSvgPanZoom(svg, { container, onChange: onViewBoxChange });
 
   reorderGraphvizLayers(svg);
 

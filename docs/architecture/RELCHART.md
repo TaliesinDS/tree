@@ -89,6 +89,9 @@ JavaScript modules:
   - loads Graphviz WASM once (CDN import)
 - `api/static/relchart/js/chart/panzoom.js`
   - viewBox-based pan/zoom for the generated SVG
+- `api/static/relchart/js/chart/culling.js`
+  - viewport culling for huge graphs (hide off-screen SVG elements)
+  - designed to keep interaction responsive even at extreme node counts
 - `api/static/relchart/js/chart/payload.js`
   - payload merge (`mergeGraphPayload`)
   - compute expansion opportunities from the payload:
@@ -159,6 +162,7 @@ Both return the same `{nodes, edges}` shape so the frontend can `mergeGraphPaylo
 3) Graphviz WASM lays out DOT into an SVG string
 4) Inject SVG into the chart container
 5) Enable pan/zoom (viewBox transform)
+5.5) (Optional) Enable viewport culling for huge graphs
 6) Attach click handlers:
    - click person → select
   - click family hub → select (no expand or recenter)
@@ -166,6 +170,19 @@ Both return the same `{nodes, edges}` shape so the frontend can `mergeGraphPaylo
 7) Compute “hidden relatives” signals from payload metadata and add small badges on person cards:
    - `↑` when there is a birth-family hub with missing parent edges in-view
    - `↓` when a parent-family hub has more children than currently in-view
+
+### Viewport culling (performance feature)
+
+Large relationship charts can produce very large SVGs, where DOM + paint cost dominates interaction.
+
+The relchart viewer includes an optional **Cull** toggle that:
+- hides person/family node groups that are outside an expanded viewport
+- shows an edge only when **both endpoint nodes** are visible (prevents 1px edge artifacts)
+
+Implementation notes:
+- Node bounds are indexed once in SVG user-space after a render (`getBBox` + CTM cancellation).
+- On each pan/zoom, cached bounds are transformed to screen space using `svg.getScreenCTM()` and compared to the visible viewport rectangle.
+- This avoids per-frame `getBoundingClientRect()` across thousands of nodes (which can force layout and tank FPS).
 
 ## Map view (current MVP)
 
