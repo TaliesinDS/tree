@@ -2,7 +2,7 @@
 
 This repo is designed to run locally on Windows (PowerShell), backed by Postgres + PostGIS.
 
-Tip: there are VS Code tasks for common actions (Docker up, run API on 8080, restart API detached).
+Tip: there are VS Code tasks for common actions (Docker up, run API on 8081, restart API detached).
 
 ## Option A (recommended): install Docker Desktop
 - Install Docker Desktop for Windows.
@@ -15,7 +15,7 @@ docker compose -f .\api\docker-compose.yml up -d --build
 
 This starts:
 - Postgres/PostGIS on `localhost:5432` (db/user/pass all `genealogy`)
-- API on `http://localhost:8080`
+- API on `http://localhost:8081`
 
 ## Option B: use any Postgres+PostGIS (local install or managed)
 You need:
@@ -51,7 +51,10 @@ If you have a Postgres instance reachable via `DATABASE_URL`:
 ```powershell
 Set-Location "C:\Users\akortekaas\Documents\GitHub\tree\api"
 $env:DATABASE_URL = "postgresql://genealogy:genealogy@localhost:5432/genealogy"
-..\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8080
+..\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8081
+
+Optional port override (PowerShell):
+`$env:TREE_PORT=8090`
 ```
 
 ## Endpoints to try

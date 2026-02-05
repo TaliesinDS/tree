@@ -24,10 +24,10 @@
 $env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
 
 # 3. Start API (use VS Code task or manually)
-# Task: "genealogy: restart api (detached 8080)"
+# Task: "genealogy: restart api (detached 8081)"
 
 # 4. Open viewer
-# http://127.0.0.1:8080/demo/relationship
+# http://127.0.0.1:8081/demo/relationship
 ```
 
 Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)

@@ -4,8 +4,8 @@ Run after any significant refactor.
 
 ## Setup
 
-- [ ] Restart API via VS Code task: `genealogy: restart api (detached 8080)`
-- [ ] Open: `http://127.0.0.1:8080/demo/relationship`
+- [ ] Restart API via VS Code task: `genealogy: restart api (detached 8081)`
+- [ ] Open: `http://127.0.0.1:8081/demo/relationship`
 
 ## Graph
 

@@ -32,9 +32,14 @@ This repo is a **view-only genealogy browser** that visualizes data exported fro
 $env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
 
 # 3. Start API
-.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8080
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8081
 
 # 4. Open http://127.0.0.1:8080/demo/relationship
+# 4. Open http://127.0.0.1:8081/demo/relationship
+
+# Port override (optional)
+# - PowerShell: $env:TREE_PORT=8090
+# - Then run start_tree.ps1 or the VS Code tasks
 ```
 
 Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)

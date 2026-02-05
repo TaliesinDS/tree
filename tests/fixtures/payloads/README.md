@@ -10,13 +10,13 @@ This folder stores JSON payloads returned by the graph endpoints so that layout/
 
 ## How to capture
 
-1. Restart API (`genealogy: restart api (detached 8080)`).
+1. Restart API (`genealogy: restart api (detached 8081)`).
 2. Fetch the payload from the API and save it here.
 
 Example (PowerShell):
 
 ```powershell
-$uri = 'http://127.0.0.1:8080/graph/neighborhood?id=I0063&depth=5&max_nodes=1000&layout=family'
+$uri = 'http://127.0.0.1:8081/graph/neighborhood?id=I0063&depth=5&max_nodes=1000&layout=family'
 Invoke-RestMethod $uri | ConvertTo-Json -Depth 100 | Out-File -Encoding utf8 .\tests\fixtures\payloads\I0063_depth5_family.json
 ```
 
