@@ -1364,7 +1364,7 @@ html[data-theme="light"] .optionsSection {
   color: var(--text);
   font-family: var(--panel-font);
   overflow: visible;
-  max-height: 240px;
+  max-height: 340px;
 }
 
 html[data-theme="light"] .eventDetailPanel {
@@ -1413,10 +1413,106 @@ html[data-theme="light"] .eventDetailPanel {
 
 .eventDetailDesc {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text);
   opacity: 0.95;
   white-space: pre-wrap;
+  max-height: 60px;
+  overflow: hidden;
+}
+
+/* Event detail: section header with right-aligned menu button */
+.eventDetailSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+/* Section title inside the header row: remove its own margins */
+.eventDetailSectionHeader .eventDetailSectionTitle {
+  margin: 0;
+}
+
+.eventDetailMenuBtn {
+  width: 26px;
+  height: 22px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.10);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+html[data-theme="light"] .eventDetailMenuBtn {
+  border-color: rgba(0,0,0,0.08);
+  background: rgba(0,0,0,0.03);
+}
+
+.eventDetailMenuBtn:hover {
+  background: rgba(122,162,255,0.10);
+}
+
+.eventDetailMenuBtn:focus-visible {
+  outline: 2px solid rgba(122,162,255,0.65);
+  outline-offset: 2px;
+}
+
+/* Event detail: full-text popover (non-modal) */
+.eventTextPopover {
+  position: fixed;
+  z-index: 1700;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  border-radius: 14px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-family: var(--panel-font);
+}
+
+.eventTextPopoverHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: #fafdfd;
+}
+
+html[data-theme="dark"] .eventTextPopoverHeader {
+  background: rgba(0,0,0,0.10);
+}
+
+.eventTextPopoverTitle {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.eventTextPopoverHint {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.eventTextPopoverBody {
+  padding: 12px;
+  font-size: 16px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow: auto;
+  user-select: text;
 }
 
 .eventDetailSectionTitle {
