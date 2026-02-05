@@ -1,6 +1,8 @@
 import { els, state } from '../state.js';
+import { eventSelection as _globalEventSelection } from './eventSelection.js';
 
 let _selection = null;
+let _eventSelection = null;
 let _loadNeighborhood = null;
 let _setStatus = null;
 let _copyToClipboard = null;
@@ -14,6 +16,7 @@ let _eventsScrollTimer = null;
 
 export function initEventsFeature({
   selection,
+  eventSelection,
   loadNeighborhood,
   setStatus,
   copyToClipboard,
@@ -22,6 +25,7 @@ export function initEventsFeature({
   formatEventSubLine,
 } = {}) {
   _selection = selection || null;
+  _eventSelection = eventSelection || _globalEventSelection || null;
   _loadNeighborhood = typeof loadNeighborhood === 'function' ? loadNeighborhood : null;
   _setStatus = typeof setStatus === 'function' ? setStatus : null;
   _copyToClipboard = typeof copyToClipboard === 'function' ? copyToClipboard : null;
@@ -186,33 +190,28 @@ export function renderEventsList(events, query) {
 
     btn.addEventListener('click', () => {
       if (!apiId) return;
-      state.eventsSelected = apiId;
+      const activeTab = _getSidebarActiveTab ? _getSidebarActiveTab() : null;
       try {
-        for (const el of els.eventsList.querySelectorAll('.peopleItem.selected')) el.classList.remove('selected');
-        btn.classList.add('selected');
-      } catch (_) {}
-
-      const primaryApiId = String(primary?.id || '').trim();
-      const primaryGrampsId = String(primary?.gramps_id || '').trim();
-
-      if (primaryApiId || primaryGrampsId) {
-        const activeTab = _getSidebarActiveTab ? _getSidebarActiveTab() : null;
+        _eventSelection?.selectEvent?.(
+          { apiId: apiId || null, grampsId: gid || null },
+          { source: 'events-list', scrollEvents: activeTab === 'events' },
+        );
+      } catch (_) {
+        // Fallback (shouldn't happen): keep UI selection stable.
+        state.eventsSelected = apiId;
         try {
-          _selection?.selectPerson?.(
-            { apiId: primaryApiId || null, grampsId: primaryGrampsId || null },
-            { source: 'events-list', scrollPeople: activeTab === 'people', updateInput: true },
-          );
+          for (const el of els.eventsList.querySelectorAll('.eventsItem.selected')) el.classList.remove('selected');
+          btn.classList.add('selected');
         } catch (_) {}
+      }
 
-        try { els.personId.value = primaryGrampsId || primaryApiId; } catch (_) {}
-        Promise.resolve().then(() => _loadNeighborhood?.());
+      const primaryName = String(primary?.display_name || '').trim();
+      const msg = primaryName ? `Event selected: ${gid || apiId} · ${primaryName}` : `Event selected: ${gid || apiId}`;
+      _setStatus?.(msg);
 
-        const name = String(primary?.display_name || '').trim();
-        const who = name || primaryGrampsId || primaryApiId;
-        _setStatus?.(`Event: ${gid || apiId} · selected ${who}`);
-      } else {
-        const msg = `Event: ${gid || apiId} (no primary person)`;
-        _setStatus?.(msg);
+      // Keep the previous convenience behavior: for events without a primary person,
+      // copy IDs so the user can quickly inspect/debug.
+      if (!primaryName) {
         Promise.resolve(_copyToClipboard?.(`event_id=${apiId}${gid ? `\ngramps_id=${gid}` : ''}`)).then((ok) => {
           if (ok) _setStatus?.(msg + ' (copied)');
         }).catch(() => {});

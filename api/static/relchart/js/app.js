@@ -51,6 +51,7 @@ import {
   initEventsFeature,
   ensureEventsLoaded,
 } from './features/events.js';
+import { eventSelection } from './features/eventSelection.js';
 import {
   initTabsFeature,
   getSidebarActiveTab,
@@ -321,6 +322,7 @@ initFamiliesFeature({ setStatus, loadNeighborhood });
 
 initEventsFeature({
   selection,
+  eventSelection,
   loadNeighborhood,
   setStatus,
   copyToClipboard,
