@@ -162,9 +162,6 @@ function _ensurePlaceEventsPanel() {
       );
     } catch (_) {}
 
-    try { els.personId.value = grampsId || apiId || ''; } catch (_) {}
-    try { Promise.resolve().then(_loadNeighborhood); } catch (_) {}
-
     const who = String(btn?.textContent || '').trim() || grampsId || apiId;
     _setStatusSafe(`Selected: ${who}`);
   });

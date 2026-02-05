@@ -1,10 +1,7 @@
 import { els, state } from '../state.js';
 import { _cssEscape } from '../util/dom.js';
 
-let _loadNeighborhood = null;
-
-export function initPeopleFeature({ loadNeighborhood } = {}) {
-  _loadNeighborhood = typeof loadNeighborhood === 'function' ? loadNeighborhood : null;
+export function initPeopleFeature() {
 
   if (els.peopleSearch) {
     const updateClearVisibility = () => {
@@ -337,9 +334,6 @@ export function _renderPeopleList(people, query) {
         const ref = String(p?.gramps_id || p?.id || '').trim();
         if (!ref) return;
         selection.selectPerson({ grampsId: ref }, { source: 'people-list', scrollPeople: false, updateInput: true });
-        if (typeof _loadNeighborhood === 'function') {
-          await _loadNeighborhood();
-        }
       });
 
       details.appendChild(btn);

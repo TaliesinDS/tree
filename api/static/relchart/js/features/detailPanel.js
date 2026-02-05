@@ -411,7 +411,6 @@ export function renderPersonDetailPanelSkeleton() {
       const apiId = String(itemBtn.dataset.personApiId || '').trim() || null;
       const grampsId = String(itemBtn.dataset.personGrampsId || '').trim() || null;
       _selection?.selectPerson?.({ apiId, grampsId }, { source: 'detail-search', scrollPeople: false, updateInput: true });
-      Promise.resolve(_loadNeighborhood?.()).catch(() => {});
       closeSearch();
       try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
       return;
@@ -887,7 +886,6 @@ function _wireRelationsClicks(hostEl) {
       if (!gid && apiId) {
         try { els.personId.value = apiId; } catch (_) {}
       }
-      await Promise.resolve(_loadNeighborhood?.());
     });
   }
 }

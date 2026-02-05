@@ -101,12 +101,110 @@ function _selectParentFamilyForPersonInSidebar(personApiId) {
 }
 
 // Keep the floating detail panel in sync with selection.
-selection.subscribe((next) => {
+let _autoLoadTimer = null;
+
+function _normalizeGraphvizTitleToId(title) {
+  const t = String(title || '').trim();
+  if (!t) return '';
+  return t.replace(/^node\s+/i, '').trim();
+}
+
+function _findPersonNodeElement(svg, personId) {
+  const pid = String(personId || '').trim();
+  if (!svg || !pid) return null;
+  const nodes = svg.querySelectorAll('g.node');
+  for (const node of nodes) {
+    try {
+      if (node.querySelector('ellipse')) continue; // family hub
+      const id = _normalizeGraphvizTitleToId(node.querySelector('title')?.textContent?.trim());
+      if (id === pid) return node;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function _centerViewOnSelectedPerson() {
+  const pid = String(state.selectedPersonId || '').trim();
+  if (!pid) return;
+  const svg = (els.graphView || els.chart)?.querySelector?.('svg');
+  if (!svg) return;
+  if (!state.panZoom?.getViewBox || !state.panZoom?.setViewBox) return;
+
+  const nodeEl = _findPersonNodeElement(svg, pid);
+  if (!nodeEl || typeof nodeEl.getBoundingClientRect !== 'function') return;
+  const containerRect = els.chart?.getBoundingClientRect?.();
+  if (!containerRect || !Number.isFinite(containerRect.width) || !Number.isFinite(containerRect.height) || containerRect.width <= 0 || containerRect.height <= 0) return;
+
+  const r = nodeEl.getBoundingClientRect();
+  const currentCenter = {
+    x: (r.left + r.width / 2) - containerRect.left,
+    y: (r.top + r.height / 2) - containerRect.top,
+  };
+  if (!Number.isFinite(currentCenter.x) || !Number.isFinite(currentCenter.y)) return;
+
+  const desiredCenter = { x: containerRect.width / 2, y: containerRect.height / 2 };
+  const dxPx = currentCenter.x - desiredCenter.x;
+  const dyPx = currentCenter.y - desiredCenter.y;
+  if (!Number.isFinite(dxPx) || !Number.isFinite(dyPx)) return;
+
+  const vbNow = state.panZoom.getViewBox();
+  if (!vbNow || !Number.isFinite(vbNow.w) || !Number.isFinite(vbNow.h) || vbNow.w <= 0 || vbNow.h <= 0) return;
+
+  const clientDeltaToSvgDelta = (dx, dy) => {
+    try {
+      const m = svg.getScreenCTM?.();
+      if (!m || typeof m.inverse !== 'function') return null;
+      const inv = m.inverse();
+      const p0 = new DOMPoint(0, 0).matrixTransform(inv);
+      const p1 = new DOMPoint(dx, dy).matrixTransform(inv);
+      const dxSvg = p1.x - p0.x;
+      const dySvg = p1.y - p0.y;
+      if (!Number.isFinite(dxSvg) || !Number.isFinite(dySvg)) return null;
+      return { dxSvg, dySvg };
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const del = clientDeltaToSvgDelta(dxPx, dyPx);
+  const dxSvg = del ? del.dxSvg : (dxPx * (vbNow.w / containerRect.width));
+  const dySvg = del ? del.dySvg : (dyPx * (vbNow.h / containerRect.height));
+
+  state.panZoom.setViewBox({
+    x: vbNow.x + dxSvg,
+    y: vbNow.y + dySvg,
+    w: vbNow.w,
+    h: vbNow.h,
+  });
+}
+
+function _scheduleAutoLoadFromSelection(next, meta) {
+  const source = String(meta?.source || '').trim();
+  // Prevent reload loops: `loadNeighborhood()` updates selection with source='load'.
+  if (source === 'load') return;
+
+  const ref = String(next?.grampsId || next?.apiId || next?.key || '').trim();
+  if (!ref) return;
+
+  // Ensure the input is set before we load.
+  try { if (els.personId) els.personId.value = ref; } catch (_) {}
+
+  // Debounce: multiple selection changes can happen quickly (e.g. rapid clicks).
+  try { if (_autoLoadTimer) clearTimeout(_autoLoadTimer); } catch (_) {}
+  _autoLoadTimer = setTimeout(() => {
+    _autoLoadTimer = null;
+    Promise.resolve(loadNeighborhood()).catch(() => {});
+  }, 30);
+}
+
+selection.subscribe((next, meta) => {
   // Selection can be set from the graph (apiId) or from the People list (grampsId).
   // Backend endpoints accept either, so use whichever is available.
   // Prefer grampsId when present: it's what the user typed/selected.
   const ref = String(next?.grampsId || next?.apiId || next?.key || '').trim();
   if (!ref) return;
+
+  _scheduleAutoLoadFromSelection(next, meta);
 
   // If the panel is closed, keep the peek tab visible and updated.
   if (!state.detailPanel.open) {
@@ -228,6 +326,18 @@ async function loadNeighborhood() {
 
     setStatus(`Loaded ${state.payload.nodes?.length || 0} nodes, ${state.payload.edges?.length || 0} edges.`);
     await rerender();
+
+    // After a fresh load, center the view on the selected/root person.
+    try {
+      requestAnimationFrame(() => {
+        try { _centerViewOnSelectedPerson(); } catch (_err1) {}
+        requestAnimationFrame(() => {
+          try { _centerViewOnSelectedPerson(); } catch (_err2) {}
+        });
+      });
+    } catch (_err0) {
+      try { _centerViewOnSelectedPerson(); } catch (_err3) {}
+    }
   } catch (e) {
     setStatus(`Failed: ${e?.message || e}`, true);
   }
@@ -317,9 +427,9 @@ try {
 // Auto-load the graph on first page load (using the current form values).
 try { loadNeighborhood(); } catch (_) {}
 
-initPeopleFeature({ loadNeighborhood });
+initPeopleFeature();
 
-initFamiliesFeature({ setStatus, loadNeighborhood });
+initFamiliesFeature({ setStatus, selection });
 
 initEventsFeature({
   selection,

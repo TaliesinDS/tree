@@ -894,8 +894,8 @@ html[data-theme="light"] .sidebarPanel {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: -4px;
+  margin-bottom: 0px;
 }
 
 .panelHeaderControls {
@@ -1879,7 +1879,7 @@ html[data-theme="light"] .placesGroup {
 
 .peopleTools {
   display: grid;
-  gap: 10px;
+  gap: 4px;
   margin-bottom: 10px;
 }
 

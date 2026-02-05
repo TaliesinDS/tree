@@ -3,11 +3,11 @@ import { _cssEscape } from '../util/dom.js';
 import { formatGrampsDateEnglishCard } from '../util/date.js';
 
 let _setStatus = null;
-let _loadNeighborhood = null;
+let _selection = null;
 
-export function initFamiliesFeature({ setStatus, loadNeighborhood } = {}) {
+export function initFamiliesFeature({ setStatus, selection } = {}) {
   _setStatus = typeof setStatus === 'function' ? setStatus : null;
-  _loadNeighborhood = typeof loadNeighborhood === 'function' ? loadNeighborhood : null;
+  _selection = selection || null;
 
   if (els.familiesSearch) {
     const updateClearVisibility = () => {
@@ -362,9 +362,15 @@ function _wireFamiliesClicks() {
       return;
     }
 
-    if (els.personId) els.personId.value = seed;
-    if (typeof _loadNeighborhood === 'function') {
-      await _loadNeighborhood();
+    const looksLikeGrampsId = /^I\d+$/i.test(seed);
+    try {
+      _selection?.selectPerson?.(
+        { apiId: looksLikeGrampsId ? null : seed, grampsId: looksLikeGrampsId ? seed : null },
+        { source: 'families-list', scrollPeople: false, updateInput: true },
+      );
+    } catch (_err) {
+      // Fallback: set the input; global selection/load should handle the rest.
+      try { if (els.personId) els.personId.value = seed; } catch (_err2) {}
     }
   });
 }
