@@ -29,3 +29,10 @@ export function familyChildren({ familyId, includeSpouses = true }) {
   u.searchParams.set('include_spouses', includeSpouses ? 'true' : 'false');
   return fetchJson(u.toString());
 }
+
+export function eventDetails({ eventId }) {
+  const id = String(eventId || '').trim();
+  if (!id) return Promise.reject(new Error('Missing eventId'));
+  const u = new URL(`/events/${encodeURIComponent(id)}`, window.location.origin);
+  return fetchJson(u.toString());
+}

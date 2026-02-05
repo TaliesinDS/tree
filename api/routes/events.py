@@ -4,6 +4,7 @@ from datetime import date
 from typing import Any, Optional
 
 from fastapi import APIRouter, Query
+from fastapi import HTTPException
 
 try:
     from ..db import db_conn
@@ -18,6 +19,169 @@ except ImportError:  # pragma: no cover
     from util import _compact_json
 
 router = APIRouter()
+
+
+@router.get("/events/{event_id}")
+def get_event(event_id: str) -> dict[str, Any]:
+    """Get a single event (privacy-safe).
+
+    Accepts either the internal event id or Gramps id.
+
+    Privacy rules:
+    - Private events are hidden.
+    - If the event references any effectively-private person, the event is hidden.
+    - Private places are redacted (place=null).
+    - Private notes are omitted.
+    """
+
+    ref = (event_id or "").strip()
+    if not ref:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    with db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT
+              e.id,
+              e.gramps_id,
+              e.event_type,
+              e.description,
+              e.event_date_text,
+              e.event_date,
+              e.place_id,
+              pl.name as place_name,
+              pl.is_private as place_is_private,
+              e.is_private
+            FROM event e
+            LEFT JOIN place pl ON pl.id = e.place_id
+            WHERE e.id = %s OR e.gramps_id = %s
+            LIMIT 1
+            """.strip(),
+            (ref, ref),
+        ).fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        (
+            eid,
+            egid,
+            event_type,
+            description,
+            event_date_text,
+            event_date,
+            place_id0,
+            place_name,
+            place_is_private,
+            event_is_private,
+        ) = tuple(row)
+
+        if bool(event_is_private):
+            raise HTTPException(status_code=404, detail="Not found")
+
+        pe_rows = conn.execute(
+            """
+            SELECT
+              p.id,
+              p.gramps_id,
+              p.display_name,
+              p.given_name,
+              p.surname,
+              p.birth_text,
+              p.death_text,
+              p.birth_date,
+              p.death_date,
+              p.is_living,
+              p.is_private,
+              p.is_living_override,
+              pe.role
+            FROM person_event pe
+            JOIN person p ON p.id = pe.person_id
+            WHERE pe.event_id = %s
+            ORDER BY COALESCE(pe.role, '') NULLS LAST, p.display_name NULLS LAST, p.gramps_id NULLS LAST, p.id
+            """.strip(),
+            (eid,),
+        ).fetchall()
+
+        people: list[dict[str, Any]] = []
+        for (
+            pid0,
+            pgid,
+            display_name,
+            given_name,
+            surname,
+            birth_text,
+            death_text,
+            birth_date,
+            death_date,
+            is_living_flag,
+            is_private_flag,
+            is_living_override,
+            role,
+        ) in pe_rows:
+            pid_s = str(pid0)
+            is_private_eff = _is_effectively_private(
+                is_private=is_private_flag,
+                is_living_override=is_living_override,
+                is_living=is_living_flag,
+                birth_date=birth_date,
+                death_date=death_date,
+                birth_text=birth_text,
+                death_text=death_text,
+            )
+            if bool(is_private_eff):
+                # Hide the whole event if any referenced person is private.
+                raise HTTPException(status_code=404, detail="Not found")
+
+            display_name_out, given_name_out, surname_out = _format_public_person_names(
+                display_name=display_name,
+                given_name=given_name,
+                surname=surname,
+            )
+            people.append(
+                {
+                    "id": pid_s,
+                    "gramps_id": pgid,
+                    "display_name": display_name_out,
+                    "given_name": given_name_out,
+                    "surname": surname_out,
+                    "role": str(role or "").strip() or None,
+                }
+            )
+
+        note_rows = conn.execute(
+            """
+            SELECT n.id, n.body
+            FROM event_note en
+            JOIN note n ON n.id = en.note_id
+            WHERE en.event_id = %s
+              AND n.is_private = FALSE
+            ORDER BY n.id
+            """.strip(),
+            (eid,),
+        ).fetchall()
+        notes: list[dict[str, Any]] = [
+            {"id": str(nid), "body": body}
+            for (nid, body) in note_rows
+            if str(nid or "").strip()
+        ]
+
+        place_out = None
+        if place_id0 and not bool(place_is_private):
+            place_out = {"id": str(place_id0), "name": place_name}
+
+        out = {
+            "id": str(eid),
+            "gramps_id": egid,
+            "type": event_type,
+            "date": event_date.isoformat() if isinstance(event_date, date) else None,
+            "date_text": event_date_text,
+            "description": description,
+            "place": place_out,
+            "people": people,
+            "notes": notes,
+        }
+        return _compact_json(out) or out
 
 
 @router.get("/events")

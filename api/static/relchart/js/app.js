@@ -52,6 +52,7 @@ import {
   ensureEventsLoaded,
 } from './features/events.js';
 import { eventSelection } from './features/eventSelection.js';
+import { initEventDetailPanelFeature } from './features/eventDetailPanel.js';
 import {
   initTabsFeature,
   getSidebarActiveTab,
@@ -330,6 +331,8 @@ initEventsFeature({
   formatEventTitle,
   formatEventSubLine,
 });
+
+initEventDetailPanelFeature({ eventSelection, selection });
 
 initPlacesFeature({
   setStatus,

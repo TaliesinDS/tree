@@ -45,6 +45,7 @@ export const els = {
   eventsStatus: $('eventsStatus'),
   eventsList: $('eventsList'),
   eventsSort: $('eventsSort'),
+  eventDetailPanel: $('eventDetailPanel'),
   placesSearch: $('placesSearch'),
   placesSearchClear: $('placesSearchClear'),
   placesStatus: $('placesStatus'),

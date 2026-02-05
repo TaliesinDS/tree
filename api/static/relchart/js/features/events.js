@@ -196,16 +196,15 @@ export function renderEventsList(events, query) {
           { apiId: apiId || null, grampsId: gid || null },
           { source: 'events-list', scrollEvents: activeTab === 'events' },
         );
-      } catch (_) {
+      } catch (_err) {
         // Fallback (shouldn't happen): keep UI selection stable.
         state.eventsSelected = apiId;
         try {
           for (const el of els.eventsList.querySelectorAll('.eventsItem.selected')) el.classList.remove('selected');
           btn.classList.add('selected');
-        } catch (_) {}
+        } catch (_err2) {}
       }
 
-      const primaryName = String(primary?.display_name || '').trim();
       const msg = primaryName ? `Event selected: ${gid || apiId} · ${primaryName}` : `Event selected: ${gid || apiId}`;
       _setStatus?.(msg);
 
