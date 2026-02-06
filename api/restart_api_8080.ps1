@@ -31,7 +31,7 @@ $outLog = Join-Path $reports ("uvicorn_" + $stamp + ".out.log")
 $errLog = Join-Path $reports ("uvicorn_" + $stamp + ".err.log")
 
 Start-Process -FilePath $py -WorkingDirectory $apiDir -ArgumentList @(
-  '-m','uvicorn','main:app','--host','127.0.0.1','--port',$port
+  '-m','uvicorn','main:app','--host','0.0.0.0','--port',$port
 ) -RedirectStandardOutput $outLog -RedirectStandardError $errLog -WindowStyle Hidden
 
 Write-Output "Restarted API on http://127.0.0.1:$port"
