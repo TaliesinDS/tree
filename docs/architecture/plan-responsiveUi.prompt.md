@@ -22,7 +22,7 @@ Additional issues (not yet tested, but expected from code inspection):
 | Desktop (full HD+) | 2560x1440, 1920x1080 | Current baseline | Must not regress |
 | Laptop | 1366x768, 1440x900 | Common budget laptop | Must work |
 | Tablet (landscape) | Galaxy Tab S8+ (1752x2800px, ~1138x1752 CSS px landscape) | Primary tablet target | Must work |
-| Tablet (portrait) | Same, rotated | Nice to have | Should work |
+| Tablet (portrait) | Same, rotated | Not a target | Should work |
 | Smartphone | Any | NOT a target | Explicitly excluded |
 
 Minimum supported viewport width: **768px** (standard tablet portrait).
