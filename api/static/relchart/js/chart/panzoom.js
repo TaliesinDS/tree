@@ -90,7 +90,125 @@ export function enableSvgPanZoom(svg, { container, onChange } = {}) {
     apply();
   };
 
+  // --- Multi-touch (Pointer Events) ---
+  // We only implement *two-finger* gestures (pinch-zoom + pan).
+  // Single-finger touch is left for tapping/selecting nodes.
+  const activeTouches = new Map(); // pointerId -> { x, y }
+  const touchGesture = {
+    active: false,
+    lastMidX: 0,
+    lastMidY: 0,
+    lastDist: 0,
+  };
+
+  const _getTouchPair = () => {
+    const pts = Array.from(activeTouches.values());
+    if (pts.length < 2) return null;
+    return [pts[0], pts[1]];
+  };
+
+  const _updateTouchGestureFromPoints = (p0, p1) => {
+    const midX = (p0.x + p1.x) / 2;
+    const midY = (p0.y + p1.y) / 2;
+    const dx = p1.x - p0.x;
+    const dy = p1.y - p0.y;
+    const dist = Math.hypot(dx, dy);
+    return { midX, midY, dist };
+  };
+
+  const _screenPointToSvg = (clientX, clientY) => {
+    try {
+      const ctm = svg.getScreenCTM?.();
+      if (ctm && typeof ctm.inverse === 'function') {
+        const inv = ctm.inverse();
+        return new DOMPoint(clientX, clientY).matrixTransform(inv);
+      }
+    } catch (_) {}
+    return null;
+  };
+
+  const _clientDeltaToSvgDelta = (dxPx, dyPx) => {
+    try {
+      const ctm = svg.getScreenCTM?.();
+      if (ctm && typeof ctm.inverse === 'function') {
+        const inv = ctm.inverse();
+        const p0 = new DOMPoint(0, 0).matrixTransform(inv);
+        const p1 = new DOMPoint(dxPx, dyPx).matrixTransform(inv);
+        const dxSvg = p1.x - p0.x;
+        const dySvg = p1.y - p0.y;
+        if (Number.isFinite(dxSvg) && Number.isFinite(dySvg)) return { dxSvg, dySvg };
+      }
+    } catch (_) {}
+    return null;
+  };
+
+  const _applyTouchTransformStep = ({ midX, midY, dist }) => {
+    if (!touchGesture.active) return;
+    if (!Number.isFinite(dist) || dist <= 0) return;
+    if (!Number.isFinite(touchGesture.lastDist) || touchGesture.lastDist <= 0) return;
+
+    const dxPx = midX - touchGesture.lastMidX;
+    const dyPx = midY - touchGesture.lastMidY;
+
+    // Pan (in SVG units) based on midpoint movement.
+    const del = _clientDeltaToSvgDelta(dxPx, dyPx);
+    if (del) {
+      state.x -= del.dxSvg;
+      state.y -= del.dySvg;
+    } else {
+      const rect = (container || svg).getBoundingClientRect();
+      state.x -= dxPx * (state.w / rect.width);
+      state.y -= dyPx * (state.h / rect.height);
+    }
+
+    // Zoom around the midpoint.
+    const zoom = touchGesture.lastDist / dist;
+    if (Number.isFinite(zoom) && zoom > 0) {
+      const midSvg = _screenPointToSvg(midX, midY);
+      if (midSvg && Number.isFinite(midSvg.x) && Number.isFinite(midSvg.y)) {
+        state.x = midSvg.x - (midSvg.x - state.x) * zoom;
+        state.y = midSvg.y - (midSvg.y - state.y) * zoom;
+      }
+      state.w = state.w * zoom;
+      state.h = state.h * zoom;
+    }
+
+    apply();
+
+    touchGesture.lastMidX = midX;
+    touchGesture.lastMidY = midY;
+    touchGesture.lastDist = dist;
+  };
+
   const down = (e) => {
+    // Touch: only handle 2-finger gestures. Do not intercept single-finger taps.
+    if (e.pointerType === 'touch') {
+      activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      // Start gesture once we have two active touches.
+      if (activeTouches.size >= 2) {
+        const pair = _getTouchPair();
+        if (pair) {
+          e.preventDefault();
+          state.dragging = false;
+          (container || svg).style.cursor = 'grabbing';
+          document.body.style.userSelect = 'none';
+
+          // Capture all active touch pointers.
+          for (const pid of activeTouches.keys()) {
+            try { (container || svg).setPointerCapture(pid); } catch (_) {}
+          }
+
+          const next = _updateTouchGestureFromPoints(pair[0], pair[1]);
+          touchGesture.active = true;
+          touchGesture.lastMidX = next.midX;
+          touchGesture.lastMidY = next.midY;
+          touchGesture.lastDist = next.dist;
+        }
+      }
+      return;
+    }
+
     if (e.button !== 0) return;
     if (e.target && e.target.closest && e.target.closest('g.node')) return;
     e.preventDefault();
@@ -103,6 +221,20 @@ export function enableSvgPanZoom(svg, { container, onChange } = {}) {
   };
 
   const move = (e) => {
+    // Touch gesture: pinch + pan.
+    if (e.pointerType === 'touch' && activeTouches.has(e.pointerId)) {
+      activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (touchGesture.active && activeTouches.size >= 2) {
+        e.preventDefault();
+        const pair = _getTouchPair();
+        if (!pair) return;
+        const next = _updateTouchGestureFromPoints(pair[0], pair[1]);
+        _applyTouchTransformStep(next);
+      }
+      return;
+    }
+
     if (!state.dragging) return;
     e.preventDefault();
 
@@ -139,6 +271,23 @@ export function enableSvgPanZoom(svg, { container, onChange } = {}) {
   };
 
   const up = (e) => {
+    // Touch end.
+    if (e.pointerType === 'touch' && activeTouches.has(e.pointerId)) {
+      activeTouches.delete(e.pointerId);
+
+      if (touchGesture.active && activeTouches.size < 2) {
+        e.preventDefault();
+        touchGesture.active = false;
+        touchGesture.lastMidX = 0;
+        touchGesture.lastMidY = 0;
+        touchGesture.lastDist = 0;
+        (container || svg).style.cursor = 'grab';
+        document.body.style.userSelect = '';
+        try { (container || svg).releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+      return;
+    }
+
     if (!state.dragging) return;
     e.preventDefault();
     state.dragging = false;
@@ -149,6 +298,9 @@ export function enableSvgPanZoom(svg, { container, onChange } = {}) {
 
   const target = container || svg;
   target.style.cursor = 'grab';
+  // Allow pinch/pan to be handled by our Pointer Events handlers.
+  // (Otherwise mobile browsers may intercept for page scroll/zoom.)
+  try { if (!target.style.touchAction) target.style.touchAction = 'none'; } catch (_) {}
   target.addEventListener('wheel', wheel, { passive: false });
   target.addEventListener('pointerdown', down);
   target.addEventListener('pointermove', move);
