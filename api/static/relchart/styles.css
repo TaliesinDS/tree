@@ -228,6 +228,7 @@ html[data-theme="light"] .personDetailPanel {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   cursor: grab;
+  touch-action: none;
 }
 
 .personDetailHeader:active { cursor: grabbing; }
@@ -756,6 +757,8 @@ html[data-theme="light"] {
 html, body {
   height: 100%;
   margin: 0;
+  /* Prevent pull-to-refresh / overscroll navigation on mobile browsers. */
+  overscroll-behavior: none;
   background:
     radial-gradient(1200px 600px at 25% 10%, rgba(122,162,255,0.18), transparent 55%),
     radial-gradient(900px 500px at 80% 30%, rgba(255,107,107,0.10), transparent 50%),
