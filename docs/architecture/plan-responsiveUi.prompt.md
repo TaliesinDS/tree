@@ -31,6 +31,13 @@ Minimum supported viewport width: **768px** (standard tablet portrait).
 
 ### Issue 1: Graph pinch-zoom broken
 
+**Status**: Done (2026-02-09)
+
+Implemented multi-touch pinch-zoom and restored 1-finger panning on touch devices.
+
+- Implementation: `api/static/relchart/js/chart/panzoom.js`
+- Related touch/pull-to-refresh hardening: `api/static/relchart/styles.css`, `api/static/relchart/js/features/detailPanel.js`
+
 **File**: `api/static/relchart/js/chart/panzoom.js`
 
 The pan/zoom module uses Pointer Events (`pointerdown`/`pointermove`/`pointerup`) and `wheel` events. This is correct for mouse + single-finger drag, but:
@@ -82,6 +89,8 @@ No `@media` queries exist. No feature queries (`@media (pointer: coarse)`).
 ## Detailed Fix Plan
 
 ### A. Add pinch-to-zoom to the graph (panzoom.js)
+
+**Status**: Done (2026-02-09)
 
 Location: `api/static/relchart/js/chart/panzoom.js`
 
@@ -243,6 +252,7 @@ Recommend: overflow menu approach for cleaner UX. This can be done with a `<deta
 ## Implementation order
 
 1. **Pinch-to-zoom** (panzoom.js) — standalone fix, no CSS changes, immediately testable
+**Status**: Done (2026-02-09)
 2. **Map tile fix** (map.js + CSS touch-action) — standalone, immediately testable
 3. **Responsive breakpoints** (CSS) — the big layout rework
 4. **Sidebar drawer** (HTML + CSS + JS) — enables tablet layout
