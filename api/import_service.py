@@ -106,10 +106,15 @@ def run_import(file_bytes: bytes, filename: str, database_url: str) -> None:
         # Import the pipeline modules lazily so the import path is resolved at
         # runtime (they live outside the ``api/`` package).
         import sys
+        import importlib
         repo_root = Path(__file__).resolve().parent.parent
         if str(repo_root) not in sys.path:
             sys.path.insert(0, str(repo_root))
 
+        import export.export_gramps_package as _exp_mod
+        import export.load_export_to_postgres as _load_mod
+        importlib.reload(_exp_mod)
+        importlib.reload(_load_mod)
         from export.export_gramps_package import export_from_xml, read_gramps_xml_bytes
         from export.load_export_to_postgres import load_export
 

@@ -653,6 +653,122 @@ def export_from_xml(
         if (today_year - inferred_parent_birth_year) >= living_cutoff_years:
             pr.is_living = False
 
+    # Heuristic: if a person is still marked living, has no dates/events of their own,
+    # but has parents with old-enough evidence (death year, birth year, or event year),
+    # infer the person is not living.
+    # E.g., if your parent died in 1888, you were born before ~1888 and are clearly dead.
+    #
+    # Additionally, propagate transitively: if all of a person's known parents are
+    # already marked not-living (by any prior heuristic or this one), the person
+    # is also not living. This handles multi-generation chains with no dates.
+    child_to_parents: dict[str, list[str]] = {}
+    for child_id, parent_id in parent_edges:
+        child_to_parents.setdefault(child_id, []).append(parent_id)
+
+    # Run multiple passes until no more changes (transitive propagation).
+    changed = True
+    while changed:
+        changed = False
+        for pid, pr in people_raw.items():
+            if not pr.is_living:
+                continue
+            if pr.death:
+                continue
+            if _year_from_date_str(pr.birth) is not None:
+                continue
+
+            parents = child_to_parents.get(pid) or []
+            if not parents:
+                continue
+
+            # Strategy 1: direct evidence from parent dates/events.
+            latest_parent_evidence: int | None = None
+            for parent_id in parents:
+                parent = people_raw.get(parent_id)
+                if not parent:
+                    continue
+                for hint in [
+                    _year_from_date_str(parent.death),
+                    _year_from_date_str(parent.birth),
+                    person_max_event_year.get(parent_id),
+                ]:
+                    if hint is not None:
+                        if latest_parent_evidence is None or hint > latest_parent_evidence:
+                            latest_parent_evidence = hint
+
+            if latest_parent_evidence is not None:
+                inferred_child_birth_year = latest_parent_evidence
+                if (today_year - inferred_child_birth_year) >= living_cutoff_years:
+                    pr.is_living = False
+                    changed = True
+                    continue
+
+            # Strategy 2: if ALL known parents are marked not-living (by any
+            # prior pass), this person cannot be living either.
+            all_parents_dead = all(
+                (not people_raw[p].is_living) for p in parents if p in people_raw
+            )
+            if all_parents_dead:
+                pr.is_living = False
+                changed = True
+
+    # Heuristic: spouse-based inference. If a person has no dates and their spouse
+    # has old-enough evidence (birth/death/events), infer the person is not living.
+    # E.g., spouse born 1902, died 1972 → person born ~1902 → 2026-1902=124 ≥ 90.
+    # Build a person→spouses map from the families dict.
+    person_to_spouses: dict[str, set[str]] = {}
+    for fam in families.values():
+        fid = fam.get("father_id")
+        mid = fam.get("mother_id")
+        if fid and mid:
+            person_to_spouses.setdefault(fid, set()).add(mid)
+            person_to_spouses.setdefault(mid, set()).add(fid)
+
+    for pid, pr in people_raw.items():
+        if not pr.is_living:
+            continue
+        if pr.death:
+            continue
+        if _year_from_date_str(pr.birth) is not None:
+            continue
+
+        spouses = person_to_spouses.get(pid)
+        if not spouses:
+            continue
+
+        # Use spouse evidence to infer an approximate birth year for this person.
+        # Spouse's birth year is the best anchor (similar age).
+        # Spouse's earliest event year is next best (marriage implies adulthood).
+        # Spouse's death year is too generous — a spouse could outlive them by
+        # decades — so we only use it as a last resort and subtract nothing.
+        inferred_spouse_birth: int | None = None
+        for sid in spouses:
+            spouse = people_raw.get(sid)
+            if not spouse:
+                continue
+
+            # Prefer birth year; fall back to earliest event; lastly death.
+            hint = _year_from_date_str(spouse.birth)
+            if hint is None:
+                hint = person_min_event_year.get(sid)
+            if hint is None:
+                # Death year: the surviving spouse must have been born at least
+                # ~15 years before the other spouse died (conservative minimum
+                # marriage age). So spouse_death - 15 is an upper bound on
+                # our person's birth year.
+                dy = _year_from_date_str(spouse.death)
+                if dy is not None:
+                    hint = dy - 15
+
+            if hint is not None:
+                # Take the LATEST (most generous) estimate across all spouses.
+                if inferred_spouse_birth is None or hint > inferred_spouse_birth:
+                    inferred_spouse_birth = hint
+
+        if inferred_spouse_birth is not None:
+            if (today_year - inferred_spouse_birth) >= living_cutoff_years:
+                pr.is_living = False
+
     # Apply redaction at export time (public DB should not contain living/private details)
     people: dict[str, PersonOut] = {}
     for pid, pr in people_raw.items():
