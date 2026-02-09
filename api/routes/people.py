@@ -31,6 +31,7 @@ def list_people(
     limit: int = Query(default=5000, ge=1, le=50_000),
     offset: int = Query(default=0, ge=0, le=5_000_000),
     include_total: bool = False,
+    privacy: str = "on",
 ) -> dict[str, Any]:
     """List people in the database (privacy-redacted).
 
@@ -109,7 +110,7 @@ def list_people(
             death_date=death_date,
             birth_text=birth_text,
             death_text=death_text,
-        ):
+        ) and privacy.lower() != "off":
             results.append(
                 {
                     "id": pid,
@@ -153,7 +154,7 @@ def list_people(
 
 
 @router.get("/people/{person_id}")
-def get_person(person_id: str) -> dict[str, Any]:
+def get_person(person_id: str, privacy: str = "on") -> dict[str, Any]:
     if not person_id:
         raise HTTPException(status_code=400, detail="missing person_id")
 
@@ -203,7 +204,7 @@ def get_person(person_id: str) -> dict[str, Any]:
         "is_private": is_private_flag,
     }
 
-    should_redact = _is_effectively_private(
+    should_redact = privacy.lower() != "off" and _is_effectively_private(
         is_private=person.get("is_private"),
         is_living_override=is_living_override,
         is_living=person.get("is_living"),
@@ -252,7 +253,7 @@ def get_person(person_id: str) -> dict[str, Any]:
 
 
 @router.get("/people/{person_id}/details")
-def get_person_details(person_id: str) -> dict[str, Any]:
+def get_person_details(person_id: str, privacy: str = "on") -> dict[str, Any]:
     """Richer person payload for the UI detail panel.
 
     Returns:
@@ -267,10 +268,10 @@ def get_person_details(person_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="missing person_id")
 
     resolved_id = _resolve_person_id(person_id)
-    person_core = get_person(resolved_id)
+    person_core = get_person(resolved_id, privacy=privacy)
 
     # If person is private/redacted, don't leak associated edges/notes.
-    if bool(person_core.get("is_private")) or person_core.get("display_name") == "Private":
+    if privacy.lower() != "off" and (bool(person_core.get("is_private")) or person_core.get("display_name") == "Private"):
         out = {
             "person": person_core,
             "events": [],
@@ -423,7 +424,7 @@ def get_person_details(person_id: str) -> dict[str, Any]:
 
 
 @router.get("/people/{person_id}/relations")
-def get_person_relations(person_id: str) -> dict[str, Any]:
+def get_person_relations(person_id: str, privacy: str = "on") -> dict[str, Any]:
     """Relationship-style payload for the UI Relations tab (Gramps-like).
 
     Returns:
@@ -437,10 +438,10 @@ def get_person_relations(person_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="missing person_id")
 
     resolved_id = _resolve_person_id(person_id)
-    person_core = get_person(resolved_id)
+    person_core = get_person(resolved_id, privacy=privacy)
 
     # If person is private/redacted, don't leak relationship graph.
-    if bool(person_core.get("is_private")) or person_core.get("display_name") == "Private":
+    if privacy.lower() != "off" and (bool(person_core.get("is_private")) or person_core.get("display_name") == "Private"):
         out = {
             "person": person_core,
             "parents": [],
@@ -563,7 +564,7 @@ def get_person_relations(person_id: str) -> dict[str, Any]:
                 child_ids.add(str(cid))
 
         all_people_ids = sorted({*parent_ids, *sibling_ids, *spouse_ids, *child_ids})
-        people_by_id = _people_core_many(conn, all_people_ids)
+        people_by_id = _people_core_many(conn, all_people_ids, skip_privacy=(privacy.lower() == "off"))
 
         parents_out = [people_by_id[i] for i in parent_ids if i in people_by_id]
         siblings_out = [people_by_id[i] for i in sibling_ids if i in people_by_id]
@@ -599,7 +600,7 @@ def get_person_relations(person_id: str) -> dict[str, Any]:
 
 
 @router.get("/people/search")
-def search_people(q: str = Query(min_length=1, max_length=200)) -> dict[str, Any]:
+def search_people(q: str = Query(min_length=1, max_length=200), privacy: str = "on") -> dict[str, Any]:
     q_like = f"%{q}%"
     with db_conn() as conn:
         rows = conn.execute(
@@ -628,7 +629,7 @@ def search_people(q: str = Query(min_length=1, max_length=200)) -> dict[str, Any
         ) = tuple(r)
 
         # Always redact per privacy policy.
-        if _is_effectively_private(
+        if privacy.lower() != "off" and _is_effectively_private(
             is_private=is_private_flag,
             is_living_override=is_living_override,
             is_living=is_living_flag,

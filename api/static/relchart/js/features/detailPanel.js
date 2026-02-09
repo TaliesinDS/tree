@@ -1,4 +1,5 @@
 import { els, state } from '../state.js';
+import * as api from '../api.js';
 import { formatGrampsDateEnglish, formatGrampsDateEnglishCard } from '../util/date.js';
 
 let _selection = null;
@@ -984,7 +985,7 @@ export async function loadPersonDetailsIntoPanel(personApiId, { openPanel = fals
   _renderPersonDetailPanelBody();
 
   try {
-    const r = await fetch(`/people/${encodeURIComponent(pid)}/details`);
+    const r = await fetch(api.withPrivacy(`/people/${encodeURIComponent(pid)}/details`));
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     if (state.detailPanel.lastReqSeq !== seq) return;

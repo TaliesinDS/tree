@@ -1,4 +1,5 @@
 import { els, state } from '../state.js';
+import * as api from '../api.js';
 import { _cssEscape } from '../util/dom.js';
 import { copyToClipboard } from '../util/clipboard.js';
 
@@ -228,7 +229,7 @@ async function _ensurePlaceEventsLoaded(placeId) {
   params.set('offset', '0');
   params.set('sort', 'year_asc');
 
-  const r = await fetch(`/events?${params.toString()}`);
+  const r = await fetch(api.withPrivacy(`/events?${params.toString()}`));
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const data = await r.json();
   const results = Array.isArray(data?.results) ? data.results : [];
@@ -897,7 +898,7 @@ export async function ensurePlacesLoaded() {
 
   els.placesStatus.textContent = 'Loading places…';
   try {
-    const r = await fetch('/places?limit=50000&offset=0');
+    const r = await fetch(api.withPrivacy('/places?limit=50000&offset=0'));
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     const results = Array.isArray(data?.results) ? data.results : [];

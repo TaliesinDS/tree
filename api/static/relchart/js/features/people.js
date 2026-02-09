@@ -1,4 +1,5 @@
 import { els, state } from '../state.js';
+import * as api from '../api.js';
 import { _cssEscape } from '../util/dom.js';
 
 export function initPeopleFeature() {
@@ -377,7 +378,7 @@ export async function ensurePeopleIndexLoaded() {
 
   _peopleIndexPromise = (async () => {
     // 50k hard limit on the endpoint; typical trees are much smaller (you have ~4k).
-    const r = await fetch('/people?limit=50000&offset=0');
+    const r = await fetch(api.withPrivacy('/people?limit=50000&offset=0'));
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     const results = Array.isArray(data?.results) ? data.results : [];

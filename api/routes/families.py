@@ -22,6 +22,7 @@ def list_families(
     limit: int = Query(default=5000, ge=1, le=50_000),
     offset: int = Query(default=0, ge=0, le=5_000_000),
     include_total: bool = False,
+    privacy: str = "on",
 ) -> dict[str, Any]:
     """List families in the database (privacy-safe).
 
@@ -74,7 +75,7 @@ def list_families(
                 (list(parent_ids),),
             ).fetchall()
             for pr in parent_rows:
-                p_public = _person_node_row_to_public(tuple(pr), distance=None)
+                p_public = _person_node_row_to_public(tuple(pr), distance=None, skip_privacy=(privacy.lower() == "off"))
                 parents_by_id[str(p_public.get("id"))] = {
                     "id": p_public.get("id"),
                     "gramps_id": p_public.get("gramps_id"),

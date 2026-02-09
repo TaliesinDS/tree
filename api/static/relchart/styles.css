@@ -2238,6 +2238,26 @@ button.secondary {
   background: rgba(255,255,255,0.06);
 }
 
+.privacyBadge {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #1a1a1a;
+  background: #e8a735;
+  border: 1px solid #c48a1e;
+  border-radius: 10px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+html[data-theme="light"] .privacyBadge {
+  color: #4a2800;
+  background: #f5c96b;
+  border-color: #d4a038;
+}
+
 .status {
   font-family: var(--mono);
   font-size: 11px;

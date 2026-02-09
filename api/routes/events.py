@@ -22,7 +22,7 @@ router = APIRouter()
 
 
 @router.get("/events/{event_id}")
-def get_event(event_id: str) -> dict[str, Any]:
+def get_event(event_id: str, privacy: str = "on") -> dict[str, Any]:
     """Get a single event (privacy-safe).
 
     Accepts either the internal event id or Gramps id.
@@ -37,6 +37,7 @@ def get_event(event_id: str) -> dict[str, Any]:
     ref = (event_id or "").strip()
     if not ref:
         raise HTTPException(status_code=404, detail="Not found")
+    skip_priv = (privacy.lower() == "off")
 
     with db_conn() as conn:
         row = conn.execute(
@@ -120,7 +121,7 @@ def get_event(event_id: str) -> dict[str, Any]:
             role,
         ) in pe_rows:
             pid_s = str(pid0)
-            is_private_eff = _is_effectively_private(
+            is_private_eff = not skip_priv and _is_effectively_private(
                 is_private=is_private_flag,
                 is_living_override=is_living_override,
                 is_living=is_living_flag,
@@ -192,6 +193,7 @@ def list_events(
     q: Optional[str] = None,
     place_id: Optional[str] = None,
     sort: str = "type_asc",
+    privacy: str = "on",
 ) -> dict[str, Any]:
     """List events in the database (privacy-safe).
 
@@ -471,7 +473,7 @@ def list_events(
                 is_living_override,
             ) in pr:
                 pid_s = str(pid0)
-                is_private_eff = _is_effectively_private(
+                is_private_eff = privacy.lower() != "off" and _is_effectively_private(
                     is_private=is_private_flag,
                     is_living_override=is_living_override,
                     is_living=is_living_flag,

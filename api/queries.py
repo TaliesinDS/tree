@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover
     from privacy import _is_effectively_living, _is_effectively_private
 
 
-def _people_core_many(conn: psycopg.Connection, person_ids: list[str]) -> dict[str, dict[str, Any]]:
+def _people_core_many(conn: psycopg.Connection, person_ids: list[str], *, skip_privacy: bool = False) -> dict[str, dict[str, Any]]:
     """Fetch privacy-redacted core person payloads for many internal person ids."""
 
     if not person_ids:
@@ -50,7 +50,7 @@ def _people_core_many(conn: psycopg.Connection, person_ids: list[str]) -> dict[s
             is_living_override,
         ) = tuple(r)
 
-        should_redact = _is_effectively_private(
+        should_redact = not skip_privacy and _is_effectively_private(
             is_private=is_private_flag,
             is_living_override=is_living_override,
             is_living=is_living_flag,

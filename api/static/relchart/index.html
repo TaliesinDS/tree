@@ -222,6 +222,7 @@
           </div>
 
           <div class="topRight">
+            <div id="privacyBadge" class="privacyBadge" hidden>Privacy off</div>
             <div id="status" class="status">Ready.</div>
 
             <details id="optionsMenu" class="optionsMenu">
@@ -248,7 +249,11 @@
 
                 <div class="optionsSection">
                   <div class="optionsSectionTitle">Privacy</div>
-                  <div class="optHint">(Soon) Private/living display and export-safe modes.</div>
+                  <div class="optRow">
+                    <label class="optLabel" for="optPrivacyFilter">Privacy filter</label>
+                    <input id="optPrivacyFilter" type="checkbox" checked />
+                  </div>
+                  <div class="optHint">When enabled, living/private individuals are shown as "Private". Disable to reveal all names and dates.</div>
                 </div>
 
                 <div class="optionsSection">

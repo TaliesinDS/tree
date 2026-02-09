@@ -5,6 +5,36 @@ const PEOPLE_EXPANDED_KEY = 'tree_relchart_people_expanded_v1';
 const PEOPLE_WIDE_PX_KEY = 'tree_relchart_people_wide_px_v1';
 const PEOPLE_WIDE_PX_DEFAULT = 440;
 
+/**
+ * Privacy filter toggle — defaults to ON, never persisted (refresh = back on).
+ * Toggling reloads the graph and invalidates cached sidebar data.
+ */
+function _initPrivacyToggle(loadNeighborhood) {
+  state.privacyFilterEnabled = true;
+  if (els.privacyBadge) els.privacyBadge.hidden = true;
+  if (els.optPrivacyFilter) {
+    els.optPrivacyFilter.checked = true;
+    els.optPrivacyFilter.addEventListener('change', () => {
+      state.privacyFilterEnabled = els.optPrivacyFilter.checked;
+      // Show / hide the top-bar badge.
+      if (els.privacyBadge) els.privacyBadge.hidden = state.privacyFilterEnabled;
+      // Invalidate cached sidebar data so next tab open re-fetches.
+      state.peopleLoaded = false;
+      state.people = null;
+      state.familiesLoaded = false;
+      state.families = null;
+      state.eventsLoaded = false;
+      state.events = null;
+      state.eventsTotal = null;
+      state.eventsOffset = 0;
+      // Reload the graph with the new privacy setting.
+      if (typeof loadNeighborhood === 'function') {
+        try { loadNeighborhood(); } catch (_) {}
+      }
+    });
+  }
+}
+
 function _setPeopleWidePx(px, { persist = true } = {}) {
   let n = Number(px);
   if (!Number.isFinite(n)) return;
@@ -89,6 +119,7 @@ function _initPeopleExpanded(renderPeopleList) {
   }
 }
 
-export function initOptionsFeature({ renderPeopleList } = {}) {
+export function initOptionsFeature({ renderPeopleList, loadNeighborhood } = {}) {
   _initPeopleExpanded(renderPeopleList);
+  _initPrivacyToggle(loadNeighborhood);
 }

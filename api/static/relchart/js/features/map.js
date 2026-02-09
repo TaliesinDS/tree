@@ -1,4 +1,5 @@
 import { els, state, MAP_SETTINGS, _readBool, _readInt, _writeSetting } from '../state.js';
+import * as api from '../api.js';
 import { _isInsideDetailsOrPortal, _portalDetailsPanel, _unportalDetailsPanel } from './portal.js';
 
 let _setStatus = null;
@@ -501,7 +502,7 @@ async function _getPersonDetailsCached(personId) {
     }
   } catch (_) {}
 
-  const r = await fetch(`/people/${encodeURIComponent(pid)}/details`);
+  const r = await fetch(api.withPrivacy(`/people/${encodeURIComponent(pid)}/details`));
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const data = await r.json();
   const out = { events: Array.isArray(data?.events) ? data.events : [] };
@@ -607,7 +608,7 @@ async function _computePlacesForScope() {
     // This avoids N separate /people/{id}/details calls (which is very slow on
     // medium-sized graphs).
     try {
-      const r = await fetch('/graph/places', {
+      const r = await fetch(api.withPrivacy('/graph/places'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ person_ids: selectedPeople, limit: maxPins }),

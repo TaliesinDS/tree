@@ -1,4 +1,5 @@
 import { els, state } from '../state.js';
+import * as api from '../api.js';
 import { _cssEscape } from '../util/dom.js';
 import { formatGrampsDateEnglishCard } from '../util/date.js';
 
@@ -382,7 +383,7 @@ export async function ensureFamiliesLoaded() {
   els.familiesStatus.textContent = 'Loading families…';
   try {
     _wireFamiliesClicks();
-    const r = await fetch('/families?limit=50000&offset=0');
+    const r = await fetch(api.withPrivacy('/families?limit=50000&offset=0'));
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     const results = Array.isArray(data?.results) ? data.results : [];

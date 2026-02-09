@@ -1,4 +1,5 @@
 import { els, state } from '../state.js';
+import * as api from '../api.js';
 import { eventSelection as _globalEventSelection } from './eventSelection.js';
 
 let _selection = null;
@@ -253,7 +254,7 @@ export async function ensureEventsLoaded() {
     const q = String(state.eventsQuery || '').trim();
     if (q) params.set('q', q);
 
-    const r = await fetch(`/events?${params.toString()}`);
+    const r = await fetch(api.withPrivacy(`/events?${params.toString()}`));
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     if (seq !== state.eventsReqSeq) return;
@@ -291,7 +292,7 @@ async function _fetchMoreEventsPage() {
     const q = String(state.eventsQuery || '').trim();
     if (q) params.set('q', q);
 
-    const r = await fetch(`/events?${params.toString()}`);
+    const r = await fetch(api.withPrivacy(`/events?${params.toString()}`));
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     if (seq !== state.eventsReqSeq) return;

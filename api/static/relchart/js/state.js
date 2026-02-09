@@ -51,6 +51,8 @@ export const els = {
   placesStatus: $('placesStatus'),
   placesList: $('placesList'),
   optPeopleWidePx: $('optPeopleWidePx'),
+  optPrivacyFilter: $('optPrivacyFilter'),
+  privacyBadge: $('privacyBadge'),
   optionsMenu: $('optionsMenu'),
   personDetailPanel: $('personDetailPanel'),
   placeEventsPanel: null,
@@ -133,6 +135,7 @@ export const state = {
     overlayRefreshTimer: null,
     personDetailsCache: new Map(),
   },
+  privacyFilterEnabled: true,
   nodeById: new Map(),
   detailPanel: {
     open: false,

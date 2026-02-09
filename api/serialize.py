@@ -11,7 +11,7 @@ except ImportError:  # pragma: no cover
     from privacy import _is_effectively_private
 
 
-def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = None) -> dict[str, Any]:
+def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = None, skip_privacy: bool = False) -> dict[str, Any]:
     # r = (
     #   id, gramps_id, display_name, given_name, surname, gender,
     #   birth_text, death_text, birth_date, death_date,
@@ -33,7 +33,7 @@ def _person_node_row_to_public(r: tuple[Any, ...], *, distance: int | None = Non
         is_living_override,
     ) = r
 
-    if _is_effectively_private(
+    if not skip_privacy and _is_effectively_private(
         is_private=is_private_flag,
         is_living_override=is_living_override,
         is_living=is_living_flag,

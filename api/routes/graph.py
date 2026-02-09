@@ -29,7 +29,7 @@ _HISTORIC_YEAR_CUTOFF_YEARS_AGO = 150
 
 
 @router.post("/graph/places")
-def graph_places(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+def graph_places(payload: dict[str, Any] = Body(default_factory=dict), privacy: str = "on") -> dict[str, Any]:
     """Return distinct public places referenced by events for a set of people.
 
     This is intended to power the Map "Scope: Current graph" pins without making
@@ -67,7 +67,7 @@ def graph_places(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[s
 
     with db_conn() as conn:
         # Apply privacy/redaction policy to the input people ids first.
-        cores = _people_core_many(conn, person_ids)
+        cores = _people_core_many(conn, person_ids, skip_privacy=(privacy.lower() == "off"))
         public_person_ids: list[str] = []
         for pid, p in cores.items():
             # _people_core_many already redacts: private people have display_name="Private".
@@ -122,6 +122,7 @@ def graph_neighborhood(
     depth: int = Query(default=2, ge=0, le=100),
     max_nodes: int = Query(default=1000, ge=1, le=6000),
     layout: Literal["family", "direct"] = Query(default="family"),
+    privacy: str = "on",
 ) -> dict[str, Any]:
     """Return a small subgraph for interactive exploration.
 
@@ -130,6 +131,7 @@ def graph_neighborhood(
     """
 
     root_id = _resolve_person_id(id)
+    skip_privacy = (privacy.lower() == "off")
 
     with db_conn() as conn:
         distances = _bfs_neighborhood_distances(conn, root_id, depth=depth, max_nodes=max_nodes)
@@ -334,7 +336,7 @@ def graph_neighborhood(
         nodes: list[dict[str, Any]] = []
         for pid, r in row_by_pid.items():
             dist = distances.get(pid)
-            if final_private.get(pid, True):
+            if not skip_privacy and final_private.get(pid, True):
                 (
                     _pid,
                     gid,
@@ -365,7 +367,7 @@ def graph_neighborhood(
                     }
                 )
             else:
-                nodes.append(_person_node_row_to_public(r, distance=dist))
+                nodes.append(_person_node_row_to_public(r, distance=dist, skip_privacy=skip_privacy))
 
         person_node_ids = {n["id"] for n in nodes}
 
@@ -519,12 +521,14 @@ def graph_neighborhood(
 def graph_family_parents(
     family_id: str = Query(min_length=1, max_length=64),
     child_id: Optional[str] = Query(default=None, max_length=64),
+    privacy: str = "on",
 ) -> dict[str, Any]:
     """Fetch just the parent couple for a family hub.
 
     Intended for UI "expand" actions where the graph already contains the family hub
     (via a child edge) but the parents are outside the current neighborhood cutoff.
     """
+    skip_privacy = (privacy.lower() == "off")
 
     with db_conn() as conn:
         fam = conn.execute(
@@ -587,7 +591,7 @@ def graph_family_parents(
                 (parent_ids,),
             ).fetchall()
             for r in rows:
-                nodes.append(_person_node_row_to_public(tuple(r), distance=None))
+                nodes.append(_person_node_row_to_public(tuple(r), distance=None, skip_privacy=skip_privacy))
 
             # Also include each parent's own parent-family hub as a *stub* (family + child edge only).
             birth_links = conn.execute(
@@ -688,6 +692,7 @@ def graph_family_parents(
 def graph_family_children(
     family_id: str = Query(min_length=1, max_length=64),
     include_spouses: bool = True,
+    privacy: str = "on",
 ) -> dict[str, Any]:
     """Fetch the children for a family hub, optionally including each child's spouse block.
 
@@ -697,6 +702,7 @@ def graph_family_children(
     - If include_spouses: also returns (child as parent) families + spouse nodes + parent edges,
       but does not include grandchildren by default (keeps expansions controlled).
     """
+    skip_privacy = (privacy.lower() == "off")
 
     with db_conn() as conn:
         fam = conn.execute(
@@ -767,8 +773,7 @@ def graph_family_children(
                 (child_ids,),
             ).fetchall()
             for r in child_rows:
-                nodes.append(_person_node_row_to_public(tuple(r), distance=None))
-
+                nodes.append(_person_node_row_to_public(tuple(r), distance=None, skip_privacy=skip_privacy))
         if include_spouses and child_ids:
             fam_rows = conn.execute(
                 """
@@ -813,7 +818,7 @@ def graph_family_children(
                     (list(spouse_person_ids),),
                 ).fetchall()
                 for r in spouse_rows:
-                    nodes.append(_person_node_row_to_public(tuple(r), distance=None))
+                    nodes.append(_person_node_row_to_public(tuple(r), distance=None, skip_privacy=skip_privacy))
 
             if spouse_family_ids:
                 counts = conn.execute(

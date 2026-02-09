@@ -1,5 +1,9 @@
 import * as api from './api.js';
 import { els, state } from './state.js';
+
+// Provide the shared state object to api.js so fetchJson can read privacyFilterEnabled.
+api._setStateRef(state);
+
 import { copyToClipboard } from './util/clipboard.js';
 import {
   formatEventTitle,
@@ -360,7 +364,7 @@ els.fitBtn.addEventListener('click', () => {
 
 // Initial
 setStatus('Ready.');
-initOptionsFeature({ renderPeopleList: _renderPeopleList });
+initOptionsFeature({ renderPeopleList: _renderPeopleList, loadNeighborhood });
 initGraphFeature({
   selection,
   getSidebarActiveTab,
