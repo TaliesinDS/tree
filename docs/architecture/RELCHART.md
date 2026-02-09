@@ -82,6 +82,8 @@ JavaScript modules:
     - `/graph/family/parents`
     - `/graph/family/children`
     - person lookups used by sidebar/details panels
+  - `withPrivacy(url)` helper: appends `privacy=off` when the privacy filter is disabled
+  - `fetchJson(url)` automatically injects `privacy=off` based on shared state
 - `api/static/relchart/js/chart/dot.js`
   - `buildRelationshipDot(payload)` (payload → DOT string)
   - encodes “couple row” semantics by placing father → hub → mother in a same-rank cluster
@@ -117,7 +119,8 @@ Feature modules (UI behavior):
 - `api/static/relchart/js/features/detailPanel.js` — person detail panel
 - `api/static/relchart/js/features/tabs.js` — tab switching + topbar mode
 - `api/static/relchart/js/features/keybinds.js` — keyboard shortcuts
-- `api/static/relchart/js/features/options.js` — options menu + people list width toggle
+- `api/static/relchart/js/features/options.js` — options menu + people list width toggle + privacy filter toggle
+- `api/static/relchart/js/features/import.js` — in-browser import (upload .gpkg/.gramps → server pipeline)
 
 Shared utilities:
 - `api/static/relchart/js/util/clipboard.js`
@@ -223,6 +226,38 @@ If you add new topbar popovers, follow the same pattern or you’ll reintroduce 
 - **No bundler:** deliberate. This keeps iteration fast and avoids maintaining an npm toolchain for the demo.
 - **CDN dependency:** Graphviz WASM is loaded from unpkg (`@hpcc-js/wasm-graphviz@1.18.0`). Pinning the version avoids surprise breakages.
 - **Re-layout on every expansion:** acceptable for now (demo). If this becomes the main UI, we may want caching or partial re-layout.
+
+## Privacy toggle
+
+The Options menu includes a **Privacy filter** checkbox (default: ON).
+
+- When unchecked, `api.js` injects `privacy=off` into all API calls, bypassing server-side redaction.
+- An amber **"Privacy off"** badge appears in the top bar (next to the status bar) as a persistent visual indicator.
+- Toggling reloads the graph and invalidates cached sidebar data (people, families, events).
+- The toggle is **never persisted** — refreshing the page always resets privacy to ON.
+
+Implementation:
+- `js/features/options.js` — toggle wiring, badge visibility, cache invalidation, graph reload
+- `js/api.js` — `withPrivacy(url)` helper + `fetchJson()` auto-injection
+- `js/state.js` — `state.privacyFilterEnabled` + `els.privacyBadge`
+
+## In-browser import
+
+The Options menu includes an **Import** section for uploading `.gpkg` / `.gramps` files directly through the browser.
+
+Flow:
+1. User selects a file in the Options menu
+2. `POST /import` uploads the file; backend starts a background import thread
+3. Frontend polls `GET /import/status` every second, showing a blocking overlay
+4. On completion (`status: 'done'`), the graph auto-reloads
+5. On failure (`status: 'failed'`), the error message is shown
+
+Implementation:
+- Frontend: `js/features/import.js` — file upload, polling, overlay, auto-reload
+- Backend: `api/routes/import_tree.py` — upload + status endpoints
+- Backend: `api/import_service.py` — Gramps XML parsing + Postgres loading pipeline
+- Max upload size: 200 MB (`import_service.MAX_UPLOAD_BYTES`)
+- Allowed extensions: `.gpkg`, `.gramps`
 
 ## Known limitations (current)
 

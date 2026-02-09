@@ -70,8 +70,13 @@ Graph endpoints (used by the demo viewer)
 - Expand down (children of a family hub):
   - `GET /graph/family/children?family_id=<family_id_or_gramps_id>&include_spouses=true`
 
+Import endpoints:
+- `POST /import` — upload a `.gpkg` / `.gramps` file (max 200 MB) to trigger the import pipeline
+- `GET /import/status` — poll import progress (`idle` / `running` / `done` / `failed`)
+
 Notes:
 - Family nodes may include `parents_total` and `children_total` which the viewer uses to decide whether to show expand indicators.
+- All graph and people endpoints accept an optional `privacy=off` query parameter to bypass server-side redaction.
 
 ## Demo UI (graph)
 
@@ -99,4 +104,12 @@ Graphviz-specific notes:
 
 Privacy:
 - Privacy is enforced server-side; private people are redacted before JSON reaches the browser.
+- The Options menu includes a **Privacy filter** toggle: unchecking it adds `?privacy=off` to all API calls, revealing real names/dates.
+- An amber "Privacy off" badge appears in the top bar when the filter is disabled.
+- The toggle is never persisted — refreshing the page resets privacy to ON.
 - See `docs/architecture/PRIVACY.md` for the current policy/thresholds.
+
+Import:
+- The Options menu includes an **Import** section for uploading `.gpkg` / `.gramps` files.
+- The import runs server-side in a background thread; the frontend shows a blocking overlay and polls for completion.
+- On success, the graph auto-reloads with the new data.

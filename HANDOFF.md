@@ -60,16 +60,18 @@ Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
 
 ---
 
-## Current State (Jan 2026)
+## Current State (Feb 2026)
 
 **Working:**
 - ✅ Export pipeline (Gramps → JSONL → Postgres)
+- ✅ In-browser import (upload .gpkg/.gramps via Options menu → server pipeline)
 - ✅ Graph viewer with expand-in-place (parents/children)
 - ✅ People/Families/Events sidebars
 - ✅ Person detail panel
 - ✅ Map tab MVP (Leaflet + OSM tiles)
-- ✅ Map pins performance: “Current graph” scope loads fast (bulk endpoint)
+- ✅ Map pins performance: "Current graph" scope loads fast (bulk endpoint)
 - ✅ Privacy enforcement (server-side)
+- ✅ Privacy toggle (Options menu: uncheck to reveal private people; amber badge indicator)
 
 **In Progress / Planned:**
 - 🔲 Relationship path highlighting (API exists, UI pending)
@@ -80,7 +82,12 @@ Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
 
 ---
 
-## Recent Work (2026-01-20)
+## Recent Work (2026-02-09)
+
+- **Privacy toggle**: Options menu now has a "Privacy filter" checkbox (default: ON). Unchecking adds `?privacy=off` to all API calls, revealing real names/dates for private people. An amber "Privacy off" badge appears in the top bar. Never persisted — page refresh resets to ON. Toggling reloads the graph and invalidates sidebar caches.
+- **In-browser import**: Options menu now has an Import section. Upload a `.gpkg` / `.gramps` file (max 200 MB), the server runs the import pipeline in a background thread, and the frontend polls with a blocking overlay until done, then auto-reloads the graph.
+
+### Earlier (2026-01-20)
 
 - Map “Scope: Current graph” pins are now fetched in one call (`POST /graph/places`) instead of many `/people/{id}/details` calls.
 - Map auto-fit no longer spams `Map: nothing to fit`, and leaving the Map tab restores the last non-Map status message.
@@ -112,10 +119,12 @@ api/static/relchart/
 
 ### Backend
 ```
-api/main.py        # FastAPI app wiring (router registration + static mount)
-api/routes/        # Route handlers (people/graph/families/events/places/etc)
-api/db.py          # DB connection
-sql/schema.sql     # Tables + indexes
+api/main.py           # FastAPI app wiring (router registration + static mount)
+api/routes/           # Route handlers (people/graph/families/events/places/import)
+api/routes/import_tree.py  # Import upload + status endpoints
+api/import_service.py # Import pipeline (Gramps XML → Postgres)
+api/db.py             # DB connection
+sql/schema.sql        # Tables + indexes
 ```
 
 ---

@@ -48,3 +48,37 @@ When a person is private:
 ## Why server-side matters
 
 Anything sent to the browser is effectively public, so privacy must be enforced before JSON leaves the API.
+
+## Client-side privacy toggle
+
+All privacy-sensitive API endpoints accept an optional `privacy=off` query parameter. When present, the endpoint skips the `_is_effectively_private` check and returns unredacted data.
+
+### Frontend UX
+
+- The **Options menu** includes a "Privacy filter" checkbox (default: checked / ON).
+- When unchecked, a `withPrivacy(url)` helper in `api.js` appends `privacy=off` to every API call.
+- An amber **"Privacy off"** pill badge appears in the top bar next to the status bar.
+- Toggling **reloads the graph** and **invalidates cached sidebar data** (people, families, events) so the next tab visit re-fetches with the new setting.
+- The toggle is **never persisted** — refreshing the page always resets privacy to ON.
+
+### Affected endpoints
+
+The `privacy=off` query parameter is respected by:
+- `GET /graph/neighborhood`
+- `GET /graph/family/parents`
+- `GET /graph/family/children`
+- `POST /graph/places`
+- `GET /people` (list)
+- `GET /people/{id}`
+- `GET /people/{id}/details`
+- `GET /people/{id}/relations`
+- `GET /people/search`
+- `GET /families`
+- `GET /events/{id}`
+- `GET /events` (list)
+
+### Implementation
+
+- Backend: each endpoint accepts `privacy: str = "on"` as a query param. When `privacy.lower() == "off"`, the `_is_effectively_private` call is skipped (or `skip_privacy=True` is passed to `_person_node_row_to_public`).
+- Frontend: `api.js` exports `withPrivacy(url)` which reads `state.privacyFilterEnabled` and appends `privacy=off` when the filter is disabled. All `fetch()` calls in feature modules use this wrapper.
+- Files: `api/static/relchart/js/features/options.js` (toggle wiring), `api/static/relchart/js/api.js` (URL injection).

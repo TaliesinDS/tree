@@ -28,7 +28,7 @@ When working on the viewer, **always use the relchart v3 files** under `api/stat
 - `api/static/relchart/index.html` — UI shell
 - `api/static/relchart/styles.css` — styling
 - `api/static/relchart/js/app.js` — entrypoint + wiring (initialization)
-- `api/static/relchart/js/api.js` — fetch wrappers for API endpoints
+- `api/static/relchart/js/api.js` — fetch wrappers for API endpoints (includes `withPrivacy()` helper)
 - `api/static/relchart/js/state.js` — shared state + settings
 - `api/static/relchart/js/util/clipboard.js` — clipboard helper
 - `api/static/relchart/js/util/event_format.js` — event formatting helpers
@@ -38,10 +38,14 @@ When working on the viewer, **always use the relchart v3 files** under `api/stat
 - `api/static/relchart/js/chart/panzoom.js` — viewBox-based pan/zoom
 - `api/static/relchart/js/chart/payload.js` — payload merge utilities
 - `api/static/relchart/js/chart/lineage.js` — **ancestor/descendant line tracing** for edge highlighting
+- `api/static/relchart/js/features/import.js` — **in-browser import** (upload .gpkg/.gramps → server pipeline)
+- `api/static/relchart/js/features/options.js` — **options menu** (privacy toggle, people list width)
 
 ### Backend
 - `api/main.py` — FastAPI app wiring (router registration + static mount)
 - `api/routes/*.py` — route handlers (read-only endpoints)
+- `api/routes/import_tree.py` — import upload + status endpoints
+- `api/import_service.py` — import pipeline (Gramps XML → Postgres)
 - `api/db.py` — database connection helper
 - `sql/schema.sql` — PostgreSQL schema
 
@@ -134,7 +138,12 @@ GET /graph/family/parents?family_id=<fid>&child_id=<pid>
 GET /graph/family/children?family_id=<fid>&include_spouses=true
 GET /people/{id}
 GET /people/search?q=<query>
+POST /import                    — upload .gpkg/.gramps file
+GET  /import/status             — poll import progress (idle/running/done/failed)
 ```
+
+All graph and people endpoints accept an optional `privacy=off` query parameter
+to bypass server-side redaction (used by the client-side privacy toggle).
 
 ## Privacy Model
 
@@ -158,6 +167,26 @@ _PRIVACY_AGE_CUTOFF_YEARS = 90
 ```
 
 Private persons get `display_name: "Private"` and redacted dates.
+
+### Client-Side Privacy Toggle
+
+The Options menu includes a **Privacy filter** checkbox (default: ON).
+- When unchecked, all API calls include `?privacy=off`, bypassing server-side redaction.
+- An amber **"Privacy off"** badge appears in the top bar as a persistent indicator.
+- The toggle is **never persisted** — refreshing the page resets privacy to ON.
+- Toggling reloads the graph and invalidates cached sidebar data (people/families/events).
+- Implementation: `api.js` exports `withPrivacy(url)` which appends `privacy=off` when the filter is disabled.
+
+### In-Browser Import
+
+The Options menu includes an **Import** section for uploading `.gpkg` / `.gramps` files:
+- `POST /import` accepts the file upload and starts a background import thread.
+- `GET /import/status` returns `{status: 'idle'|'running'|'done'|'failed', counts?, error?}`.
+- The frontend polls `/import/status` every second and shows a blocking overlay.
+- On completion, the graph auto-reloads.
+- Max upload size: 200 MB.
+- Backend: `api/routes/import_tree.py` + `api/import_service.py`.
+- Frontend: `api/static/relchart/js/features/import.js`.
 
 ## Development Environment
 
@@ -244,7 +273,10 @@ When adding a new feature:
 | Families sidebar | `js/features/families.js` |
 | Map tab | `js/features/map.js` |
 | Detail panel | `js/features/detailPanel.js` |
+| Import feature | `js/features/import.js` |
+| Options/privacy toggle | `js/features/options.js` |
 | New backend endpoint | `api/routes/<domain>.py` |
+| Import pipeline | `api/import_service.py` |
 | Privacy logic | `api/privacy.py` |
 | Name formatting | `api/names.py` |
 

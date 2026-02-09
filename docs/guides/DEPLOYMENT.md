@@ -91,5 +91,7 @@ Recommended:
 Privacy enforcement must remain server-side:
 - the API redacts private/living records before returning JSON
 - the UI must treat all data it receives as public
+- all privacy-sensitive endpoints accept an optional `privacy=off` query parameter to bypass redaction (used by the client-side privacy toggle in the Options menu)
+- the privacy toggle is never persisted; refreshing the page resets it to ON
 
 Policy details: see `docs/architecture/PRIVACY.md`.

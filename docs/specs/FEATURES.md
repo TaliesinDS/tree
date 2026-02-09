@@ -28,8 +28,17 @@ Implemented (working today):
   - if the person is only visible as a child, falls back to selecting the parent family
 - [x] Person detail panel:
   - loads `GET /people/{id}/details`
-  - has a hidden “peek tab”; while loading it stays blank (no “L” from “Loading…”)
-
+  - has a hidden “peek tab”; while loading it stays blank (no “L” from “Loading…”)- [x] Privacy toggle (Options menu):
+  - "Privacy filter" checkbox (default ON, never persisted to localStorage)
+  - when unchecked, all API calls include `?privacy=off` — reveals real names/dates for private people
+  - amber "Privacy off" badge in top bar as visual indicator
+  - toggling reloads the graph and invalidates cached sidebar data
+- [x] In-browser import:
+  - upload `.gpkg` / `.gramps` file via Options menu
+  - triggers server-side import pipeline (`POST /import`)
+  - polls `GET /import/status` with blocking overlay
+  - auto-reloads graph on completion
+  - max upload size: 200 MB
 Partially implemented / placeholders:
 - [~] Events and Places as standalone browsers (global search/filter/map) are planned; current work is mostly per-person detail rendering.
 

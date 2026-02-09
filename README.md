@@ -54,6 +54,8 @@ Notes:
 - Expand-in-place (parents/children)
 - People/Families/Events sidebars
 - Places list + Map view (Leaflet + OSM)
+- **Privacy toggle**: Options menu → uncheck "Privacy filter" to reveal private people (amber badge indicator; never persisted)
+- **In-browser import**: Options menu → upload `.gpkg` / `.gramps` file to reload the database
 
 **Legacy demos:** `/demo/graph`, `/demo/viewer` (do not modify)
 
@@ -72,5 +74,7 @@ Notes:
 1. Export from Gramps Desktop as `.gramps` / `.gpkg`
 2. Run `export/export_gramps_package.py` → JSONL files
 3. Run `export/load_export_to_postgres.py` → Postgres tables
+
+Alternatively, use the **in-browser import**: upload `.gpkg` / `.gramps` directly via the Options menu in the viewer.
 
 See [export/README.md](export/README.md) for details.
