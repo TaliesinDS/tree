@@ -485,6 +485,16 @@ export function renderPersonDetailPanelSkeleton() {
   // Drag behavior
   const header = host.querySelector('[data-panel-drag="1"]');
   if (header) {
+    // Prevent Firefox Android pull-to-refresh when dragging the panel down.
+    header.addEventListener('touchstart', (e) => {
+      const t = e?.target;
+      const el = (t && t.nodeType === 1) ? t : t?.parentElement;
+      if (el && el.closest && el.closest('[data-panel-close="1"]')) return;
+      if (el && el.closest && el.closest('[data-panel-search="1"]')) return;
+      if (el && el.closest && el.closest('[data-panel-search-popover="1"]')) return;
+      e.preventDefault();
+    }, { passive: false });
+
     header.addEventListener('pointerdown', (e) => {
       const t = e?.target;
       const el = (t && t.nodeType === 1) ? t : t?.parentElement;
@@ -518,6 +528,9 @@ export function renderPersonDetailPanelSkeleton() {
   // Resize behavior (height)
   const resizeHandle = host.querySelector('[data-panel-resize="1"]');
   if (resizeHandle) {
+    // Prevent Firefox Android pull-to-refresh when resizing the panel.
+    resizeHandle.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
+
     resizeHandle.addEventListener('pointerdown', (e) => {
       state.detailPanel.resize.active = true;
       state.detailPanel.resize.startY = e.clientY;

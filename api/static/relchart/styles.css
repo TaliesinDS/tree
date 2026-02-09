@@ -125,6 +125,8 @@
   display: grid;
   grid-template-rows: auto auto 1fr;
   user-select: none;
+  touch-action: none;
+  overscroll-behavior: none;
   font-family: 'TreeEBGaramond', Garamond, 'EB Garamond', 'Cormorant Garamond', var(--panel-font), serif;
 }
 
