@@ -10,6 +10,7 @@ try:
     from .routes.families import router as families_router
     from .routes.graph import router as graph_router
     from .routes.health import router as health_router
+    from .routes.import_tree import router as import_router
     from .routes.people import router as people_router
     from .routes.places import router as places_router
     from .routes.relationship import router as relationship_router
@@ -20,6 +21,7 @@ except ImportError:  # pragma: no cover
     from routes.families import router as families_router
     from routes.graph import router as graph_router
     from routes.health import router as health_router
+    from routes.import_tree import router as import_router
     from routes.people import router as people_router
     from routes.places import router as places_router
     from routes.relationship import router as relationship_router
@@ -36,6 +38,7 @@ app.include_router(health_router)
 app.include_router(demo_router)
 app.include_router(graph_router)
 app.include_router(people_router)
+app.include_router(import_router)
 
 app.include_router(families_router)
 app.include_router(events_router)

@@ -62,6 +62,7 @@ import {
 import { initKeybindsFeature } from './features/keybinds.js';
 import { initGraphFeature, rerenderGraph } from './features/graph.js';
 import { initOptionsFeature } from './features/options.js';
+import { initImportFeature } from './features/import.js';
 
 function _selectParentFamilyForPersonInSidebar(personApiId) {
   const pid = String(personApiId || '').trim();
@@ -426,6 +427,8 @@ try {
 
 // Auto-load the graph on first page load (using the current form values).
 try { loadNeighborhood(); } catch (_) {}
+
+initImportFeature({ loadNeighborhood, setStatus });
 
 initPeopleFeature();
 

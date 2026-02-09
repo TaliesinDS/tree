@@ -822,8 +822,8 @@ function _initMapTopbarControls() {
     if (!pinsOpen && !routesOpen) return;
     const t = e?.target;
     if (t && (
-      _isInsideDetailsOrPortal(els.mapPinsMenu, t)
-      || _isInsideDetailsOrPortal(els.mapRoutesMenu, t)
+      _isInsideDetailsOrPortal(els.mapPinsMenu, t, e)
+      || _isInsideDetailsOrPortal(els.mapRoutesMenu, t, e)
     )) return;
     _closeMapPopovers();
   });

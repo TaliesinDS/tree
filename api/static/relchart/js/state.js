@@ -54,6 +54,13 @@ export const els = {
   optionsMenu: $('optionsMenu'),
   personDetailPanel: $('personDetailPanel'),
   placeEventsPanel: null,
+
+  // Import UI
+  importFileInput: $('importFileInput'),
+  importBtn: $('importBtn'),
+  importStatus: $('importStatus'),
+  importOverlay: $('importOverlay'),
+  importOverlayMsg: $('importOverlayMsg'),
 };
 
 export const state = {

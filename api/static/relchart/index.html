@@ -252,6 +252,19 @@
                 </div>
 
                 <div class="optionsSection">
+                  <div class="optionsSectionTitle">Import</div>
+                  <div class="optHint">Upload a Gramps package (.gpkg) to replace the current dataset.</div>
+                  <div class="importControls">
+                    <label class="importFileLabel">
+                      <span>Gramps file</span>
+                      <input id="importFileInput" type="file" accept=".gpkg,.gramps" />
+                    </label>
+                    <button id="importBtn" type="button" class="miniToggle importBtn" disabled>Import</button>
+                    <div id="importStatus" class="importStatus muted"></div>
+                  </div>
+                </div>
+
+                <div class="optionsSection">
                   <div class="optionsSectionTitle">Developer</div>
                   <div class="optHint">(Soon) Debug overlays and diagnostics.</div>
                 </div>
@@ -274,6 +287,14 @@
   </div>
 
   <div id="personDetailPanel" class="personDetailPanel" hidden aria-label="Person details" role="dialog" aria-modal="false"></div>
+
+  <!-- Import overlay (shown while import is in progress) -->
+  <div id="importOverlay" class="importOverlay" hidden>
+    <div class="importOverlayContent">
+      <div class="importOverlaySpinner"></div>
+      <div id="importOverlayMsg" class="importOverlayMsg">Importing…</div>
+    </div>
+  </div>
 
   <script type="module" src="/static/relchart/js/app.js"></script>
   <script>

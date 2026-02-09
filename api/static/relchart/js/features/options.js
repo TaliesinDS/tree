@@ -71,7 +71,7 @@ function _initPeopleExpanded(renderPeopleList) {
       const open = els.optionsMenu.open;
       if (!open) return;
       const t = e.target;
-      if (t && _isInsideDetailsOrPortal(els.optionsMenu, t)) return;
+      if (t && _isInsideDetailsOrPortal(els.optionsMenu, t, e)) return;
       els.optionsMenu.open = false;
     });
     document.addEventListener('keydown', (e) => {

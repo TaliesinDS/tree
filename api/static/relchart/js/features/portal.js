@@ -15,9 +15,13 @@ function _getPortaledPanel(detailsEl) {
   return _portalState.byDetails.get(detailsEl) || null;
 }
 
-export function _isInsideDetailsOrPortal(detailsEl, target) {
+export function _isInsideDetailsOrPortal(detailsEl, target, event) {
   const t = target;
   if (!t) return false;
+  // Check the tag set by the portaled panel's capture listener.
+  try {
+    if (event && event.__insidePortal === detailsEl) return true;
+  } catch (_) {}
   try {
     if (detailsEl?.contains?.(t)) return true;
   } catch (_) {}
@@ -72,11 +76,13 @@ export function _portalDetailsPanel(detailsEl, panelSelector, { align = 'left' }
 
   // Prevent "click outside" handlers from closing the popover while interacting
   // with the portaled panel (checkboxes, number spinners, selects).
-  const stopPropagationCapture = (e) => {
-    try { e.stopPropagation(); } catch (_) {}
+  // We tag the event instead of stopping propagation so that descendant listeners
+  // (e.g. the Import button) still fire normally.
+  const tagInsidePortal = (e) => {
+    try { e.__insidePortal = detailsEl; } catch (_) {}
   };
-  try { panel.addEventListener('pointerdown', stopPropagationCapture, true); } catch (_) {}
-  try { panel.addEventListener('click', stopPropagationCapture, true); } catch (_) {}
+  try { panel.addEventListener('pointerdown', tagInsidePortal, true); } catch (_) {}
+  try { panel.addEventListener('click', tagInsidePortal, true); } catch (_) {}
 
   _portalState.byDetails.set(detailsEl, {
     panel,
@@ -84,7 +90,7 @@ export function _portalDetailsPanel(detailsEl, panelSelector, { align = 'left' }
     homeNextSibling,
     homeStyle,
     align,
-    stopPropagationCapture,
+    tagInsidePortal,
   });
 
   try { document.body.appendChild(panel); } catch (_) {}
@@ -103,11 +109,11 @@ export function _unportalDetailsPanel(detailsEl) {
   if (!info) return;
   _portalState.byDetails.delete(detailsEl);
 
-  const { panel, homeParent, homeNextSibling, homeStyle, stopPropagationCapture } = info;
+  const { panel, homeParent, homeNextSibling, homeStyle, tagInsidePortal } = info;
   if (!panel) return;
 
-  try { if (stopPropagationCapture) panel.removeEventListener('pointerdown', stopPropagationCapture, true); } catch (_) {}
-  try { if (stopPropagationCapture) panel.removeEventListener('click', stopPropagationCapture, true); } catch (_) {}
+  try { if (tagInsidePortal) panel.removeEventListener('pointerdown', tagInsidePortal, true); } catch (_) {}
+  try { if (tagInsidePortal) panel.removeEventListener('click', tagInsidePortal, true); } catch (_) {}
 
   try {
     if (homeParent) {
