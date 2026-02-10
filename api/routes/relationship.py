@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 try:
     from ..db import db_conn
@@ -20,6 +20,10 @@ except ImportError:  # pragma: no cover
     from resolve import _resolve_person_id
 
 router = APIRouter()
+
+
+def _slug(request: Request) -> str | None:
+    return getattr(request.state, "instance_slug", None)
 
 
 def _bfs_path(
@@ -80,14 +84,16 @@ def _bfs_path(
 
 @router.get("/relationship/path")
 def relationship_path(
+    request: Request,
     from_id: str = Query(min_length=1, max_length=64),
     to_id: str = Query(min_length=1, max_length=64),
     max_hops: int = Query(default=12, ge=1, le=50),
 ) -> dict[str, Any]:
-    resolved_from = _resolve_person_id(from_id)
-    resolved_to = _resolve_person_id(to_id)
+    slug = _slug(request)
+    resolved_from = _resolve_person_id(from_id, slug)
+    resolved_to = _resolve_person_id(to_id, slug)
 
-    with db_conn() as conn:
+    with db_conn(slug) as conn:
         path_ids = _bfs_path(conn, resolved_from, resolved_to, max_hops=max_hops, max_nodes=100_000)
         if not path_ids:
             return {"from": from_id, "to": to_id, "path": []}

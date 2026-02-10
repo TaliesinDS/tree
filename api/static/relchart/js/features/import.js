@@ -4,7 +4,9 @@
  * and reloads the viewer when done.
  */
 
-import { els } from '../state.js';
+import { getCsrfToken } from '../api.js';
+import { els, state } from '../state.js';
+import { getSidebarActiveTab, setSidebarActiveTab } from './tabs.js';
 
 /** @type {(() => Promise<void>) | null} */
 let _loadNeighborhood = null;
@@ -63,11 +65,29 @@ async function _pollImportStatus() {
       _setImportStatus(`Import complete (${personCount} people). Reloading…`);
       if (_setStatus) _setStatus(`Import complete (${personCount} people). Reloading…`);
 
+      // Invalidate all cached sidebar/tab data so everything re-fetches.
+      state.peopleLoaded = false;
+      state.people = null;
+      state.familiesLoaded = false;
+      state.families = null;
+      state.eventsLoaded = false;
+      state.events = null;
+      state.eventsTotal = null;
+      state.eventsOffset = 0;
+      state.placesLoaded = false;
+      state.places = null;
+      state.payload = null;
+
       // Reload the viewer graph after a short delay.
       setTimeout(async () => {
         try {
           if (_loadNeighborhood) await _loadNeighborhood();
         } catch (_) {}
+
+        // Re-activate the current sidebar tab so its list refreshes immediately.
+        const activeTab = getSidebarActiveTab();
+        if (activeTab) setSidebarActiveTab(activeTab);
+
         _setImportStatus(`Import complete (${personCount} people).`);
       }, 400);
     } else if (status === 'failed') {
@@ -118,6 +138,7 @@ async function _handleImport() {
   try {
     const res = await fetch('/import', {
       method: 'POST',
+      headers: { 'X-CSRF-Token': getCsrfToken() },
       body: formData,
     });
 
@@ -176,7 +197,7 @@ export function initImportFeature({ loadNeighborhood, setStatus }) {
   importBtn.addEventListener('click', _handleImport);
 
   // On page load, check if an import is in progress (e.g. page refreshed).
-  _pollImportStatus().then((status) => {
+  _pollImportStatus().then((_status) => {
     // If running, start continuous polling.
     try {
       fetch('/import/status').then(r => r.json()).then(d => {

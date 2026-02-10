@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi import HTTPException
 
 try:
@@ -21,8 +21,19 @@ except ImportError:  # pragma: no cover
 router = APIRouter()
 
 
+def _slug(request: Request) -> str | None:
+    return getattr(request.state, "instance_slug", None)
+
+
+def _enforce_guest_privacy(request: Request, privacy: str) -> str:
+    user = getattr(request.state, "user", None)
+    if user and user.get("role") == "guest" and privacy.lower() == "off":
+        return "on"
+    return privacy
+
+
 @router.get("/events/{event_id}")
-def get_event(event_id: str, privacy: str = "on") -> dict[str, Any]:
+def get_event(event_id: str, request: Request, privacy: str = "on") -> dict[str, Any]:
     """Get a single event (privacy-safe).
 
     Accepts either the internal event id or Gramps id.
@@ -37,9 +48,10 @@ def get_event(event_id: str, privacy: str = "on") -> dict[str, Any]:
     ref = (event_id or "").strip()
     if not ref:
         raise HTTPException(status_code=404, detail="Not found")
+    privacy = _enforce_guest_privacy(request, privacy)
     skip_priv = (privacy.lower() == "off")
 
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         row = conn.execute(
             """
             SELECT
@@ -187,6 +199,7 @@ def get_event(event_id: str, privacy: str = "on") -> dict[str, Any]:
 
 @router.get("/events")
 def list_events(
+    request: Request,
     limit: int = Query(default=500, ge=1, le=5_000),
     offset: int = Query(default=0, ge=0, le=5_000_000),
     include_total: bool = False,
@@ -205,8 +218,9 @@ def list_events(
 
     This endpoint exists to power a global Events index in the UI.
     """
+    privacy = _enforce_guest_privacy(request, privacy)
 
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         def _has_col(table: str, col: str) -> bool:
             try:
                 row = conn.execute(

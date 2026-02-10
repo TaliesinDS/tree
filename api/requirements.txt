@@ -4,6 +4,10 @@ pydantic==2.10.4
 psycopg[binary]==3.2.3
 python-dotenv==1.0.1
 python-multipart==0.0.20
+passlib[bcrypt]==1.7.4
+bcrypt<4.1
+PyJWT==2.9.0
+cryptography>=42.0
 
 # dev
 pytest>=7.0

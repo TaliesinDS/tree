@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import threading
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 
 try:
     from ..import_service import (
@@ -19,6 +19,7 @@ try:
         get_import_state,
         run_import,
     )
+    from ..auth import get_current_user
     from ..db import get_database_url
 except ImportError:
     from import_service import (
@@ -27,14 +28,23 @@ except ImportError:
         get_import_state,
         run_import,
     )
+    from auth import get_current_user
     from db import get_database_url
 
 router = APIRouter(tags=["import"])
 
 
 @router.post("/import")
-async def import_upload(file: UploadFile = File(...)):
-    """Accept a Gramps package upload and start the import pipeline."""
+async def import_upload(request: Request, file: UploadFile = File(...)):
+    """Accept a Gramps package upload and start the import pipeline.
+
+    Only users and admins can import. Guests get 403.
+    """
+    user = get_current_user(request)
+    if user.get("role") == "guest":
+        raise HTTPException(status_code=403, detail="Guests cannot import")
+
+    instance_slug = getattr(request.state, "instance_slug", None)
 
     # Validate filename / extension.
     filename = (file.filename or "upload").strip()
@@ -70,6 +80,7 @@ async def import_upload(file: UploadFile = File(...)):
     t = threading.Thread(
         target=run_import,
         args=(file_bytes, filename, database_url),
+        kwargs={"instance_slug": instance_slug},
         daemon=True,
         name="import-worker",
     )

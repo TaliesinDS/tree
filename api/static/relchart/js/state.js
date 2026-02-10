@@ -137,6 +137,11 @@ export const state = {
   },
   privacyFilterEnabled: true,
   nodeById: new Map(),
+  auth: {
+    user: null,        // { id, username, role }
+    instance: null,    // current slug
+    instances: [],     // [{ slug, display_name }]  (admin sees all)
+  },
   detailPanel: {
     open: false,
     activeTab: 'details',

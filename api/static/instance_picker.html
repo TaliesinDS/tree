@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Select Instance — Relationship Chart</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f4f4f5;
+      color: #1a1a1a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+      padding: 2rem 2.5rem;
+      width: 100%;
+      max-width: 420px;
+    }
+    h1 { font-size: 1.3rem; margin-bottom: .4rem; text-align: center; font-weight: 600; }
+    .sub { font-size: .85rem; color: #888; text-align: center; margin-bottom: 1.2rem; }
+    .list { list-style: none; }
+    .list li { margin-bottom: .5rem; }
+    .list button {
+      display: block;
+      width: 100%;
+      padding: .65rem .9rem;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: .95rem;
+      text-align: left;
+      cursor: pointer;
+    }
+    .list button:hover { background: #f0f4fa; border-color: #4a90d9; }
+    .empty { font-size: .85rem; color: #999; text-align: center; padding: 1rem 0; }
+    .error { color: #c33; font-size: .85rem; margin-top: .6rem; min-height: 1.2em; text-align: center; }
+    .logout { display: block; text-align: center; margin-top: 1rem; font-size: .85rem; color: #4a90d9; cursor: pointer; background: none; border: none; }
+    .logout:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Select a family tree</h1>
+    <div class="sub">Choose which instance to view.</div>
+    <ul id="instanceList" class="list"></ul>
+    <div id="pickerError" class="error"></div>
+    <button class="logout" id="logoutBtn">Log out</button>
+  </div>
+
+  <script>
+    const listEl = document.getElementById('instanceList');
+    const errorEl = document.getElementById('pickerError');
+
+    async function load() {
+      try {
+        const res = await fetch('/auth/me', { headers: { 'Accept': 'application/json' } });
+        if (res.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const data = await res.json();
+
+        if (data.user?.role !== 'admin') {
+          // Non-admins shouldn't be here; redirect to viewer.
+          window.location.href = '/demo/relationship';
+          return;
+        }
+
+        const instances = data.instances || [];
+        if (instances.length === 0) {
+          listEl.innerHTML = '<li class="empty">No instances created yet.<br>Use the admin CLI to create one.</li>';
+          return;
+        }
+
+        listEl.innerHTML = '';
+        for (const inst of instances) {
+          const li = document.createElement('li');
+          const btn = document.createElement('button');
+          btn.textContent = `${inst.display_name} (${inst.slug})`;
+          btn.addEventListener('click', () => selectInstance(inst.slug));
+          li.appendChild(btn);
+          listEl.appendChild(li);
+        }
+      } catch (err) {
+        errorEl.textContent = err.message || 'Failed to load instances';
+      }
+    }
+
+    function getCsrfToken() {
+      const m = document.cookie.match(/(?:^|;\s*)tree_csrf=([^;]+)/);
+      return m ? m[1] : '';
+    }
+
+    async function selectInstance(slug) {
+      errorEl.textContent = '';
+      try {
+        const res = await fetch('/auth/switch-instance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          body: JSON.stringify({ slug }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.detail || `Switch failed (${res.status})`);
+        }
+        window.location.href = '/demo/relationship';
+      } catch (err) {
+        errorEl.textContent = err.message || 'Failed to switch instance';
+      }
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/auth/logout');
+      window.location.href = '/login';
+    });
+
+    load();
+  </script>
+</body>
+</html>

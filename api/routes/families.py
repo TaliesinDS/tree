@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 try:
     from ..db import db_conn
@@ -17,8 +17,20 @@ except ImportError:  # pragma: no cover
 router = APIRouter()
 
 
+def _slug(request: Request) -> str | None:
+    return getattr(request.state, "instance_slug", None)
+
+
+def _enforce_guest_privacy(request: Request, privacy: str) -> str:
+    user = getattr(request.state, "user", None)
+    if user and user.get("role") == "guest" and privacy.lower() == "off":
+        return "on"
+    return privacy
+
+
 @router.get("/families")
 def list_families(
+    request: Request,
     limit: int = Query(default=5000, ge=1, le=50_000),
     offset: int = Query(default=0, ge=0, le=5_000_000),
     include_total: bool = False,
@@ -28,8 +40,9 @@ def list_families(
 
     Intended for building a global Families index in the UI.
     """
+    privacy = _enforce_guest_privacy(request, privacy)
 
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         total = None
         if include_total:
             total = conn.execute("SELECT COUNT(*) FROM family").fetchone()[0]

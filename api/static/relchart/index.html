@@ -15,6 +15,7 @@
           <div class="sub">Graphviz WASM • family hubs</div>
         </div>
 
+        <div id="authBadge" class="authBadge"></div>
         <button id="themeToggle" class="themeToggle" type="button" title="Toggle theme">Theme</button>
       </div>
 
@@ -247,7 +248,7 @@
                   <div class="optHint">(Soon) Keyboard shortcuts, wheel zoom speed, pan modifiers.</div>
                 </div>
 
-                <div class="optionsSection">
+                <div class="optionsSection" id="optPrivacySection">
                   <div class="optionsSectionTitle">Privacy</div>
                   <div class="optRow">
                     <label class="optLabel" for="optPrivacyFilter">Privacy filter</label>
@@ -256,7 +257,7 @@
                   <div class="optHint">When enabled, living/private individuals are shown as "Private". Disable to reveal all names and dates.</div>
                 </div>
 
-                <div class="optionsSection">
+                <div class="optionsSection" id="optImportSection">
                   <div class="optionsSectionTitle">Import</div>
                   <div class="optHint">Upload a Gramps package (.gpkg) to replace the current dataset.</div>
                   <div class="importControls">
@@ -272,6 +273,10 @@
                 <div class="optionsSection">
                   <div class="optionsSectionTitle">Developer</div>
                   <div class="optHint">(Soon) Debug overlays and diagnostics.</div>
+                </div>
+
+                <div class="optionsSection" id="guestManagement" hidden>
+                  <!-- Guest management UI rendered by guests.js -->
                 </div>
               </div>
             </details>

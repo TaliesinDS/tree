@@ -1,6 +1,7 @@
 import { els, state } from '../state.js';
 import * as api from '../api.js';
 import { formatGrampsDateEnglish, formatGrampsDateEnglishCard } from '../util/date.js';
+import { renderUserNotesTab } from './userNotes.js';
 
 let _selection = null;
 let _loadNeighborhood = null;
@@ -945,7 +946,8 @@ function _renderPersonDetailPanelBody() {
   }
 
   if (tab === 'user_notes') {
-    body.innerHTML = '<div class="muted">User notes coming soon.</div>';
+    const grampsId = data?.person?.gramps_id || '';
+    renderUserNotesTab(body, grampsId);
     return;
   }
 

@@ -67,6 +67,8 @@ import { initKeybindsFeature } from './features/keybinds.js';
 import { initGraphFeature, rerenderGraph } from './features/graph.js';
 import { initOptionsFeature } from './features/options.js';
 import { initImportFeature } from './features/import.js';
+import { initAuthFeature } from './features/auth.js';
+import { initGuestsFeature } from './features/guests.js';
 
 function _selectParentFamilyForPersonInSidebar(personApiId) {
   const pid = String(personApiId || '').trim();
@@ -433,6 +435,10 @@ try {
 try { loadNeighborhood(); } catch (_) {}
 
 initImportFeature({ loadNeighborhood, setStatus });
+
+initAuthFeature({ loadNeighborhood });
+
+initGuestsFeature();
 
 initPeopleFeature();
 

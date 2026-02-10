@@ -2428,3 +2428,138 @@ html[data-theme="light"] .importOverlay {
 @keyframes importSpin {
   to { transform: rotate(360deg); }
 }
+
+/* ─── Auth badge (sidebar brand area) ─── */
+.authBadge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 6px;
+  font-size: 11.5px;
+  line-height: 1.2;
+  width: 100%;
+  margin-top: 3px;
+}
+.authUser {
+  font-weight: 600;
+  color: var(--text);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.authRole {
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.authRole--admin { background: #4a90d9; color: #fff; }
+.authRole--user  { background: #3a8a5c; color: #fff; }
+.authRole--guest { background: #7a6a3a; color: #fff; }
+.authInstance {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.authInstanceSelect {
+  font-size: 11px;
+  padding: 1px 4px;
+  max-width: 130px;
+}
+.authLogout {
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
+/* ─── Guest management (inside options panel) ─── */
+.guestList {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 0 0;
+}
+.guestItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.guestItem:last-child { border-bottom: none; }
+.guestRemoveBtn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 4px;
+}
+.guestAddRow {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.guestAddRow input {
+  flex: 1;
+  min-width: 80px;
+  font-size: 12px;
+  padding: 3px 5px;
+}
+
+/* ─── User notes (in detail panel) ─── */
+.userNotesList {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.userNoteItem {
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0;
+}
+.userNoteItem:last-child { border-bottom: none; }
+.userNoteMeta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.userNoteBody {
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.userNoteActions {
+  margin-top: 3px;
+  display: flex;
+  gap: 6px;
+}
+.userNoteActions button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+}
+.userNoteActions button:hover { text-decoration: underline; }
+.userNoteAdd {
+  margin-top: 6px;
+}
+.userNoteAdd textarea {
+  width: 100%;
+  min-height: 60px;
+  font-size: 12px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  resize: vertical;
+}
+.userNoteAddBtns {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  justify-content: flex-end;
+}

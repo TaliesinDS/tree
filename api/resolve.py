@@ -9,10 +9,10 @@ except ImportError:  # pragma: no cover
     from db import db_conn
 
 
-def _resolve_person_id(person_ref: str) -> str:
+def _resolve_person_id(person_ref: str, instance_slug: str | None = None) -> str:
     """Resolve either an internal handle (_abc...) or a Gramps ID (I0001) to the internal handle."""
 
-    with db_conn() as conn:
+    with db_conn(instance_slug) as conn:
         row = conn.execute(
             """
             SELECT id

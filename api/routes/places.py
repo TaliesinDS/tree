@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 try:
     from ..db import db_conn
@@ -15,8 +15,12 @@ except ImportError:  # pragma: no cover
 router = APIRouter()
 
 
+def _slug(request: Request) -> str | None:
+    return getattr(request.state, "instance_slug", None)
+
+
 @router.get("/places/events_counts")
-def places_events_counts() -> dict[str, Any]:
+def places_events_counts(request: Request) -> dict[str, Any]:
     """Return per-place event counts (privacy-safe).
 
     Used by the Map tab to decide whether to show the per-place events menu.
@@ -26,7 +30,7 @@ def places_events_counts() -> dict[str, Any]:
     - Only includes non-private places.
     """
 
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         rows = conn.execute(
             """
             SELECT
@@ -48,6 +52,7 @@ def places_events_counts() -> dict[str, Any]:
 
 @router.get("/places")
 def list_places(
+    request: Request,
     limit: int = Query(default=50_000, ge=1, le=50_000),
     offset: int = Query(default=0, ge=0, le=5_000_000),
     q: Optional[str] = None,
@@ -62,7 +67,7 @@ def list_places(
     qn = (q or "").strip()
     q_like = f"%{qn}%" if qn else None
 
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         def _has_col(table: str, col: str) -> bool:
             try:
                 row = conn.execute(
@@ -219,7 +224,7 @@ def list_places(
 
 
 @router.get("/places/{place_id}")
-def get_place(place_id: str) -> dict[str, Any]:
+def get_place(place_id: str, request: Request) -> dict[str, Any]:
     # Placeholder.
     return {
         "id": place_id,

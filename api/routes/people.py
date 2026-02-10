@@ -5,7 +5,7 @@ import re
 from typing import Any, Optional
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 try:
     from ..db import db_conn
@@ -26,8 +26,20 @@ except ImportError:  # pragma: no cover
 router = APIRouter()
 
 
+def _slug(request: Request) -> str | None:
+    return getattr(request.state, "instance_slug", None)
+
+
+def _enforce_guest_privacy(request: Request, privacy: str) -> str:
+    user = getattr(request.state, "user", None)
+    if user and user.get("role") == "guest" and privacy.lower() == "off":
+        return "on"
+    return privacy
+
+
 @router.get("/people")
 def list_people(
+    request: Request,
     limit: int = Query(default=5000, ge=1, le=50_000),
     offset: int = Query(default=0, ge=0, le=5_000_000),
     include_total: bool = False,
@@ -38,8 +50,9 @@ def list_people(
     This endpoint is intended for building a global People index in the UI.
     Use limit/offset pagination for large datasets.
     """
+    privacy = _enforce_guest_privacy(request, privacy)
 
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         total = None
         if include_total:
             total = conn.execute("SELECT COUNT(*) FROM person").fetchone()[0]
@@ -154,13 +167,15 @@ def list_people(
 
 
 @router.get("/people/{person_id}")
-def get_person(person_id: str, privacy: str = "on") -> dict[str, Any]:
+def get_person(person_id: str, request: Request, privacy: str = "on") -> dict[str, Any]:
     if not person_id:
         raise HTTPException(status_code=400, detail="missing person_id")
+    privacy = _enforce_guest_privacy(request, privacy)
+    slug = _slug(request)
 
-    resolved_id = _resolve_person_id(person_id)
+    resolved_id = _resolve_person_id(person_id, slug)
 
-    with db_conn() as conn:
+    with db_conn(slug) as conn:
         row = conn.execute(
             """
             SELECT id, gramps_id, display_name, given_name, surname, gender,
@@ -253,7 +268,7 @@ def get_person(person_id: str, privacy: str = "on") -> dict[str, Any]:
 
 
 @router.get("/people/{person_id}/details")
-def get_person_details(person_id: str, privacy: str = "on") -> dict[str, Any]:
+def get_person_details(person_id: str, request: Request, privacy: str = "on") -> dict[str, Any]:
     """Richer person payload for the UI detail panel.
 
     Returns:
@@ -266,9 +281,11 @@ def get_person_details(person_id: str, privacy: str = "on") -> dict[str, Any]:
 
     if not person_id:
         raise HTTPException(status_code=400, detail="missing person_id")
+    privacy = _enforce_guest_privacy(request, privacy)
+    slug = _slug(request)
 
-    resolved_id = _resolve_person_id(person_id)
-    person_core = get_person(resolved_id, privacy=privacy)
+    resolved_id = _resolve_person_id(person_id, slug)
+    person_core = get_person(resolved_id, request, privacy=privacy)
 
     # If person is private/redacted, don't leak associated edges/notes.
     if privacy.lower() != "off" and (bool(person_core.get("is_private")) or person_core.get("display_name") == "Private"):
@@ -283,7 +300,7 @@ def get_person_details(person_id: str, privacy: str = "on") -> dict[str, Any]:
         }
         return _compact_json(out) or {"person": person_core}
 
-    with db_conn() as conn:
+    with db_conn(slug) as conn:
         def _has_col(table: str, col: str) -> bool:
             try:
                 row = conn.execute(
@@ -424,7 +441,7 @@ def get_person_details(person_id: str, privacy: str = "on") -> dict[str, Any]:
 
 
 @router.get("/people/{person_id}/relations")
-def get_person_relations(person_id: str, privacy: str = "on") -> dict[str, Any]:
+def get_person_relations(person_id: str, request: Request, privacy: str = "on") -> dict[str, Any]:
     """Relationship-style payload for the UI Relations tab (Gramps-like).
 
     Returns:
@@ -436,9 +453,11 @@ def get_person_relations(person_id: str, privacy: str = "on") -> dict[str, Any]:
 
     if not person_id:
         raise HTTPException(status_code=400, detail="missing person_id")
+    privacy = _enforce_guest_privacy(request, privacy)
+    slug = _slug(request)
 
-    resolved_id = _resolve_person_id(person_id)
-    person_core = get_person(resolved_id, privacy=privacy)
+    resolved_id = _resolve_person_id(person_id, slug)
+    person_core = get_person(resolved_id, request, privacy=privacy)
 
     # If person is private/redacted, don't leak relationship graph.
     if privacy.lower() != "off" and (bool(person_core.get("is_private")) or person_core.get("display_name") == "Private"):
@@ -450,7 +469,7 @@ def get_person_relations(person_id: str, privacy: str = "on") -> dict[str, Any]:
         }
         return _compact_json(out) or {"person": person_core}
 
-    with db_conn() as conn:
+    with db_conn(slug) as conn:
         # Parents from person_parent (direct edges)
         parent_ids_pp = [
             str(r[0])
@@ -600,9 +619,10 @@ def get_person_relations(person_id: str, privacy: str = "on") -> dict[str, Any]:
 
 
 @router.get("/people/search")
-def search_people(q: str = Query(min_length=1, max_length=200), privacy: str = "on") -> dict[str, Any]:
+def search_people(request: Request, q: str = Query(min_length=1, max_length=200), privacy: str = "on") -> dict[str, Any]:
+    privacy = _enforce_guest_privacy(request, privacy)
     q_like = f"%{q}%"
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         rows = conn.execute(
             """
             SELECT id, gramps_id, display_name,

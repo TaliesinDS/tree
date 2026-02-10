@@ -275,10 +275,20 @@ When adding a new feature:
 | Detail panel | `js/features/detailPanel.js` |
 | Import feature | `js/features/import.js` |
 | Options/privacy toggle | `js/features/options.js` |
+| Auth UI (badge, logout) | `js/features/auth.js` |
+| User notes (detail panel) | `js/features/userNotes.js` |
+| Guest management | `js/features/guests.js` |
 | New backend endpoint | `api/routes/<domain>.py` |
+| Auth routes (login etc.) | `api/routes/auth.py` |
+| User notes CRUD | `api/routes/user_notes.py` |
+| Instance member mgmt | `api/routes/instance_members.py` |
+| Auth helpers (JWT, hash) | `api/auth.py` |
+| Auth middleware | `api/middleware.py` |
+| Admin CLI | `api/admin.py` |
 | Import pipeline | `api/import_service.py` |
 | Privacy logic | `api/privacy.py` |
 | Name formatting | `api/names.py` |
+| Core schema (users etc.) | `sql/schema_core.sql` |
 
 ### Why this matters
 

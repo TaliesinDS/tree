@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 
 try:
     from ..db import db_conn
@@ -23,13 +23,25 @@ except ImportError:  # pragma: no cover
 
 router = APIRouter()
 
+
+def _slug(request: Request) -> str | None:
+    return getattr(request.state, "instance_slug", None)
+
+
+def _enforce_guest_privacy(request: Request, privacy: str) -> str:
+    """Guests cannot disable privacy — override to 'on'."""
+    user = getattr(request.state, "user", None)
+    if user and user.get("role") == "guest" and privacy.lower() == "off":
+        return "on"
+    return privacy
+
 # If someone is connected (parent/child) to a clearly-historic public person,
 # we can safely assume they are not living, even if their own dates are missing.
 _HISTORIC_YEAR_CUTOFF_YEARS_AGO = 150
 
 
 @router.post("/graph/places")
-def graph_places(payload: dict[str, Any] = Body(default_factory=dict), privacy: str = "on") -> dict[str, Any]:
+def graph_places(request: Request, payload: dict[str, Any] = Body(default_factory=dict), privacy: str = "on") -> dict[str, Any]:
     """Return distinct public places referenced by events for a set of people.
 
     This is intended to power the Map "Scope: Current graph" pins without making
@@ -54,6 +66,7 @@ def graph_places(payload: dict[str, Any] = Body(default_factory=dict), privacy: 
 
     # Hard guardrails to avoid huge requests.
     person_ids = person_ids[:800]
+    privacy = _enforce_guest_privacy(request, privacy)
 
     limit_raw = payload.get("limit")
     try:
@@ -65,7 +78,7 @@ def graph_places(payload: dict[str, Any] = Body(default_factory=dict), privacy: 
     if not person_ids:
         return {"results": [], "total": 0}
 
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         # Apply privacy/redaction policy to the input people ids first.
         cores = _people_core_many(conn, person_ids, skip_privacy=(privacy.lower() == "off"))
         public_person_ids: list[str] = []
@@ -118,6 +131,7 @@ def graph_places(payload: dict[str, Any] = Body(default_factory=dict), privacy: 
 
 @router.get("/graph/neighborhood")
 def graph_neighborhood(
+    request: Request,
     id: str = Query(min_length=1, max_length=64),
     depth: int = Query(default=2, ge=0, le=100),
     max_nodes: int = Query(default=1000, ge=1, le=6000),
@@ -130,10 +144,12 @@ def graph_neighborhood(
     - layout=direct: person nodes only with parent/spouse edges
     """
 
-    root_id = _resolve_person_id(id)
+    privacy = _enforce_guest_privacy(request, privacy)
+    slug = _slug(request)
+    root_id = _resolve_person_id(id, slug)
     skip_privacy = (privacy.lower() == "off")
 
-    with db_conn() as conn:
+    with db_conn(slug) as conn:
         distances = _bfs_neighborhood_distances(conn, root_id, depth=depth, max_nodes=max_nodes)
         person_ids = list(distances.keys())
 
@@ -519,6 +535,7 @@ def graph_neighborhood(
 
 @router.get("/graph/family/parents")
 def graph_family_parents(
+    request: Request,
     family_id: str = Query(min_length=1, max_length=64),
     child_id: Optional[str] = Query(default=None, max_length=64),
     privacy: str = "on",
@@ -528,9 +545,10 @@ def graph_family_parents(
     Intended for UI "expand" actions where the graph already contains the family hub
     (via a child edge) but the parents are outside the current neighborhood cutoff.
     """
+    privacy = _enforce_guest_privacy(request, privacy)
     skip_privacy = (privacy.lower() == "off")
 
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         fam = conn.execute(
             """
             SELECT id, gramps_id, father_id, mother_id, is_private
@@ -690,6 +708,7 @@ def graph_family_parents(
 
 @router.get("/graph/family/children")
 def graph_family_children(
+    request: Request,
     family_id: str = Query(min_length=1, max_length=64),
     include_spouses: bool = True,
     privacy: str = "on",
@@ -702,9 +721,10 @@ def graph_family_children(
     - If include_spouses: also returns (child as parent) families + spouse nodes + parent edges,
       but does not include grandchildren by default (keeps expansions controlled).
     """
+    privacy = _enforce_guest_privacy(request, privacy)
     skip_privacy = (privacy.lower() == "off")
 
-    with db_conn() as conn:
+    with db_conn(_slug(request)) as conn:
         fam = conn.execute(
             """
             SELECT id, gramps_id, father_id, mother_id, is_private

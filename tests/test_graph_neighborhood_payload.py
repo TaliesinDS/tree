@@ -8,6 +8,17 @@ from typing import Any, Iterator
 import api.routes.graph as graph_routes
 
 
+class _FakeState:
+    """Minimal stand-in for starlette's request.state."""
+    instance_slug = None
+    user = {"id": 1, "username": "test", "role": "admin"}
+
+
+class _FakeRequest:
+    """Minimal stand-in for a FastAPI/Starlette Request."""
+    state = _FakeState()
+
+
 @dataclass
 class _FakeResult:
     rows: list[tuple[Any, ...]]
@@ -96,11 +107,11 @@ def test_neighborhood_family_layout_includes_child_edges() -> None:
 
     # Keep this test narrowly focused on payload wiring.
     graph_routes._bfs_neighborhood_distances = lambda *_a, **_kw: {p1: 0, p2: 0, c1: 1}
-    graph_routes._resolve_person_id = lambda _id: p1
-    graph_routes.db_conn = lambda: _fake_db_conn()
+    graph_routes._resolve_person_id = lambda _id, _slug=None: p1
+    graph_routes.db_conn = lambda _slug=None: _fake_db_conn()
     graph_routes._fetch_family_marriage_date_map = lambda *_a, **_kw: {}
 
-    payload = graph_routes.graph_neighborhood(id="I0063", depth=5, max_nodes=1000, layout="family")
+    payload = graph_routes.graph_neighborhood(request=_FakeRequest(), id="I0063", depth=5, max_nodes=1000, layout="family")
 
     nodes = payload.get("nodes")
     edges = payload.get("edges")
@@ -146,11 +157,11 @@ def test_neighborhood_edges_reference_existing_nodes() -> None:
         yield conn
 
     graph_routes._bfs_neighborhood_distances = lambda *_a, **_kw: {p1: 0, p2: 0, c1: 1}
-    graph_routes._resolve_person_id = lambda _id: p1
-    graph_routes.db_conn = lambda: _fake_db_conn()
+    graph_routes._resolve_person_id = lambda _id, _slug=None: p1
+    graph_routes.db_conn = lambda _slug=None: _fake_db_conn()
     graph_routes._fetch_family_marriage_date_map = lambda *_a, **_kw: {}
 
-    payload = graph_routes.graph_neighborhood(id="I0063", depth=1, max_nodes=1000, layout="family")
+    payload = graph_routes.graph_neighborhood(request=_FakeRequest(), id="I0063", depth=1, max_nodes=1000, layout="family")
     nodes = payload["nodes"]
     edges = payload["edges"]
 

@@ -59,7 +59,7 @@ def _truncate_all(conn: psycopg.Connection) -> None:
             cur.execute(f"TRUNCATE TABLE {t} CASCADE;")
 
 
-def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, truncate: bool) -> dict[str, int]:
+def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, truncate: bool, search_path_schema: str | None = None) -> dict[str, int]:
     export_dir = export_dir.resolve()
     if not export_dir.exists():
         raise SystemExit(f"Export dir not found: {export_dir}")
@@ -84,18 +84,22 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
 
     with psycopg.connect(database_url) as conn:
         conn.execute("SET statement_timeout TO '5min'")
+        if search_path_schema:
+            conn.execute(f"SET search_path TO {search_path_schema}, public")
         _apply_schema(conn, schema_sql_path)
         if truncate:
             _truncate_all(conn)
 
-        # Places
+        # Places — two-pass to handle self-referencing enclosed_by_id FK.
+        # Pass 1: insert all places without enclosed_by_id.
+        # Pass 2: update enclosed_by_id for places that reference other places.
         places_path = export_dir / "places.jsonl"
         rows = list(_iter_jsonl(places_path))
         with conn.cursor() as cur:
             cur.executemany(
                 """
-                INSERT INTO place (id, gramps_id, name, place_type, enclosed_by_id, lat, lon, geom, is_private)
-                VALUES (%s, %s, %s, %s, %s, %s, %s,
+                INSERT INTO place (id, gramps_id, name, place_type, lat, lon, geom, is_private)
+                VALUES (%s, %s, %s, %s, %s, %s,
                         CASE WHEN %s::double precision IS NOT NULL AND %s::double precision IS NOT NULL
                             THEN ST_SetSRID(ST_MakePoint(%s::double precision, %s::double precision), 4326)::geography
                              ELSE NULL END,
@@ -104,7 +108,6 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
                   gramps_id = EXCLUDED.gramps_id,
                   name = EXCLUDED.name,
                   place_type = EXCLUDED.place_type,
-                  enclosed_by_id = EXCLUDED.enclosed_by_id,
                   lat = EXCLUDED.lat,
                   lon = EXCLUDED.lon,
                   geom = EXCLUDED.geom,
@@ -116,7 +119,6 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
                         r.get("gramps_id"),
                         r.get("name"),
                         r.get("type") or r.get("place_type"),
-                        r.get("enclosed_by") or r.get("enclosed_by_id"),
                         r.get("lat"),
                         r.get("lon"),
                         r.get("lat"),
@@ -128,6 +130,17 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
                     for r in rows
                 ],
             )
+            # Pass 2: set enclosed_by_id now that all places exist.
+            enclosed_rows = [
+                (r.get("enclosed_by") or r.get("enclosed_by_id"), r.get("id"))
+                for r in rows
+                if r.get("enclosed_by") or r.get("enclosed_by_id")
+            ]
+            if enclosed_rows:
+                cur.executemany(
+                    "UPDATE place SET enclosed_by_id = %s WHERE id = %s;",
+                    enclosed_rows,
+                )
         counts["place"] = len(rows)
 
         # Notes

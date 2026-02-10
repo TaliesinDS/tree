@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
@@ -34,10 +34,10 @@ class ImportStatus(str, Enum):
 @dataclass
 class ImportState:
     status: ImportStatus = ImportStatus.IDLE
-    error: str | None = None
-    started_at: float | None = None
-    finished_at: float | None = None
-    counts: dict[str, int] = field(default_factory=dict)
+    error: Optional[str] = None
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    counts: dict = field(default_factory=dict)
 
 
 _state = ImportState()
@@ -82,12 +82,15 @@ def _resolve_paths() -> tuple[Path, Path]:
     return export_dir, schema_sql
 
 
-def run_import(file_bytes: bytes, filename: str, database_url: str) -> None:
+def run_import(file_bytes: bytes, filename: str, database_url: str, *, instance_slug: str | None = None) -> None:
     """Run the import pipeline synchronously, updating ``_state`` throughout.
 
     This function MUST be called from a background thread (the route handler
     starts one).  It is guarded by ``_lock`` so only one import can run at a
     time.
+
+    If *instance_slug* is provided, the import writes into the instance schema
+    (``inst_<slug>``) instead of the ``public`` schema.
     """
 
     acquired = _lock.acquire(blocking=False)
@@ -150,6 +153,7 @@ def run_import(file_bytes: bytes, filename: str, database_url: str) -> None:
                 schema_sql_path=schema_sql,
                 database_url=database_url,
                 truncate=True,
+                search_path_schema=f"inst_{instance_slug}" if instance_slug else None,
             )
             log.info("Load counts: %s", counts)
 
