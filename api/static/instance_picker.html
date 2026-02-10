@@ -11,17 +11,20 @@
       background: #f4f4f5;
       color: #1a1a1a;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
       min-height: 100vh;
+      padding: 3vh 1rem;
     }
+    .page { width: 100%; max-width: 640px; }
+
+    /* ─── Instance picker card ─── */
     .card {
       background: #fff;
       border-radius: 8px;
       box-shadow: 0 2px 12px rgba(0,0,0,.08);
       padding: 2rem 2.5rem;
       width: 100%;
-      max-width: 420px;
     }
     h1 { font-size: 1.3rem; margin-bottom: .4rem; text-align: center; font-weight: 600; }
     .sub { font-size: .85rem; color: #888; text-align: center; margin-bottom: 1.2rem; }
@@ -43,73 +46,232 @@
     .error { color: #c33; font-size: .85rem; margin-top: .6rem; min-height: 1.2em; text-align: center; }
     .logout { display: block; text-align: center; margin-top: 1rem; font-size: .85rem; color: #4a90d9; cursor: pointer; background: none; border: none; }
     .logout:hover { text-decoration: underline; }
+
+    /* ─── Admin panel ─── */
+    .admin-panel {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+      margin-top: 1rem;
+      overflow: hidden;
+    }
+    .admin-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: .8rem 1.2rem;
+      background: #fafafa;
+      border: none;
+      cursor: pointer;
+      font-size: .95rem;
+      font-weight: 600;
+      color: #444;
+    }
+    .admin-toggle:hover { background: #f0f0f0; }
+    .admin-toggle .chevron { transition: transform .2s; font-size: .75rem; }
+    .admin-toggle.open .chevron { transform: rotate(180deg); }
+    .admin-body { display: none; padding: 0 1.2rem 1.2rem; }
+    .admin-body.open { display: block; }
+
+    .admin-tabs { display: flex; gap: 0; border-bottom: 1px solid #e0e0e0; margin-bottom: 1rem; }
+    .admin-tabs button {
+      flex: 1;
+      padding: .55rem .5rem;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      font-size: .85rem;
+      font-weight: 500;
+      color: #888;
+    }
+    .admin-tabs button.active { color: #4a90d9; border-bottom-color: #4a90d9; }
+    .admin-tabs button:hover { color: #333; }
+
+    .admin-section { display: none; }
+    .admin-section.active { display: block; }
+
+    /* Tables */
+    .admin-table { width: 100%; border-collapse: collapse; font-size: .82rem; margin-bottom: .8rem; }
+    .admin-table th { text-align: left; padding: .35rem .4rem; border-bottom: 1px solid #ddd; color: #888; font-weight: 500; }
+    .admin-table td { padding: .35rem .4rem; border-bottom: 1px solid #f0f0f0; }
+    .admin-table .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: .78rem; }
+    .admin-table .del-btn {
+      background: none; border: none; cursor: pointer; color: #c33; font-size: .78rem; padding: .15rem .4rem;
+    }
+    .admin-table .del-btn:hover { text-decoration: underline; }
+    .badge { display: inline-block; font-size: .7rem; padding: .1rem .35rem; border-radius: 3px; font-weight: 500; }
+    .badge.admin { background: #e8daef; color: #6c3483; }
+    .badge.user { background: #d4efdf; color: #1e8449; }
+    .badge.guest { background: #fdebd0; color: #b9770e; }
+
+    /* Forms */
+    .admin-form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-end; margin-bottom: .6rem; }
+    .admin-form .field { display: flex; flex-direction: column; flex: 1; min-width: 100px; }
+    .admin-form .field label { font-size: .72rem; color: #888; margin-bottom: .15rem; }
+    .admin-form .field input, .admin-form .field select {
+      padding: .35rem .5rem;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      font-size: .82rem;
+    }
+    .admin-form .field input:focus, .admin-form .field select:focus {
+      outline: none;
+      border-color: #4a90d9;
+    }
+    .admin-form .add-btn {
+      padding: .35rem .8rem;
+      background: #4a90d9;
+      color: #fff;
+      border: none;
+      border-radius: 3px;
+      font-size: .82rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .admin-form .add-btn:hover { background: #3a7cc5; }
+    .admin-msg { font-size: .78rem; min-height: 1.1em; margin-bottom: .4rem; }
+    .admin-msg.err { color: #c33; }
+    .admin-msg.ok { color: #1e8449; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Select a family tree</h1>
-    <div class="sub">Choose which instance to view.</div>
-    <ul id="instanceList" class="list"></ul>
-    <div id="pickerError" class="error"></div>
-    <button class="logout" id="logoutBtn">Log out</button>
+  <div class="page">
+    <!-- Instance picker card (unchanged) -->
+    <div class="card">
+      <h1>Select a family tree</h1>
+      <div class="sub">Choose which instance to view.</div>
+      <ul id="instanceList" class="list"></ul>
+      <div id="pickerError" class="error"></div>
+      <button class="logout" id="logoutBtn">Log out</button>
+    </div>
+
+    <!-- Admin panel -->
+    <div class="admin-panel" id="adminPanel" style="display:none">
+      <button class="admin-toggle" id="adminToggle">
+        Admin Panel <span class="chevron">▼</span>
+      </button>
+      <div class="admin-body" id="adminBody">
+        <div class="admin-tabs">
+          <button class="active" data-admin-tab="instances">Instances</button>
+          <button data-admin-tab="users">Users</button>
+        </div>
+
+        <!-- Instances tab -->
+        <div class="admin-section active" id="adminInstances">
+          <div class="admin-form" id="createInstanceForm">
+            <div class="field"><label>Slug</label><input id="newInstSlug" placeholder="my_tree" /></div>
+            <div class="field"><label>Display name</label><input id="newInstName" placeholder="My Family Tree" /></div>
+            <button class="add-btn" id="createInstBtn">Create</button>
+          </div>
+          <div class="admin-msg" id="instMsg"></div>
+          <table class="admin-table">
+            <thead><tr><th>Slug</th><th>Name</th><th>Created</th><th></th></tr></thead>
+            <tbody id="instTableBody"></tbody>
+          </table>
+        </div>
+
+        <!-- Users tab -->
+        <div class="admin-section" id="adminUsers">
+          <div class="admin-form" id="createUserForm">
+            <div class="field"><label>Username</label><input id="newUserName" placeholder="jane" /></div>
+            <div class="field"><label>Password</label><input id="newUserPw" type="password" placeholder="••••••••" /></div>
+            <div class="field"><label>Role</label>
+              <select id="newUserRole"><option value="user">user</option><option value="guest">guest</option></select>
+            </div>
+            <div class="field"><label>Instance</label>
+              <select id="newUserInst"></select>
+            </div>
+            <button class="add-btn" id="createUserBtn">Create</button>
+          </div>
+          <div class="admin-msg" id="userMsg"></div>
+          <table class="admin-table">
+            <thead><tr><th>Username</th><th>Display</th><th>Role</th><th>Instance</th><th></th></tr></thead>
+            <tbody id="userTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
-    const listEl = document.getElementById('instanceList');
-    const errorEl = document.getElementById('pickerError');
-
-    async function load() {
-      try {
-        const res = await fetch('/auth/me', { headers: { 'Accept': 'application/json' } });
-        if (res.status === 401) {
-          window.location.href = '/login';
-          return;
-        }
-        const data = await res.json();
-
-        if (data.user?.role !== 'admin') {
-          // Non-admins shouldn't be here; redirect to viewer.
-          window.location.href = '/demo/relationship';
-          return;
-        }
-
-        const instances = data.instances || [];
-        if (instances.length === 0) {
-          listEl.innerHTML = '<li class="empty">No instances created yet.<br>Use the admin CLI to create one.</li>';
-          return;
-        }
-
-        listEl.innerHTML = '';
-        for (const inst of instances) {
-          const li = document.createElement('li');
-          const btn = document.createElement('button');
-          btn.textContent = `${inst.display_name} (${inst.slug})`;
-          btn.addEventListener('click', () => selectInstance(inst.slug));
-          li.appendChild(btn);
-          listEl.appendChild(li);
-        }
-      } catch (err) {
-        errorEl.textContent = err.message || 'Failed to load instances';
-      }
-    }
-
+    /* ─── Shared helpers ─── */
     function getCsrfToken() {
       const m = document.cookie.match(/(?:^|;\s*)tree_csrf=([^;]+)/);
       return m ? m[1] : '';
     }
 
+    async function apiFetch(url, opts = {}) {
+      const headers = { 'Accept': 'application/json', ...(opts.headers || {}) };
+      if (opts.method && opts.method !== 'GET') {
+        headers['X-CSRF-Token'] = getCsrfToken();
+      }
+      const res = await fetch(url, { ...opts, headers });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || `Request failed (${res.status})`);
+      }
+      return res.json();
+    }
+
+    /* ─── Instance picker (top card) ─── */
+    const listEl = document.getElementById('instanceList');
+    const errorEl = document.getElementById('pickerError');
+    let _currentUser = null;
+    let _allInstances = [];
+
+    async function load() {
+      try {
+        const data = await apiFetch('/auth/me');
+        _currentUser = data.user;
+
+        if (data.user?.role !== 'admin') {
+          window.location.href = '/demo/relationship';
+          return;
+        }
+
+        const instances = data.instances || [];
+        renderPickerList(instances);
+
+        // Show admin panel for admins.
+        document.getElementById('adminPanel').style.display = '';
+        loadAdminInstances();
+        loadAdminUsers();
+      } catch (err) {
+        if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+          window.location.href = '/login';
+          return;
+        }
+        errorEl.textContent = err.message || 'Failed to load';
+      }
+    }
+
+    function renderPickerList(instances) {
+      if (instances.length === 0) {
+        listEl.innerHTML = '<li class="empty">No instances created yet. Use the admin panel below.</li>';
+        return;
+      }
+      listEl.innerHTML = '';
+      for (const inst of instances) {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.textContent = `${inst.display_name} (${inst.slug})`;
+        btn.addEventListener('click', () => selectInstance(inst.slug));
+        li.appendChild(btn);
+        listEl.appendChild(li);
+      }
+    }
+
     async function selectInstance(slug) {
       errorEl.textContent = '';
       try {
-        const res = await fetch('/auth/switch-instance', {
+        await apiFetch('/auth/switch-instance', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ slug }),
         });
-        if (!res.ok) {
-          const d = await res.json().catch(() => ({}));
-          throw new Error(d.detail || `Switch failed (${res.status})`);
-        }
         window.location.href = '/demo/relationship';
       } catch (err) {
         errorEl.textContent = err.message || 'Failed to switch instance';
@@ -120,6 +282,188 @@
       await fetch('/auth/logout');
       window.location.href = '/login';
     });
+
+    /* ─── Admin panel toggle ─── */
+    const toggleBtn = document.getElementById('adminToggle');
+    const adminBody = document.getElementById('adminBody');
+    toggleBtn.addEventListener('click', () => {
+      toggleBtn.classList.toggle('open');
+      adminBody.classList.toggle('open');
+    });
+
+    /* ─── Admin tabs ─── */
+    document.querySelectorAll('[data-admin-tab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-admin-tab]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
+        document.getElementById(btn.dataset.adminTab === 'instances' ? 'adminInstances' : 'adminUsers').classList.add('active');
+      });
+    });
+
+    /* ─── Admin: Instances ─── */
+    const instMsg = document.getElementById('instMsg');
+    const instBody = document.getElementById('instTableBody');
+
+    async function loadAdminInstances() {
+      try {
+        const data = await apiFetch('/admin/instances');
+        _allInstances = data.instances || [];
+        renderInstTable(_allInstances);
+        populateInstanceDropdown(_allInstances);
+        // Also refresh the picker list.
+        renderPickerList(_allInstances.map(i => ({ slug: i.slug, display_name: i.display_name })));
+      } catch (err) {
+        instMsg.textContent = err.message;
+        instMsg.className = 'admin-msg err';
+      }
+    }
+
+    function renderInstTable(instances) {
+      instBody.innerHTML = '';
+      for (const inst of instances) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(inst.slug)}</td>
+          <td>${esc(inst.display_name)}</td>
+          <td>${inst.created_at ? inst.created_at.slice(0, 10) : '—'}</td>
+          <td><button class="del-btn" data-del-inst="${esc(inst.slug)}">delete</button></td>
+        `;
+        instBody.appendChild(tr);
+      }
+      instBody.querySelectorAll('[data-del-inst]').forEach(btn => {
+        btn.addEventListener('click', () => deleteInstance(btn.dataset.delInst));
+      });
+    }
+
+    document.getElementById('createInstBtn').addEventListener('click', async () => {
+      const slug = document.getElementById('newInstSlug').value.trim();
+      const name = document.getElementById('newInstName').value.trim();
+      instMsg.textContent = '';
+      if (!slug || !name) { instMsg.textContent = 'Slug and name required'; instMsg.className = 'admin-msg err'; return; }
+      try {
+        await apiFetch('/admin/instances', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug, name }),
+        });
+        document.getElementById('newInstSlug').value = '';
+        document.getElementById('newInstName').value = '';
+        instMsg.textContent = `Instance "${slug}" created`;
+        instMsg.className = 'admin-msg ok';
+        loadAdminInstances();
+      } catch (err) {
+        instMsg.textContent = err.message;
+        instMsg.className = 'admin-msg err';
+      }
+    });
+
+    async function deleteInstance(slug) {
+      if (!confirm(`Delete instance "${slug}"? This will drop all its data permanently.`)) return;
+      instMsg.textContent = '';
+      try {
+        await apiFetch(`/admin/instances/${slug}`, { method: 'DELETE' });
+        instMsg.textContent = `Instance "${slug}" deleted`;
+        instMsg.className = 'admin-msg ok';
+        loadAdminInstances();
+        loadAdminUsers();
+      } catch (err) {
+        instMsg.textContent = err.message;
+        instMsg.className = 'admin-msg err';
+      }
+    }
+
+    /* ─── Admin: Users ─── */
+    const userMsg = document.getElementById('userMsg');
+    const userBody = document.getElementById('userTableBody');
+
+    function populateInstanceDropdown(instances) {
+      const sel = document.getElementById('newUserInst');
+      sel.innerHTML = '';
+      for (const inst of instances) {
+        const opt = document.createElement('option');
+        opt.value = inst.slug;
+        opt.textContent = inst.display_name || inst.slug;
+        sel.appendChild(opt);
+      }
+    }
+
+    async function loadAdminUsers() {
+      try {
+        const data = await apiFetch('/admin/users');
+        renderUserTable(data.users || []);
+      } catch (err) {
+        userMsg.textContent = err.message;
+        userMsg.className = 'admin-msg err';
+      }
+    }
+
+    function renderUserTable(users) {
+      userBody.innerHTML = '';
+      for (const u of users) {
+        const isSelf = _currentUser && u.id === _currentUser.id;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(u.username)}</td>
+          <td>${esc(u.display_name || '—')}</td>
+          <td><span class="badge ${u.role}">${u.role}</span></td>
+          <td class="mono">${esc(u.instance || '—')}</td>
+          <td>${isSelf ? '' : `<button class="del-btn" data-del-user="${u.id}">delete</button>`}</td>
+        `;
+        userBody.appendChild(tr);
+      }
+      userBody.querySelectorAll('[data-del-user]').forEach(btn => {
+        btn.addEventListener('click', () => deleteUser(parseInt(btn.dataset.delUser, 10)));
+      });
+    }
+
+    document.getElementById('createUserBtn').addEventListener('click', async () => {
+      const username = document.getElementById('newUserName').value.trim();
+      const password = document.getElementById('newUserPw').value;
+      const role = document.getElementById('newUserRole').value;
+      const instance = document.getElementById('newUserInst').value;
+      userMsg.textContent = '';
+      if (!username || !password || !instance) {
+        userMsg.textContent = 'All fields required';
+        userMsg.className = 'admin-msg err';
+        return;
+      }
+      try {
+        await apiFetch('/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, role, instance }),
+        });
+        document.getElementById('newUserName').value = '';
+        document.getElementById('newUserPw').value = '';
+        userMsg.textContent = `User "${username}" created`;
+        userMsg.className = 'admin-msg ok';
+        loadAdminUsers();
+      } catch (err) {
+        userMsg.textContent = err.message;
+        userMsg.className = 'admin-msg err';
+      }
+    });
+
+    async function deleteUser(userId) {
+      if (!confirm('Delete this user?')) return;
+      userMsg.textContent = '';
+      try {
+        await apiFetch(`/admin/users/${userId}`, { method: 'DELETE' });
+        userMsg.textContent = 'User deleted';
+        userMsg.className = 'admin-msg ok';
+        loadAdminUsers();
+      } catch (err) {
+        userMsg.textContent = err.message;
+        userMsg.className = 'admin-msg err';
+      }
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s || '';
+      return d.innerHTML;
+    }
 
     load();
   </script>

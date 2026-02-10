@@ -6,6 +6,8 @@ Admins can also manage user-level accounts.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -19,6 +21,8 @@ except ImportError:  # pragma: no cover
     from db import db_conn
 
 router = APIRouter(tags=["members"])
+
+_SLUG_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 
 
 class CreateGuestRequest(BaseModel):
@@ -227,3 +231,170 @@ def admin_list_users(request: Request) -> dict[str, Any]:
             for r in rows
         ]
     }
+
+
+# ─── Admin create / delete endpoints ───
+
+
+class CreateInstanceRequest(BaseModel):
+    slug: str
+    name: str
+
+
+@router.post("/admin/instances")
+def admin_create_instance(body: CreateInstanceRequest, request: Request) -> dict[str, Any]:
+    """Create a new family-tree instance (admin only)."""
+    user = get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    slug = body.slug.lower().strip()
+    if not _SLUG_RE.match(slug):
+        raise HTTPException(status_code=400, detail=f"Invalid slug. Must match {_SLUG_RE.pattern}")
+
+    schema_name = f"inst_{slug}"
+    genealogy_schema_sql = Path(__file__).resolve().parents[1].parent / "sql" / "schema.sql"
+
+    with db_conn() as conn:
+        # Check uniqueness.
+        existing = conn.execute(
+            "SELECT id FROM _core.instances WHERE slug = %s", (slug,)
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="Instance slug already exists")
+
+        conn.execute(
+            "INSERT INTO _core.instances (slug, display_name) VALUES (%s, %s)",
+            (slug, body.name),
+        )
+
+        # Create schema + tables.
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
+        conn.execute(f"SET search_path TO {schema_name}, public")
+
+        if genealogy_schema_sql.exists():
+            conn.execute(genealogy_schema_sql.read_text(encoding="utf-8"))
+
+        # user_note table.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_note (
+              id          SERIAL PRIMARY KEY,
+              gramps_id   TEXT NOT NULL,
+              user_id     INT NOT NULL,
+              body        TEXT NOT NULL DEFAULT '',
+              created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_user_note_gramps_id ON user_note(gramps_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_user_note_user_id ON user_note(user_id)")
+
+        conn.commit()
+
+    return {"ok": True, "slug": slug, "name": body.name}
+
+
+@router.delete("/admin/instances/{slug}")
+def admin_delete_instance(slug: str, request: Request) -> dict[str, Any]:
+    """Delete an instance and its schema (admin only)."""
+    user = get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    schema_name = f"inst_{slug}"
+
+    with db_conn() as conn:
+        inst = conn.execute(
+            "SELECT id FROM _core.instances WHERE slug = %s", (slug,)
+        ).fetchone()
+        if not inst:
+            raise HTTPException(status_code=404, detail="Instance not found")
+
+        # Remove memberships, then instance record.
+        conn.execute("DELETE FROM _core.memberships WHERE instance_id = %s", (inst[0],))
+        conn.execute("DELETE FROM _core.instances WHERE id = %s", (inst[0],))
+
+        # Drop the schema.
+        conn.execute(f"DROP SCHEMA IF EXISTS {schema_name} CASCADE")
+        conn.commit()
+
+    return {"ok": True}
+
+
+class AdminCreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str  # "user" or "guest"
+    instance: str  # instance slug
+    display_name: Optional[str] = None
+
+
+@router.post("/admin/users")
+def admin_create_user(body: AdminCreateUserRequest, request: Request) -> dict[str, Any]:
+    """Create a user or guest and assign to an instance (admin only)."""
+    user = get_current_user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    role = body.role.lower().strip()
+    if role not in ("user", "guest"):
+        raise HTTPException(status_code=400, detail="Role must be 'user' or 'guest'")
+
+    pw_error = validate_password(body.password)
+    if pw_error:
+        raise HTTPException(status_code=400, detail=pw_error)
+
+    pw_hash = hash_password(body.password)
+
+    with db_conn() as conn:
+        inst = conn.execute(
+            "SELECT id FROM _core.instances WHERE slug = %s", (body.instance,)
+        ).fetchone()
+        if not inst:
+            raise HTTPException(status_code=404, detail=f"Instance '{body.instance}' not found")
+
+        existing = conn.execute(
+            "SELECT id FROM _core.users WHERE username = %s", (body.username,)
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="Username already taken")
+
+        row = conn.execute(
+            """
+            INSERT INTO _core.users (username, display_name, password_hash, role)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+            """,
+            (body.username, body.display_name or body.username, pw_hash, role),
+        ).fetchone()
+        new_id = row[0]
+
+        conn.execute(
+            "INSERT INTO _core.memberships (user_id, instance_id, role) VALUES (%s, %s, %s)",
+            (new_id, inst[0], role),
+        )
+        conn.commit()
+
+    return {"ok": True, "user_id": new_id, "username": body.username, "role": role, "instance": body.instance}
+
+
+@router.delete("/admin/users/{user_id}")
+def admin_delete_user(user_id: int, request: Request) -> dict[str, Any]:
+    """Delete a user account (admin only). Cannot delete yourself."""
+    current = get_current_user(request)
+    if current["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    if current["id"] == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    with db_conn() as conn:
+        target = conn.execute("SELECT id, role FROM _core.users WHERE id = %s", (user_id,)).fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        conn.execute("DELETE FROM _core.memberships WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM _core.users WHERE id = %s", (user_id,))
+        conn.commit()
+
+    return {"ok": True}
