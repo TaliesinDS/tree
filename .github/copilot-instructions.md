@@ -9,6 +9,7 @@ This file provides project-specific context for GitHub Copilot. It is automatica
 - **Source of truth**: Gramps Desktop (export via `.gramps`/`.gpkg`)
 - **Backend**: FastAPI + PostgreSQL/PostGIS (read-only API with server-side privacy enforcement)
 - **Frontend**: Browser-based graph viewer using Graphviz WASM
+- **Auth**: JWT cookie-based, multi-instance, role-based (admin/user/guest)
 
 ## Architecture Versions (IMPORTANT)
 
@@ -40,14 +41,24 @@ When working on the viewer, **always use the relchart v3 files** under `api/stat
 - `api/static/relchart/js/chart/lineage.js` — **ancestor/descendant line tracing** for edge highlighting
 - `api/static/relchart/js/features/import.js` — **in-browser import** (upload .gpkg/.gramps → server pipeline)
 - `api/static/relchart/js/features/options.js` — **options menu** (privacy toggle, people list width)
+- `api/static/relchart/js/features/auth.js` — **auth UI** (badge, logout, instance switcher, role gating)
+- `api/static/relchart/js/features/userNotes.js` — **user notes** (per-person notes in detail panel)
+- `api/static/relchart/js/features/guests.js` — **guest management** (create/delete guests in options menu)
 
 ### Backend
 - `api/main.py` — FastAPI app wiring (router registration + static mount)
 - `api/routes/*.py` — route handlers (read-only endpoints)
 - `api/routes/import_tree.py` — import upload + status endpoints
+- `api/routes/auth.py` — login / logout / me / switch-instance endpoints
+- `api/routes/user_notes.py` — user notes CRUD
+- `api/routes/instance_members.py` — guest management per instance
 - `api/import_service.py` — import pipeline (Gramps XML → Postgres)
-- `api/db.py` — database connection helper
-- `sql/schema.sql` — PostgreSQL schema
+- `api/auth.py` — password hashing, JWT helpers, `get_current_user()` dependency
+- `api/middleware.py` — auth middleware (JWT validation, CSRF, instance resolution)
+- `api/admin.py` — CLI admin tool (create-admin, create-instance, create-user)
+- `api/db.py` — database connection helper (instance-aware `search_path`)
+- `sql/schema.sql` — PostgreSQL schema (genealogy tables, per-instance)
+- `sql/schema_core.sql` — core schema DDL (users, instances, memberships)
 
 ## Two-Phase Layout Architecture
 
@@ -142,6 +153,29 @@ POST /import                    — upload .gpkg/.gramps file
 GET  /import/status             — poll import progress (idle/running/done/failed)
 ```
 
+### Auth endpoints
+```
+POST /auth/login                — { username, password } → sets tree_session + tree_csrf cookies
+POST /auth/logout               — clears session cookie
+GET  /auth/me                   — current user + instance info
+POST /auth/switch-instance      — { slug } → switches active instance (admin only)
+```
+
+### Instance member endpoints
+```
+POST   /instances/{slug}/guests — create a guest account
+GET    /instances/{slug}/guests — list guests
+DELETE /instances/{slug}/guests/{user_id} — remove a guest
+```
+
+### User notes endpoints
+```
+GET    /user-notes              — list notes (optional ?gramps_id= filter)
+POST   /user-notes              — create a note { gramps_id, body }
+PUT    /user-notes/{id}         — update a note { body }
+DELETE /user-notes/{id}         — delete a note
+```
+
 All graph and people endpoints accept an optional `privacy=off` query parameter
 to bypass server-side redaction (used by the client-side privacy toggle).
 
@@ -177,6 +211,46 @@ The Options menu includes a **Privacy filter** checkbox (default: ON).
 - Toggling reloads the graph and invalidates cached sidebar data (people/families/events).
 - Implementation: `api.js` exports `withPrivacy(url)` which appends `privacy=off` when the filter is disabled.
 
+## Authentication & Multi-Instance Model
+
+### Roles
+- **admin**: Can create instances, manage all users, switch between instances. Sees instance picker after login.
+- **user**: Owns one instance. Can import data, toggle privacy, manage guests. Auto-redirects to their instance.
+- **guest**: Read-only access to one instance. Cannot import, toggle privacy, or manage guests. Auto-redirects.
+
+### Auth Flow
+1. All routes require authentication (except `/login`, `/auth/login`, `/auth/logout`, `/health`, static assets).
+2. JWT stored in `tree_session` HttpOnly cookie (24h expiry, sliding refresh at 50%).
+3. CSRF: double-submit cookie (`tree_csrf` readable by JS) + `X-CSRF-Token` header on mutating requests.
+4. Rate limiting: 5 failed login attempts per IP per 5-minute window → 429.
+5. Password validation: ≥8 chars, must contain uppercase + lowercase + digit.
+
+### Multi-Instance Database Isolation
+- Each instance gets its own Postgres schema (`inst_<slug>`).
+- `db_conn(instance_slug)` sets `search_path TO inst_<slug>, _core, public`.
+- Core tables (users, instances, memberships) live in `_core` schema.
+- Genealogy tables (person, family, event, place, etc.) live per-instance.
+- `user_note` table lives per-instance (survives re-imports).
+
+### Admin CLI (`api/admin.py`)
+```powershell
+# Create admin user (also creates _core schema if needed)
+.\\.venv\\Scripts\\python.exe -m api.admin create-admin --username admin --password Admin123
+
+# Create an instance
+.\\.venv\\Scripts\\python.exe -m api.admin create-instance --slug default --name \"Family Tree\"
+
+# Create a regular user assigned to an instance
+.\\.venv\\Scripts\\python.exe -m api.admin create-user --username alice --password Alice123 --instance default
+```
+
+### Frontend Auth Files
+- `api/static/login.html` — login page
+- `api/static/instance_picker.html` — instance picker (admin only)
+- `js/features/auth.js` — auth badge, logout, role gating
+- `js/features/guests.js` — guest CRUD in options menu
+- `js/features/userNotes.js` — per-person notes (user/admin can write; guests read-only)
+
 ### In-Browser Import
 
 The Options menu includes an **Import** section for uploading `.gpkg` / `.gramps` files:
@@ -193,24 +267,32 @@ The Options menu includes an **Import** section for uploading `.gpkg` / `.gramps
 - **OS**: Windows
 - **Shell**: PowerShell (not bash)
 - **Python**: Use `.venv\Scripts\python.exe` (not bare `python`)
-- **API restart task**: "genealogy: restart api (detached 8080)"
+- **API restart task**: "genealogy: restart api (detached 8081)"
 
 ### Quick Commands
 ```powershell
 # Restart API
-# Use VS Code task: "genealogy: restart api (detached 8080)"
+# Use VS Code task: "genealogy: restart api (detached 8081)"
 
 # Or manually:
 $env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
-.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8080
+.\.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8081
+```
+
+### First-Time Auth Setup
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
+.\.\.venv\Scripts\python.exe -m api.admin create-admin --username admin --password Admin123
+.\.\.venv\Scripts\python.exe -m api.admin create-instance --slug default --name "Family Tree"
 ```
 
 ## Testing the Viewer
 
-1. Open `http://127.0.0.1:8080/demo/relationship`
-2. Default load: person `I0063`, depth `5`
-3. Click person cards to select, click family hubs to select (not expand)
-4. Use expand indicators (▲/▼ tabs) to expand parents/children
+1. Open `http://127.0.0.1:8081/demo/relationship`
+2. Log in with admin credentials
+3. Select an instance (admin) or auto-load (user/guest)
+4. Click person cards to select, click family hubs to select (not expand)
+5. Use expand indicators (▲/▼ tabs) to expand parents/children
 
 ## Bug Logs (historical reference)
 

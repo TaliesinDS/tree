@@ -482,7 +482,7 @@ This is a one-line guard added to each route that accepts a `privacy` parameter.
 - [x] Update `import_service.py` + `load_export_to_postgres.py`: schema-aware import
 - [x] Update all route handlers to pass instance slug to `db_conn()`
 - [x] `sql/schema.sql` is already schema-agnostic (no `public.` references)
-- [ ] Test: two instances side by side, each with different data
+- [x] Test: two instances side by side, each with different data
 
 **Deliverable**: Multiple instances work, each isolated in its own schema. ✅
 
@@ -508,7 +508,7 @@ This is a one-line guard added to each route that accepts a `privacy` parameter.
 ### Phase 5: Guest Management UI
 - [x] Create `api/routes/instance_members.py`
 - [x] Create `js/features/guests.js` (options menu integration)
-- [ ] Test: user creates guest, guest logs in, guest sees read-only view
+- [x] Test: user creates guest, guest logs in, guest sees read-only view
 
 **Deliverable**: Users can invite guests to their instance. ✅
 

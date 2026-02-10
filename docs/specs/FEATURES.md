@@ -37,8 +37,32 @@ Implemented (working today):
   - upload `.gpkg` / `.gramps` file via Options menu
   - triggers server-side import pipeline (`POST /import`)
   - polls `GET /import/status` with blocking overlay
-  - auto-reloads graph on completion
+  - auto-reloads graph + all sidebar data on completion
+  - two-pass place loading (handles self-referencing `enclosed_by_id` FK)
   - max upload size: 200 MB
+- [x] Authentication & multi-instance:
+  - JWT cookie-based auth (`tree_session` HttpOnly cookie, 24h expiry, sliding refresh at 50%)
+  - Login page (`/login`) + instance picker (`/instance_picker.html`, admin only)
+  - Three roles: admin (manages everything), user (owns one instance), guest (read-only)
+  - Multi-instance database isolation (per-instance Postgres schemas: `inst_<slug>`)
+  - Core tables (users, instances, memberships) in `_core` schema
+  - CSRF protection (double-submit cookie: `tree_csrf` + `X-CSRF-Token` header)
+  - Rate limiting on `/auth/login` (5 failed attempts / 5 min per IP → 429)
+  - Password strength validation (≥8 chars, uppercase + lowercase + digit)
+  - Admin CLI (`api/admin.py`): create-admin, create-instance, create-user
+- [x] User notes:
+  - Per-person notes in detail panel (linked by `gramps_id`, survives re-imports)
+  - CRUD endpoints: `GET/POST/PUT/DELETE /user-notes`
+  - User/admin can create/edit/delete; guests read-only
+- [x] Guest management:
+  - Create/delete guest accounts via Options menu
+  - Guests get read-only access to one instance
+  - Endpoints: `POST/GET/DELETE /instances/{slug}/guests`
+- [x] Role-based UI gating:
+  - Import section and privacy toggle hidden for guests
+  - Admin sees instance picker after login; users/guests auto-redirect
+  - Auth badge in sidebar shows username + role
+
 Partially implemented / placeholders:
 - [~] Events and Places as standalone browsers (global search/filter/map) are planned; current work is mostly per-person detail rendering.
 

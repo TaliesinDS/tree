@@ -16,7 +16,8 @@ docs/
 │
 ├── architecture/          # How the system works
 │   ├── RELCHART.md        # Relationship chart frontend architecture (v3)
-│   └── PRIVACY.md         # Privacy model and server-side redaction rules
+│   ├── PRIVACY.md         # Privacy model and server-side redaction rules
+│   └── plan-multiUser.md  # Auth & multi-instance design (roles, JWT, CSRF, schemas)
 │
 ├── specs/                 # What we're building (features & requirements)
 │   ├── FEATURES.md        # Feature roadmap and planned capabilities
@@ -24,8 +25,8 @@ docs/
 │   └── MAP.md             # Map view proposal and implementation plan
 │
 ├── guides/                # How to do things
-│   ├── DEV.md             # Local development setup (Docker, Postgres, API)
-│   └── DEPLOYMENT.md      # Cloud deployment sketch (Cloud Run + Cloud SQL)
+│   ├── DEV.md             # Local development setup (Docker, Postgres, API, auth)
+│   └── DEPLOYMENT.md      # Cloud deployment sketch (hosting, cookies, auth)
 │
 ├── design/                # UI/UX design assets and planning
 │   └── ART_ASSETS.md      # Art assets checklist (icons, markers, badges)
@@ -46,6 +47,7 @@ docs/
 |----------|---------|----------------|
 | [RELCHART.md](architecture/RELCHART.md) | Frontend architecture for the relationship chart (v3) | Changing viewer structure, adding modules |
 | [PRIVACY.md](architecture/PRIVACY.md) | Privacy model, redaction rules, constants | Changing privacy policy or cutoff dates |
+| [plan-multiUser.md](architecture/plan-multiUser.md) | Auth & multi-instance design (roles, JWT, CSRF, database schemas, implementation phases) | Changing auth model, adding roles, modifying instance isolation |
 
 ### `/specs/` — What we're building
 
@@ -59,8 +61,8 @@ docs/
 
 | Document | Purpose | Update when... |
 |----------|---------|----------------|
-| [DEV.md](guides/DEV.md) | Local dev setup: Docker, Postgres, API commands | Changing dev setup, adding dependencies |
-| [DEPLOYMENT.md](guides/DEPLOYMENT.md) | Personal hosting options (Pages vs API-served UI, CORS, DB choices) | Deploying or changing infra |
+| [DEV.md](guides/DEV.md) | Local dev setup: Docker, Postgres, API commands, auth setup | Changing dev setup, adding dependencies |
+| [DEPLOYMENT.md](guides/DEPLOYMENT.md) | Personal hosting options (Pages vs API-served UI, CORS, DB, auth) | Deploying or changing infra |
 
 ### `/design/` — UI/UX design planning
 

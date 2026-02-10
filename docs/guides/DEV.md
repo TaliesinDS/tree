@@ -56,7 +56,29 @@ $env:DATABASE_URL = "postgresql://genealogy:genealogy@localhost:5432/genealogy"
 Optional port override (PowerShell):
 `$env:TREE_PORT=8090`
 ```
+## First-time auth setup
+Before you can use the viewer, you need to create an admin user and an instance:
 
+```powershell
+Set-Location "C:\Users\akortekaas\Documents\GitHub\tree"
+$env:DATABASE_URL = "postgresql://genealogy:genealogy@localhost:5432/genealogy"
+
+# Create the admin user (also creates the _core schema if needed)
+.\.venv\Scripts\python.exe -m api.admin create-admin --username admin --password Admin123
+
+# Create an instance (each instance gets its own Postgres schema)
+.\.venv\Scripts\python.exe -m api.admin create-instance --slug default --name "Family Tree"
+
+# Optional: create a regular user assigned to an instance
+.\.venv\Scripts\python.exe -m api.admin create-user --username alice --password Alice123 --instance default
+```
+
+### Roles
+- **admin**: Can create instances, manage all users, switch between instances. Sees instance picker after login.
+- **user**: Owns one instance. Can import data, toggle privacy, manage guests. Auto-redirects to their instance.
+- **guest**: Read-only access to one instance. Cannot import, toggle privacy, or manage guests. Auto-redirects.
+
+Guests can be created via the Options menu in the viewer (by users or admins).
 ## Endpoints to try
 - `GET /health`
 - `GET /people/{id}`
@@ -74,6 +96,23 @@ Import endpoints:
 - `POST /import` — upload a `.gpkg` / `.gramps` file (max 200 MB) to trigger the import pipeline
 - `GET /import/status` — poll import progress (`idle` / `running` / `done` / `failed`)
 
+Auth endpoints:
+- `POST /auth/login` — `{ username, password }` → sets `tree_session` + `tree_csrf` cookies
+- `POST /auth/logout` — clears session cookie
+- `GET /auth/me` — current user + instance info
+- `POST /auth/switch-instance` — `{ slug }` → switches active instance (admin only)
+
+User notes endpoints:
+- `GET /user-notes` — list notes (optional `?gramps_id=` filter)
+- `POST /user-notes` — create a note `{ gramps_id, body }`
+- `PUT /user-notes/{id}` — update a note `{ body }`
+- `DELETE /user-notes/{id}` — delete a note
+
+Guest management endpoints:
+- `POST /instances/{slug}/guests` — create a guest `{ username, password }`
+- `GET /instances/{slug}/guests` — list guests
+- `DELETE /instances/{slug}/guests/{user_id}` — remove a guest
+
 Notes:
 - Family nodes may include `parents_total` and `children_total` which the viewer uses to decide whether to show expand indicators.
 - All graph and people endpoints accept an optional `privacy=off` query parameter to bypass server-side redaction.
@@ -81,8 +120,8 @@ Notes:
 ## Demo UI (graph)
 
 The demo UI is served from the API:
-- **Primary (going forward):** `/demo/relationship` (relchart v3; Graphviz WASM + modular JS/CSS)
-  - Click a person card or family hub to show both API id + Gramps id in the status bar and copy them to clipboard.
+- **Primary (going forward):** `/demo/relationship` (relchart v3; Graphviz WASM + modular JS/CSS)  - **Login required**: navigate to `/demo/relationship` → redirects to `/login` if not authenticated.
+  - After login, admins see the instance picker; users/guests auto-redirect to their instance.  - Click a person card or family hub to show both API id + Gramps id in the status bar and copy them to clipboard.
   - Clicking a family hub is selection-only (it does not expand or recenter).
   - **Cull toggle:** for very large graphs, enable *Cull* to hide off-screen SVG elements and keep pan/zoom responsive.
   - Map tab:
@@ -112,4 +151,11 @@ Privacy:
 Import:
 - The Options menu includes an **Import** section for uploading `.gpkg` / `.gramps` files.
 - The import runs server-side in a background thread; the frontend shows a blocking overlay and polls for completion.
-- On success, the graph auto-reloads with the new data.
+- On success, the graph and all sidebar data auto-reload with the new data.
+- Import is only available to users and admins (hidden for guests).
+
+Auth:
+- Sessions use JWT in an `HttpOnly` cookie (`tree_session`, 24h expiry with sliding refresh).
+- CSRF protection: a readable `tree_csrf` cookie is sent with every response; mutating requests must include `X-CSRF-Token` header.
+- Rate limiting: 5 failed login attempts per IP per 5-minute window → HTTP 429.
+- Password requirements: ≥8 characters, must contain uppercase + lowercase + digit.

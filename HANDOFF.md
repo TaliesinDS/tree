@@ -23,11 +23,16 @@
 # 2. Set DATABASE_URL
 $env:DATABASE_URL = "postgresql://postgres:polini@localhost:5432/genealogy"
 
-# 3. Start API (use VS Code task or manually)
+# 3. First-time auth setup
+.\.venv\Scripts\python.exe -m api.admin create-admin --username admin --password Admin123
+.\.venv\Scripts\python.exe -m api.admin create-instance --slug default --name "Family Tree"
+
+# 4. Start API (use VS Code task or manually)
 # Task: "genealogy: restart api (detached 8081)"
 
-# 4. Open viewer
+# 5. Open viewer
 # http://127.0.0.1:8081/demo/relationship
+# Log in with admin / Admin123, pick "Family Tree" instance
 ```
 
 Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
@@ -72,20 +77,34 @@ Full setup: [docs/guides/DEV.md](docs/guides/DEV.md)
 - ✅ Map pins performance: "Current graph" scope loads fast (bulk endpoint)
 - ✅ Privacy enforcement (server-side)
 - ✅ Privacy toggle (Options menu: uncheck to reveal private people; amber badge indicator)
+- ✅ Authentication (JWT cookie-based, login page, session management)
+- ✅ Multi-instance isolation (per-instance Postgres schemas)
+- ✅ Role-based access (admin/user/guest with UI gating)
+- ✅ CSRF protection (double-submit cookie pattern)
+- ✅ Rate limiting on login (5 attempts / 5 min per IP)
+- ✅ Password strength validation (≥8 chars, upper+lower+digit)
+- ✅ User notes (per-person notes in detail panel, survive re-imports)
+- ✅ Guest management (create/delete guests via Options menu)
+- ✅ Admin CLI (create-admin, create-instance, create-user)
 
 **In Progress / Planned:**
-- 🔲 Relationship path highlighting (API exists, UI pending)
-- 🔲 Ancestor line highlighting (lineage.js utilities ready)
-- 🔲 Note search (full-text index exists)
-- 🔲 Map markers/routes
-- 🔲 Offline map support
+- � Relationship path highlighting (API exists, UI pending)
+- 🟨 Ancestor line highlighting (lineage.js utilities ready)
+- 🟨 Note search (full-text index exists)
+- 🟨 Map markers/routes
+- 🟨 Offline map support
+- 🟨 Admin web panel (low priority — CLI covers all admin tasks)
 
 ---
 
-## Recent Work (2026-02-09)
+## Recent Work (2026-02-10)
 
-- **Privacy toggle**: Options menu now has a "Privacy filter" checkbox (default: ON). Unchecking adds `?privacy=off` to all API calls, revealing real names/dates for private people. An amber "Privacy off" badge appears in the top bar. Never persisted — page refresh resets to ON. Toggling reloads the graph and invalidates sidebar caches.
-- **In-browser import**: Options menu now has an Import section. Upload a `.gpkg` / `.gramps` file (max 200 MB), the server runs the import pipeline in a background thread, and the frontend polls with a blocking overlay until done, then auto-reloads the graph.
+- **Authentication & multi-instance**: Full auth system with JWT cookies, login page, instance picker (admin), role-based access control. Three roles: admin (manages everything), user (owns one instance), guest (read-only). CSRF double-submit cookie protection on all mutating requests. Rate limiting (5 failed logins / 5 min per IP). Password strength validation.
+- **Database isolation**: Each instance gets its own Postgres schema (`inst_<slug>`). Core tables (users, instances, memberships) in `_core` schema. Genealogy data per-instance. User notes survive re-imports.
+- **Guest management**: Users/admins can create and delete guest accounts via the Options menu.
+- **User notes**: Per-person notes in the detail panel. User/admin can create/edit/delete; guests read-only.
+- **Import improvements**: Two-pass place loading (avoids FK constraint issues with self-referencing `enclosed_by_id`). Post-import sidebar cache invalidation + active tab re-fetch for instant UI update.
+- **Frontend role gating**: Import section and privacy toggle hidden for guests.
 
 ### Earlier (2026-01-20)
 
@@ -120,11 +139,18 @@ api/static/relchart/
 ### Backend
 ```
 api/main.py           # FastAPI app wiring (router registration + static mount)
-api/routes/           # Route handlers (people/graph/families/events/places/import)
+api/routes/           # Route handlers (people/graph/families/events/places/import/auth)
 api/routes/import_tree.py  # Import upload + status endpoints
+api/routes/auth.py    # Login / logout / me / switch-instance
+api/routes/user_notes.py   # User notes CRUD
+api/routes/instance_members.py  # Guest management
 api/import_service.py # Import pipeline (Gramps XML → Postgres)
-api/db.py             # DB connection
-sql/schema.sql        # Tables + indexes
+api/auth.py           # Password hashing, JWT, get_current_user()
+api/middleware.py      # Auth middleware (JWT validation, CSRF, instance resolution)
+api/admin.py          # CLI admin tool (create-admin, create-instance, create-user)
+api/db.py             # DB connection (instance-aware search_path)
+sql/schema.sql        # Genealogy tables + indexes (per-instance)
+sql/schema_core.sql   # Core schema DDL (users, instances, memberships)
 ```
 
 ---
@@ -135,6 +161,7 @@ sql/schema.sql        # Tables + indexes
 2. **Ancestor line highlighting** — use `lineage.js` utilities
 3. **Note search** — endpoint using `note.body_tsv`
 4. **Map improvements** — markers, routes, filtering
+5. **Admin web panel** — manage instances/users from the browser (low priority)
 
 ---
 

@@ -9,6 +9,8 @@ Tree has two runtime parts:
 1) **UI** (static HTML/CSS/JS)
 2) **API** (FastAPI) + **database** (Postgres)
 
+**Important**: Tree now requires authentication. Before first use, run the admin CLI to create an admin user and at least one instance (see DEV.md for setup).
+
 ## Option A (recommended): host UI and API together
 
 This is the simplest operationally because the UI can call the API with **same-origin** requests.
@@ -81,17 +83,36 @@ Cost note:
 
 Minimum required:
 - `DATABASE_URL`
+- `JWT_SECRET` (defaults to a random value per process — set explicitly for multi-process or persistent sessions)
 
 Recommended:
 - Keep secrets out of git
 - Prefer platform-managed secrets (environment variables)
+
+## Authentication model
+
+Tree uses JWT cookie-based authentication:
+- `tree_session`: HttpOnly cookie containing the JWT (24h expiry, sliding refresh).
+- `tree_csrf`: Readable cookie for CSRF double-submit pattern.
+- All mutating requests (`POST`, `PUT`, `DELETE`) require an `X-CSRF-Token` header matching the `tree_csrf` cookie.
+- Rate limiting: 5 failed login attempts per IP per 5-minute window (in-memory; resets on restart).
+
+### Cookie settings for production
+- Set `Secure` flag if serving over HTTPS (currently `SameSite=Lax`, no `Secure` flag for local dev).
+- If separating UI and API on different origins, cookies won't work without `SameSite=None; Secure`.
+- **Recommendation**: Keep UI and API on the same origin (Option A) to avoid cookie/CORS complexity.
+
+### Multi-instance
+- Each instance gets its own Postgres schema (`inst_<slug>`).
+- Admin users can switch between instances; regular users and guests are bound to one instance.
+- Instance creation is done via CLI (`api/admin.py create-instance`).
 
 ## Privacy model (server-side)
 
 Privacy enforcement must remain server-side:
 - the API redacts private/living records before returning JSON
 - the UI must treat all data it receives as public
-- all privacy-sensitive endpoints accept an optional `privacy=off` query parameter to bypass redaction (used by the client-side privacy toggle in the Options menu)
+- all privacy-sensitive endpoints accept an optional `privacy=off` query parameter to bypass redaction (used by the client-side privacy toggle in the Options menu; only available to users and admins, not guests)
 - the privacy toggle is never persisted; refreshing the page resets it to ON
 
 Policy details: see `docs/architecture/PRIVACY.md`.
