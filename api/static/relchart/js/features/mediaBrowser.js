@@ -272,7 +272,7 @@ function _renderMetadata() {
     const mediaForOverlay = _media.map(m => ({
       ...m,
       original_url: m.original_url || `/media/file/original/${m.id}.jpg`,
-      thumb_url: m.thumb_url || `/media/file/thumb/${m.id}.jpg`,
+      thumb_url: m.thumb_url || `/media/file/thumb/${m.id}.png`,
     }));
     showMediaOverlay({ media: mediaForOverlay, startIndex: Math.max(0, idx) });
   });
@@ -375,7 +375,7 @@ function _renderGrid() {
     if (m.id === _selectedId) cell.classList.add('selected');
 
     const img = document.createElement('img');
-    const thumbUrl = m.thumb_url || `/media/file/thumb/${m.id}.jpg`;
+    const thumbUrl = m.thumb_url || `/media/file/thumb/${m.id}.png`;
     img.src = api.withPrivacy(thumbUrl);
     img.alt = m.description || m.gramps_id || '';
     img.loading = 'lazy';

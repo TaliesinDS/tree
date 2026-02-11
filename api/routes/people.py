@@ -470,7 +470,7 @@ def get_person_details(person_id: str, request: Request, privacy: str = "on") ->
                     "gramps_id": mgid,
                     "description": mdesc,
                     "mime": mmime,
-                    "thumb_url": f"/media/file/thumb/{mid}.jpg",
+                    "thumb_url": f"/media/file/thumb/{mid}.png",
                     "original_url": f"/media/file/original/{mid}{ext}",
                     "width": mw,
                     "height": mh,

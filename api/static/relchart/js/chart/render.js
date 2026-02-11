@@ -464,7 +464,7 @@ function postProcessGraphvizSvg(svg, {
               let portraitTextOffset = 0;
               if (meta.portraitUrl) {
                 const rimH = 6;
-                const portraitPad = 10;  // left margin doubled
+                const portraitPad = 5;  // reduced padding for larger image
                 const portraitSz = bb.height - rimH - portraitPad * 2;
                 portraitTextOffset = portraitSz + portraitPad + 4;
               }
@@ -631,7 +631,7 @@ function postProcessGraphvizSvg(svg, {
             const bb = shape.getBBox();
             const ns = 'http://www.w3.org/2000/svg';
             const rimH = 6;  // match rim height
-            const pad = 10;  // left margin (doubled from original 5)
+            const pad = 5;   // reduced padding for larger image
             const sz = bb.height - rimH - pad * 2; // fill card height minus rim and padding
             const imgX = bb.x + pad;
             const imgY = bb.y + rimH + pad;
@@ -654,18 +654,13 @@ function postProcessGraphvizSvg(svg, {
             clipPath.appendChild(clipRect);
             defs.appendChild(clipPath);
 
-            // Border rect (visible frame)
-            const frame = document.createElementNS(ns, 'rect');
-            frame.setAttribute('x', String(imgX - 0.5));
-            frame.setAttribute('y', String(imgY - 0.5));
-            frame.setAttribute('width', String(sz + 1));
-            frame.setAttribute('height', String(sz + 1));
-            frame.setAttribute('rx', String(cornerR + 0.5));
-            frame.setAttribute('ry', String(cornerR + 0.5));
-            frame.setAttribute('fill', 'none');
-            frame.setAttribute('stroke', '#b0b8c8');
-            frame.setAttribute('stroke-width', '1');
-            frame.setAttribute('data-portrait', '1');
+            // Determine aspect-ratio mode:
+            // - Face photos (wider or square): slice → crop to fill the square
+            // - Coat of arms / tall images (height > width): meet → fit fully, no cropping
+            const pW = meta.portraitWidth || 1;
+            const pH = meta.portraitHeight || 1;
+            const isTall = pH > pW;
+            const aspectMode = isTall ? 'xMidYMid meet' : 'xMidYMid slice';
 
             // Image element
             const img = document.createElementNS(ns, 'image');
@@ -675,16 +670,14 @@ function postProcessGraphvizSvg(svg, {
             img.setAttribute('width', String(sz));
             img.setAttribute('height', String(sz));
             img.setAttribute('clip-path', `url(#${clipId})`);
-            img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+            img.setAttribute('preserveAspectRatio', aspectMode);
             img.setAttribute('data-portrait', '1');
 
             // Insert after rim elements but before expand indicators
             const firstExpand = node.querySelector('[data-hidden-parents-for], [data-hidden-children-for]');
             if (firstExpand) {
-              node.insertBefore(frame, firstExpand);
               node.insertBefore(img, firstExpand);
             } else {
-              node.appendChild(frame);
               node.appendChild(img);
             }
 
@@ -1267,6 +1260,8 @@ export async function renderRelationshipChart({
       hasHiddenChildren: down.length > 0,
       hiddenChildFamilies: down,
       portraitUrl: n.portrait_url || null,
+      portraitWidth: n.portrait_width || null,
+      portraitHeight: n.portrait_height || null,
     });
   }
 

@@ -392,12 +392,12 @@ def graph_neighborhood(
             n["id"] for n in nodes
             if n.get("type") == "person" and n.get("display_name") != "Private"
         ]
-        portrait_by_pid: dict[str, str] = {}
+        portrait_by_pid: dict[str, dict] = {}
         if public_person_ids:
             try:
                 port_rows = conn.execute(
                     """
-                    SELECT pm.person_id, pm.media_id
+                    SELECT pm.person_id, pm.media_id, m.width, m.height, m.mime
                     FROM person_media pm
                     JOIN media m ON m.id = pm.media_id
                     WHERE pm.person_id = ANY(%s)
@@ -407,17 +407,29 @@ def graph_neighborhood(
                     (public_person_ids, skip_privacy),
                 ).fetchall()
                 seen: set[str] = set()
-                for ppid, pmid in port_rows:
+                for ppid, pmid, pw, ph, pmime in port_rows:
                     ppid_s = str(ppid)
                     if ppid_s not in seen:
                         seen.add(ppid_s)
-                        portrait_by_pid[ppid_s] = f"/media/file/thumb/{pmid}.jpg"
+                        portrait_by_pid[ppid_s] = {
+                            "url": f"/media/file/thumb/{pmid}.png",
+                            "width": pw,
+                            "height": ph,
+                            "mime": pmime,
+                        }
             except Exception:
                 pass
 
         for n in nodes:
             if n.get("type") == "person":
-                n["portrait_url"] = portrait_by_pid.get(str(n["id"]))
+                info = portrait_by_pid.get(str(n["id"]))
+                if info:
+                    n["portrait_url"] = info["url"]
+                    n["portrait_width"] = info["width"]
+                    n["portrait_height"] = info["height"]
+                    n["portrait_mime"] = info["mime"]
+                else:
+                    n["portrait_url"] = None
 
         edges: list[dict[str, Any]] = []
 

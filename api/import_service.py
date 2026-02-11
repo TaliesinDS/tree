@@ -195,7 +195,7 @@ def _extract_media_files(
 
             # Generate thumbnail
             try:
-                _generate_thumbnail(img_bytes, thumb_dir / f"{handle}.jpg", rec)
+                _generate_thumbnail(img_bytes, thumb_dir / f"{handle}.png", rec)
             except Exception as e:
                 log.warning("Thumbnail generation failed for %s: %s", handle, e)
 
@@ -236,7 +236,11 @@ def _ext_from_path(path: str) -> str:
 
 
 def _generate_thumbnail(img_bytes: bytes, thumb_path: Path, rec: dict[str, Any]) -> None:
-    """Generate a 200x200 JPEG thumbnail using Pillow."""
+    """Generate a 200x200 PNG thumbnail using Pillow.
+
+    PNG is used instead of JPEG to preserve transparency for coat-of-arms
+    and other images with alpha channels.
+    """
     try:
         from PIL import Image
     except ImportError:
@@ -249,18 +253,12 @@ def _generate_thumbnail(img_bytes: bytes, thumb_path: Path, rec: dict[str, Any])
     rec["width"] = img.width
     rec["height"] = img.height
 
-    # Convert RGBA/P to RGB for JPEG
-    if img.mode in ("RGBA", "P", "LA"):
-        bg = Image.new("RGB", img.size, (255, 255, 255))
-        if img.mode == "P":
-            img = img.convert("RGBA")
-        bg.paste(img, mask=img.split()[-1] if "A" in img.mode else None)
-        img = bg
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
+    # Convert to RGBA to preserve transparency uniformly
+    if img.mode not in ("RGBA", "RGB"):
+        img = img.convert("RGBA")
 
     img.thumbnail((200, 200))
-    img.save(str(thumb_path), "JPEG", quality=80)
+    img.save(str(thumb_path), "PNG", optimize=True)
 
 
 def run_import(file_bytes: bytes, filename: str, database_url: str, *, instance_slug: str | None = None) -> None:

@@ -162,7 +162,7 @@ def list_media(
                 "gramps_id": gid,
                 "mime": mime_type,
                 "description": desc,
-                "thumb_url": f"/media/file/thumb/{mid}.jpg",
+                "thumb_url": f"/media/file/thumb/{mid}.png",
                 "width": w,
                 "height": h,
                 "file_size": fsize,
@@ -296,7 +296,7 @@ def get_media_detail(
         "file_size": fsize,
         "width": w,
         "height": h,
-        "thumb_url": f"/media/file/thumb/{mid}.jpg",
+        "thumb_url": f"/media/file/thumb/{mid}.png",
         "original_url": f"/media/file/original/{mid}{ext}",
         "references": {
             "persons": persons,
@@ -322,7 +322,10 @@ def serve_thumb(filename: str, request: Request, privacy: str = "on"):
     thumb_path = media_root / "thumb" / filename
 
     if not thumb_path.exists():
-        # Try with .jpg
+        # Try with .png (current format)
+        thumb_path = media_root / "thumb" / f"{handle}.png"
+    if not thumb_path.exists():
+        # Fallback to legacy .jpg
         thumb_path = media_root / "thumb" / f"{handle}.jpg"
     if not thumb_path.exists():
         raise HTTPException(status_code=404, detail="thumbnail not found")
@@ -337,9 +340,11 @@ def serve_thumb(filename: str, request: Request, privacy: str = "on"):
                 if row and bool(row[0]):
                     raise HTTPException(status_code=403, detail="private media")
 
+    # Detect content type from file extension
+    ct = "image/png" if thumb_path.suffix == ".png" else "image/jpeg"
     return FileResponse(
         str(thumb_path),
-        media_type="image/jpeg",
+        media_type=ct,
         headers={"Cache-Control": "public, max-age=86400"},
     )
 
@@ -462,7 +467,7 @@ def get_person_media(
                 "gramps_id": gid,
                 "description": desc,
                 "mime": mime_type,
-                "thumb_url": f"/media/file/thumb/{mid}.jpg",
+                "thumb_url": f"/media/file/thumb/{mid}.png",
                 "original_url": f"/media/file/original/{mid}{ext}",
                 "width": w,
                 "height": h,
@@ -555,6 +560,6 @@ def resolve_portrait_url(conn, person_id: str, skip_privacy: bool = False) -> st
         mid, m_private = row
         if bool(m_private) and not skip_privacy:
             return None
-        return f"/media/file/thumb/{mid}.jpg"
+        return f"/media/file/thumb/{mid}.png"
     except Exception:
         return None
