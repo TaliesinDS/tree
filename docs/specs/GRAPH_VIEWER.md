@@ -233,25 +233,41 @@ Selection workflow:
 Backend requirement for selection-as-filter:
 - Either accept a list of ids (place_ids / event_ids / person_ids), or accept a geometry/bbox.
 
-### 3.12 Portrait images mirrored from Gramps (including crop)
+### 3.12 Portrait images and media system (implemented)
 
-Goal:
-- Gramps stores portraits as links to local filesystem files (not embedded in the DB).
-- The app should mirror these images into app-managed storage and apply the Gramps crop.
+The app extracts, stores, and serves media images from Gramps exports:
 
-Required:
-- **Export/import data:** for each person portrait:
-  - source file path
-  - crop rectangle (`x,y,w,h`) and its coordinate system (pixels vs normalized)
-  - original width/height if crop is normalized
-- **Backend pipeline:** a sync step that copies/dedupes originals and generates derived portraits.
-- **Frontend:** display portrait thumbnails in graph nodes and larger versions in person details.
+**Import pipeline** (`api/import_service.py`):
+- Parses `<object>` and `<objref>` elements from Gramps XML.
+- Extracts image files from the `.gpkg` tar archive.
+- Generates 200×200 **PNG** thumbnails (preserving transparency for coat-of-arms images).
+- Records dimensions (`width`, `height`) in the `media` table.
+- Stores files in `api/media/<instance_slug>/original/` and `api/media/<instance_slug>/thumb/`.
 
-Edge cases:
-- missing source files → placeholder + report
-- changed source files → detect and regenerate
-- out-of-bounds crop → clamp
-- privacy policy may restrict serving portraits for living/private individuals
+**Graph node portraits** (`dot.js` + `render.js`):
+- Person nodes with a portrait get a wider card (`2.60"` vs `1.80"`).
+- The portrait image is placed to the left of the card text with a rounded-corner clip mask (no visible border).
+- Aspect ratio handling: face photos (wider/square) use `xMidYMid slice` (crop to fill); tall images like coat of arms use `xMidYMid meet` (fit fully, no cropping).
+- Text is shifted right during the text-positioning phase to stay within the right portion of the card.
+- The API sends `portrait_url`, `portrait_width`, `portrait_height` per person node.
+
+**Media browser** (`js/features/mediaBrowser.js`):
+- Full-screen overlay opened from the topbar "Media" button.
+- Left sidebar: search filter (debounced), sort dropdown, item count, and metadata panel.
+- Right area: scrollable thumbnail grid with selection highlighting and "Load more" pagination.
+- Clicking a person reference navigates to that person in the graph.
+
+**Media tab** (`js/features/media.js`):
+- Thumbnail grid in the person detail panel.
+- Portrait picker: "Choose portrait" button to set a custom portrait per person.
+
+**Media lightbox** (`js/features/mediaOverlay.js`):
+- Full-size image overlay with keyboard navigation and description caption.
+
+Edge cases handled:
+- Missing source files → no portrait shown (graceful fallback).
+- Privacy: private media excluded via `is_private` flag.
+- Portrait override stored per-person per-instance, survives re-imports.
 
 ## 4) Recommended frontend architecture (avoid rewrite)
 
@@ -392,14 +408,19 @@ Note: current pathfinding prototype endpoint is `GET /relationship/path?from_id=
     - `surname`, `year_min`, `year_max`, `descendants_of`, `ancestors_of`, `event_type`
   - returns: marker list with `lat`, `lon`, and ids
 
-### 6.5 Media/portrait endpoints + pipeline
+### 6.5 Media endpoints (implemented)
 
-Serving:
-- `GET /media/portraits/<person_id>.jpg` (or static file mapping)
+```
+GET    /media                          — paginated list (filter: q, mime, person_id, sort)
+GET    /media/{media_id}               — detail with references (persons, events, places)
+GET    /media/file/thumb/{filename}    — serve thumbnail PNG (transparent)
+GET    /media/file/original/{filename} — serve original file
+GET    /people/{person_id}/media       — ordered media for a person (portrait + gallery)
+PUT    /people/{person_id}/portrait    — set/clear portrait override { media_id }
+```
 
-Sync pipeline (CLI or internal admin endpoint; view-only app can keep it manual):
-- `POST /admin/media/sync-portraits` (optional)
-  - scans people with portrait references, mirrors files, generates crops, returns a report
+Thumbnails are PNG (not JPEG) to preserve transparency for coat-of-arms images.
+The thumb route auto-detects content type and falls back to legacy `.jpg` files.
 
 ### 6.6 Person endpoints
 

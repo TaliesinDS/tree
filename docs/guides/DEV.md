@@ -113,6 +113,14 @@ Guest management endpoints:
 - `GET /instances/{slug}/guests` — list guests
 - `DELETE /instances/{slug}/guests/{user_id}` — remove a guest
 
+Media endpoints:
+- `GET /media?limit=100&offset=0&q=&mime=&sort=` — paginated media list
+- `GET /media/{media_id}` — single media detail with references (persons, events, places)
+- `GET /media/file/thumb/{filename}` — serve thumbnail PNG (transparent)
+- `GET /media/file/original/{filename}` — serve original file
+- `GET /people/{person_id}/media` — ordered media for a person (portrait + gallery)
+- `PUT /people/{person_id}/portrait` — set/clear portrait override `{ media_id }`
+
 Notes:
 - Family nodes may include `parents_total` and `children_total` which the viewer uses to decide whether to show expand indicators.
 - All graph and people endpoints accept an optional `privacy=off` query parameter to bypass server-side redaction.
@@ -153,6 +161,14 @@ Import:
 - The import runs server-side in a background thread; the frontend shows a blocking overlay and polls for completion.
 - On success, the graph and all sidebar data auto-reload with the new data.
 - Import is only available to users and admins (hidden for guests).
+- The import pipeline extracts media files from the archive and generates 200×200 PNG thumbnails (preserving transparency for coat-of-arms / heraldry images).
+
+Media:
+- Person cards in the graph show portrait thumbnails (rounded clip mask, no border) on the left side of the card.
+- Face photos use `slice` (crop to fill); tall images like coat of arms use `meet` (fit fully, no cropping).
+- The topbar "Media" button opens a full-screen media browser overlay with search, sort, metadata sidebar, and thumbnail grid.
+- The person detail panel Media tab shows all media linked to the selected person with a portrait picker.
+- Clicking a thumbnail in the media browser selects it; clicking the preview opens the lightbox.
 
 Auth:
 - Sessions use JWT in an `HttpOnly` cookie (`tree_session`, 24h expiry with sliding refresh).

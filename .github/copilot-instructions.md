@@ -45,6 +45,8 @@ When working on the viewer, **always use the relchart v3 files** under `api/stat
 - `api/static/relchart/js/features/userNotes.js` — **user notes** (per-person notes in detail panel)
 - `api/static/relchart/js/features/guests.js` — **guest management** (create/delete guests in options menu)
 - `api/static/relchart/js/features/mediaOverlay.js` — **media lightbox** (full-size image overlay with navigation)
+- `api/static/relchart/js/features/mediaBrowser.js` — **media browser** (full-screen overlay with filters, grid, metadata sidebar)
+- `api/static/relchart/js/features/media.js` — **media tab** (person detail panel thumbnail grid + portrait picker)
 
 ### Backend
 - `api/main.py` — FastAPI app wiring (router registration + static mount)
@@ -159,7 +161,7 @@ GET  /import/status             — poll import progress (idle/running/done/fail
 ```
 GET    /media                          — paginated media list (filter by q, mime, person_id)
 GET    /media/{media_id}               — single media detail with references
-GET    /media/file/thumb/{filename}    — serve thumbnail JPEG
+GET    /media/file/thumb/{filename}    — serve thumbnail PNG (transparent)
 GET    /media/file/original/{filename} — serve original file
 GET    /people/{person_id}/media       — ordered media for a person (portrait + gallery)
 PUT    /people/{person_id}/portrait    — set/clear portrait override { media_id }
@@ -274,6 +276,39 @@ The Options menu includes an **Import** section for uploading `.gpkg` / `.gramps
 - Backend: `api/routes/import_tree.py` + `api/import_service.py`.
 - Frontend: `api/static/relchart/js/features/import.js`.
 
+### Media System
+
+Media images from Gramps exports are extracted, stored, and served by the app:
+
+**Import pipeline** (`api/import_service.py`):
+- Parses `<object>` and `<objref>` elements from Gramps XML
+- Extracts image files from the `.gpkg` tar archive
+- Generates 200×200 **PNG** thumbnails (preserving transparency for coat-of-arms / heraldry images)
+- Records dimensions (`width`, `height`) in the `media` table
+- Stores files in `api/media/<instance_slug>/original/` and `api/media/<instance_slug>/thumb/`
+
+**Graph node portraits** (`dot.js` + `render.js`):
+- Person nodes with a portrait get a wider card (`PERSON_CARD_WIDTH_PORTRAIT_IN = 2.60"` vs `1.80"`)
+- The portrait image is placed to the left of the card text with a rounded-corner clip mask
+- Aspect ratio handling: face photos (wider/square) use `xMidYMid slice` (crop to fill); tall images like coat of arms use `xMidYMid meet` (fit fully, no cropping)
+- Text is shifted right during the text-positioning phase to stay within the right portion of the card
+- The API sends `portrait_url`, `portrait_width`, `portrait_height` per person node
+
+**Media browser** (`js/features/mediaBrowser.js`):
+- Full-screen overlay opened from the topbar "Media" button
+- Left sidebar: search filter (debounced), sort dropdown, item count, and metadata panel (preview, description, MIME type, dimensions, file size, checksum, referenced people/events/places)
+- Right area: scrollable thumbnail grid with selection highlighting and "Load more" pagination
+- Clicking a thumbnail selects it and loads detail in the sidebar; clicking the preview opens the lightbox
+- Clicking a person reference closes the browser and navigates to that person in the graph
+
+**Media tab** (`js/features/media.js`):
+- Thumbnail grid in the person detail panel showing all media linked to the selected person
+- Portrait picker: "Choose portrait" button enters selection mode; click a thumbnail to set as portrait
+- Uses `PUT /people/{person_id}/portrait` to persist the choice (survives re-imports)
+
+**Media lightbox** (`js/features/mediaOverlay.js`):
+- Full-size image overlay with left/right navigation, keyboard support, and description caption
+
 ## Development Environment
 
 - **OS**: Windows
@@ -378,6 +413,8 @@ When adding a new feature:
 | Instance member mgmt | `api/routes/instance_members.py` |
 | Media routes | `api/routes/media.py` |
 | Media lightbox (overlay) | `js/features/mediaOverlay.js` |
+| Media browser (topbar) | `js/features/mediaBrowser.js` |
+| Media tab (detail panel) | `js/features/media.js` |
 | Auth helpers (JWT, hash) | `api/auth.py` |
 | Auth middleware | `api/middleware.py` |
 | Admin CLI | `api/admin.py` |

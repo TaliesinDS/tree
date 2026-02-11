@@ -1,5 +1,13 @@
 # Media Support — Implementation Plan
 
+> **Status (Feb 2026): IMPLEMENTED.** All phases complete. The media system is fully
+> operational: import pipeline extracts images and generates PNG thumbnails (with
+> transparency), graph nodes show portrait thumbnails with aspect-ratio-aware
+> rendering (slice for faces, meet for coat of arms), media browser overlay is
+> available from the topbar, media tab in person detail panel with portrait picker,
+> and media lightbox for full-size viewing. See copilot-instructions.md for current
+> file locations and API endpoints.\n\n> **Notable implementation details vs plan:**\n> - Thumbnails are **PNG** (not JPEG) to preserve transparency for coat-of-arms images.\n> - Graph portraits use `xMidYMid meet` for tall images (CoA) and `xMidYMid slice` for face photos, based on `portrait_width`/`portrait_height` sent by the API.\n> - Portrait card width is `2.60\"` (vs plan's `0.55\"` portrait column + base width).\n> - No visible border around graph portrait images; only a rounded-corner clip mask.
+
 ## 1. Data Inventory (from `kortekaastest.gpkg`)
 
 | Metric | Value |

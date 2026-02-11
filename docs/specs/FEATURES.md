@@ -62,6 +62,17 @@ Implemented (working today):
   - Import section and privacy toggle hidden for guests
   - Admin sees instance picker after login; users/guests auto-redirect
   - Auth badge in sidebar shows username + role
+- [x] Media system:
+  - Import pipeline extracts images from `.gpkg` archives and generates 200×200 PNG thumbnails (preserving transparency for coat-of-arms / heraldry)
+  - Person nodes in the graph show portrait thumbnails on the left side of the card (wider card: 2.60" vs 1.80")
+  - Aspect-ratio-aware rendering: face photos use `slice` (crop to fill), tall images like coat of arms use `meet` (fit fully, no cropping)
+  - Rounded-corner clip mask on graph portraits (no visible border)
+  - API sends `portrait_url`, `portrait_width`, `portrait_height` per person node for client-side aspect-ratio decisions
+  - Media browser: full-screen overlay from topbar "Media" button with left sidebar (search, sort, metadata, person/event/place references) and right thumbnail grid with pagination
+  - Media tab in person detail panel: thumbnail grid of all media linked to the selected person
+  - Portrait picker: "Choose portrait" button in media tab to set a custom portrait per person (survives re-imports)
+  - Media lightbox: full-size image overlay with left/right navigation, keyboard support, and description caption
+  - Endpoints: `GET /media`, `GET /media/{id}`, `GET /media/file/thumb/{filename}`, `GET /media/file/original/{filename}`, `GET /people/{id}/media`, `PUT /people/{id}/portrait`
 
 Partially implemented / placeholders:
 - [~] Events and Places as standalone browsers (global search/filter/map) are planned; current work is mostly per-person detail rendering.
@@ -74,7 +85,7 @@ Not implemented yet (planned):
 - [ ] Relationship-path highlight on the graph UI (API exists: `GET /relationship/path?from_id=...&to_id=...`)
 - [ ] Pins / waypoints (toolbar pin list)
 - [ ] Strategic (whole-tree) overview mode with LOD
-- [ ] Portrait mirroring + heraldry cues (requires media ingestion + privacy)
+- [ ] Nobility ornament (crown/crest/border for titled people)
 - [ ] Reading mode (large notes/media/user notes)
 - [ ] Save defaults (graph + map config) and set default “home person”
 
@@ -98,12 +109,16 @@ This section expands the running TODO list into small, actionable feature notes.
   - selection should be visible at low zoom (e.g. halo)
 
 **Heraldry / portraits**
-- Goal: show identity cues quickly (especially for nobility lines).
-- Backend implication:
-  - need media ingestion/mirroring from Gramps (see Portrait images section) and a stable URL per person.
-  - likely a `person_media` table: `person_id, kind, url, is_private, crop, attribution`.
-- Frontend implication:
-  - show tiny portrait in card; fallback placeholders; obey privacy/redaction.
+- Status: **Implemented** (Feb 2026).
+- Person cards show portrait thumbnails on the left side (rounded clip mask, no border).
+- Wider card width for portrait cards (2.60" vs 1.80").
+- Aspect ratio: face photos (wider/square) use `slice` to crop-fill; tall images (coat of arms) use `meet` to fit fully without cropping.
+- Text is shifted right during SVG text-positioning phase to stay within the right portion of the card.
+- API sends `portrait_url`, `portrait_width`, `portrait_height` per person node.
+- Portrait picker in detail panel media tab; user override stored in DB, survives re-imports.
+- Thumbnails are PNG (preserving transparency for CoA images with alpha channels).
+- Media browser overlay for browsing all media in the instance.
+- Media lightbox for viewing full-size images with keyboard navigation.
 
 **Nobility ornament**
 - Goal: optional ornamentation for titles/roles (crown/crest/border) without turning into a cluttered UI.
