@@ -78,6 +78,14 @@ function _renderAuthBadge() {
     select.addEventListener('change', async () => {
       const slug = select.value;
       try {
+        const activeTab = (() => {
+          try {
+            const f = window.relchartGetSidebarActiveTab;
+            if (typeof f === 'function') return f();
+          } catch (_) {}
+          return null;
+        })();
+
         await api.switchInstance(slug);
         state.auth.instance = slug;
 
@@ -96,9 +104,18 @@ function _renderAuthBadge() {
 
         _renderAuthBadge();
 
-        if (typeof _onInstanceSwitch === 'function') {
-          try { _onInstanceSwitch(); } catch (_) {}
-        }
+        // Reload the graph, then force-refresh the active tab so its list/map data
+        // is fetched from the new instance as well.
+        const reloadGraph = (typeof _onInstanceSwitch === 'function')
+          ? Promise.resolve().then(() => _onInstanceSwitch())
+          : Promise.resolve();
+
+        reloadGraph.finally(() => {
+          try {
+            const setTab = window.relchartSetSidebarActiveTab;
+            if (activeTab && typeof setTab === 'function') setTab(activeTab);
+          } catch (_) {}
+        });
       } catch (err) {
         console.error('Instance switch failed:', err);
         alert('Failed to switch instance: ' + err.message);

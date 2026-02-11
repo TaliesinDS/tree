@@ -888,8 +888,21 @@ function _renderPlacesList(allPlaces) {
   } catch (_) {}
 
   const total = places.length;
-  const shown = els.placesList.querySelectorAll('.peopleItem.placesItem').length;
-  els.placesStatus.textContent = queryNorm ? `Showing ${shown} of ${total}.` : `Showing ${total}.`;
+  const shownEls = Array.from(els.placesList.querySelectorAll('.peopleItem.placesItem'));
+  const shown = shownEls.length;
+
+  let markerCount = 0;
+  for (const el of shownEls) {
+    const pid = String(el?.dataset?.placeId || '').trim();
+    if (!pid) continue;
+    const p = byId.get(pid) || state.placeById?.get?.(pid) || null;
+    const lat = Number(p?.lat);
+    const lon = Number(p?.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) markerCount += 1;
+  }
+
+  const base = queryNorm ? `Showing ${shown} of ${total}.` : `Showing ${total}.`;
+  els.placesStatus.textContent = `${base} Map markers: ${markerCount}`;
 }
 
 export async function ensurePlacesLoaded() {
