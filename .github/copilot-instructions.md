@@ -44,6 +44,7 @@ When working on the viewer, **always use the relchart v3 files** under `api/stat
 - `api/static/relchart/js/features/auth.js` — **auth UI** (badge, logout, instance switcher, role gating)
 - `api/static/relchart/js/features/userNotes.js` — **user notes** (per-person notes in detail panel)
 - `api/static/relchart/js/features/guests.js` — **guest management** (create/delete guests in options menu)
+- `api/static/relchart/js/features/mediaOverlay.js` — **media lightbox** (full-size image overlay with navigation)
 
 ### Backend
 - `api/main.py` — FastAPI app wiring (router registration + static mount)
@@ -52,7 +53,8 @@ When working on the viewer, **always use the relchart v3 files** under `api/stat
 - `api/routes/auth.py` — login / logout / me / switch-instance endpoints
 - `api/routes/user_notes.py` — user notes CRUD
 - `api/routes/instance_members.py` — guest management per instance
-- `api/import_service.py` — import pipeline (Gramps XML → Postgres)
+- `api/routes/media.py` — media endpoints (list, detail, file serving, portrait override)
+- `api/import_service.py` — import pipeline (Gramps XML → Postgres + media extraction)
 - `api/auth.py` — password hashing, JWT helpers, `get_current_user()` dependency
 - `api/middleware.py` — auth middleware (JWT validation, CSRF, instance resolution)
 - `api/admin.py` — CLI admin tool (create-admin, create-instance, create-user)
@@ -151,6 +153,16 @@ GET /people/{id}
 GET /people/search?q=<query>
 POST /import                    — upload .gpkg/.gramps file
 GET  /import/status             — poll import progress (idle/running/done/failed)
+```
+
+### Media endpoints
+```
+GET    /media                          — paginated media list (filter by q, mime, person_id)
+GET    /media/{media_id}               — single media detail with references
+GET    /media/file/thumb/{filename}    — serve thumbnail JPEG
+GET    /media/file/original/{filename} — serve original file
+GET    /people/{person_id}/media       — ordered media for a person (portrait + gallery)
+PUT    /people/{person_id}/portrait    — set/clear portrait override { media_id }
 ```
 
 ### Auth endpoints
@@ -364,6 +376,8 @@ When adding a new feature:
 | Auth routes (login etc.) | `api/routes/auth.py` |
 | User notes CRUD | `api/routes/user_notes.py` |
 | Instance member mgmt | `api/routes/instance_members.py` |
+| Media routes | `api/routes/media.py` |
+| Media lightbox (overlay) | `js/features/mediaOverlay.js` |
 | Auth helpers (JWT, hash) | `api/auth.py` |
 | Auth middleware | `api/middleware.py` |
 | Admin CLI | `api/admin.py` |

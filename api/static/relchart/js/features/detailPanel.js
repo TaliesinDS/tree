@@ -2,6 +2,7 @@ import { els, state } from '../state.js';
 import * as api from '../api.js';
 import { formatGrampsDateEnglish, formatGrampsDateEnglishCard } from '../util/date.js';
 import { renderUserNotesTab } from './userNotes.js';
+import { showMediaOverlay } from './mediaOverlay.js';
 
 let _selection = null;
 let _loadNeighborhood = null;
@@ -952,7 +953,7 @@ function _renderPersonDetailPanelBody() {
   }
 
   if (tab === 'media') {
-    body.innerHTML = '<div class="muted">Media list coming soon.</div>';
+    _renderMediaTab(body, data);
     return;
   }
 
@@ -963,6 +964,124 @@ function _renderPersonDetailPanelBody() {
 
   body.innerHTML = '<div class="muted">More tabs coming soon.</div>';
 }
+
+
+// ─── Media tab rendering ───
+
+let _mediaPickMode = false;
+
+function _renderMediaTab(body, data) {
+  const media = Array.isArray(data?.media) ? data.media : [];
+  const personId = data?.person?.id || '';
+  const isGuest = (state.auth?.user?.role === 'guest');
+
+  if (!media.length) {
+    body.innerHTML = '<div class="muted">No media linked to this person.</div>';
+    return;
+  }
+
+  body.innerHTML = '';
+
+  // Toolbar
+  if (!isGuest) {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'mediaToolbar';
+
+    const pickBtn = document.createElement('button');
+    pickBtn.type = 'button';
+    pickBtn.className = 'miniToggle mediaPickBtn';
+    pickBtn.textContent = _mediaPickMode ? 'Cancel' : 'Choose portrait';
+    pickBtn.addEventListener('click', () => {
+      _mediaPickMode = !_mediaPickMode;
+      _renderMediaTab(body, data);
+    });
+    toolbar.appendChild(pickBtn);
+
+    if (_mediaPickMode) {
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.className = 'miniToggle mediaPickClearBtn';
+      clearBtn.textContent = 'No portrait';
+      clearBtn.addEventListener('click', async () => {
+        try {
+          await api.setPortrait(personId, null);
+          _mediaPickMode = false;
+          // Reload details to reflect change
+          if (personId) loadPersonDetailsIntoPanel(personId, { openPanel: true });
+        } catch (e) {
+          console.error('Clear portrait failed:', e);
+        }
+      });
+      toolbar.appendChild(clearBtn);
+    }
+
+    body.appendChild(toolbar);
+  }
+
+  // Thumbnail grid
+  const grid = document.createElement('div');
+  grid.className = 'mediaGrid';
+
+  for (const m of media) {
+    const cell = document.createElement('div');
+    cell.className = 'mediaCell';
+    if (m.is_portrait) cell.classList.add('isPortrait');
+    if (_mediaPickMode) cell.classList.add('pickMode');
+
+    const img = document.createElement('img');
+    img.src = api.withPrivacy(m.thumb_url);
+    img.alt = m.description || m.gramps_id || '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+
+    // If there's a crop region, apply it as object-position + object-fit
+    if (m.region) {
+      const { x1, y1, x2, y2 } = m.region;
+      const cx = (x1 + x2) / 2;
+      const cy = (y1 + y2) / 2;
+      img.style.objectPosition = `${cx}% ${cy}%`;
+    }
+
+    cell.appendChild(img);
+
+    if (m.is_portrait) {
+      const badge = document.createElement('span');
+      badge.className = 'mediaBadge';
+      badge.textContent = '★';
+      badge.title = 'Current portrait';
+      cell.appendChild(badge);
+    }
+
+    const caption = document.createElement('div');
+    caption.className = 'mediaCaption';
+    caption.textContent = m.description || m.gramps_id || '';
+    cell.appendChild(caption);
+
+    // Click behavior
+    if (_mediaPickMode) {
+      cell.addEventListener('click', async () => {
+        try {
+          await api.setPortrait(personId, m.id);
+          _mediaPickMode = false;
+          if (personId) loadPersonDetailsIntoPanel(personId, { openPanel: true });
+        } catch (e) {
+          console.error('Set portrait failed:', e);
+        }
+      });
+    } else {
+      // Open lightbox
+      const idx = media.indexOf(m);
+      cell.addEventListener('click', () => {
+        showMediaOverlay({ media, startIndex: idx, personName: data?.person?.display_name });
+      });
+    }
+
+    grid.appendChild(cell);
+  }
+
+  body.appendChild(grid);
+}
+
 
 export async function loadPersonDetailsIntoPanel(personApiId, { openPanel = false } = {}) {
   const pid = String(personApiId || '').trim();

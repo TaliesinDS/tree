@@ -14,6 +14,7 @@ try:
     from ..queries import _people_core_many
     from ..resolve import _resolve_person_id
     from ..util import _compact_json
+    from ..routes.media import resolve_portrait_url
 except ImportError:  # pragma: no cover
     # Support running with CWD=genealogy/api (e.g., `python -m uvicorn main:app`).
     from db import db_conn
@@ -22,6 +23,7 @@ except ImportError:  # pragma: no cover
     from queries import _people_core_many
     from resolve import _resolve_person_id
     from util import _compact_json
+    from routes.media import resolve_portrait_url
 
 router = APIRouter()
 
@@ -428,12 +430,67 @@ def get_person_details(person_id: str, request: Request, privacy: str = "on") ->
                     if ev_id in notes_by_event:
                         ev["notes"] = notes_by_event[ev_id]
 
+        # Resolve portrait URL
+        portrait_url = None
+        media_list: list[dict[str, Any]] = []
+        try:
+            portrait_url = resolve_portrait_url(conn, resolved_id, skip_privacy=(privacy.lower() == "off"))
+        except Exception:
+            pass
+
+        # Fetch person media for the media tab
+        try:
+            pm_rows = conn.execute(
+                """
+                SELECT pm.media_id, m.gramps_id, m.description, m.mime,
+                       m.width, m.height, pm.sort_order, pm.is_portrait,
+                       pm.region_x1, pm.region_y1, pm.region_x2, pm.region_y2,
+                       m.is_private
+                FROM person_media pm
+                JOIN media m ON m.id = pm.media_id
+                WHERE pm.person_id = %s
+                ORDER BY pm.sort_order
+                """.strip(),
+                (resolved_id,),
+            ).fetchall()
+            for mr in pm_rows:
+                (mid, mgid, mdesc, mmime, mw, mh, msort, mport,
+                 rx1, ry1, rx2, ry2, m_priv) = mr
+                if bool(m_priv) and privacy.lower() != "off":
+                    continue
+                ext = ".jpg"
+                if mmime:
+                    ext_map = {
+                        "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
+                        "image/svg+xml": ".svg", "image/webp": ".webp",
+                    }
+                    ext = ext_map.get(mmime.lower(), ".jpg")
+                entry = {
+                    "id": mid,
+                    "gramps_id": mgid,
+                    "description": mdesc,
+                    "mime": mmime,
+                    "thumb_url": f"/media/file/thumb/{mid}.jpg",
+                    "original_url": f"/media/file/original/{mid}{ext}",
+                    "width": mw,
+                    "height": mh,
+                    "sort_order": msort,
+                    "is_portrait": bool(mport),
+                }
+                if rx1 is not None:
+                    entry["region"] = {"x1": rx1, "y1": ry1, "x2": rx2, "y2": ry2}
+                media_list.append(entry)
+        except Exception:
+            pass
+
+    person_core["portrait_url"] = portrait_url
+
     out = {
         "person": person_core,
         "events": events,
         "gramps_notes": gramps_notes,
         "user_notes": [],
-        "media": [],
+        "media": media_list,
         "sources": [],
         "other": {},
     }

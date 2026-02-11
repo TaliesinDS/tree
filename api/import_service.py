@@ -7,9 +7,13 @@ import can run at a time.
 
 from __future__ import annotations
 
+import gzip
+import io
+import json
 import logging
 import os
 import shutil
+import tarfile
 import tempfile
 import threading
 import time
@@ -82,6 +86,183 @@ def _resolve_paths() -> tuple[Path, Path]:
     return export_dir, schema_sql
 
 
+def _media_dir(instance_slug: str | None) -> Path:
+    """Return the on-disk media directory for an instance."""
+    api_dir = Path(__file__).resolve().parent
+    slug = instance_slug or "default"
+    return api_dir / "media" / slug
+
+
+def _extract_media_files(
+    file_bytes: bytes,
+    jsonl_dir: Path,
+    instance_slug: str | None,
+) -> int:
+    """Extract image files from a .gpkg tar archive and generate thumbnails.
+
+    Returns the number of media files successfully extracted.
+    """
+    media_jsonl = jsonl_dir / "media.jsonl"
+    if not media_jsonl.exists():
+        return 0
+
+    # Build a lookup: original_path -> media record
+    media_by_path: dict[str, dict[str, Any]] = {}
+    media_by_id: dict[str, dict[str, Any]] = {}
+    with media_jsonl.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            orig = rec.get("original_path") or ""
+            media_by_id[rec["id"]] = rec
+            if orig:
+                media_by_path[orig] = rec
+                # Also index by basename for flexible matching
+                basename = orig.rsplit("/", 1)[-1] if "/" in orig else orig
+                if basename and basename not in media_by_path:
+                    media_by_path[basename] = rec
+
+    if not media_by_path:
+        return 0
+
+    dest = _media_dir(instance_slug)
+    orig_dir = dest / "original"
+    thumb_dir = dest / "thumb"
+    orig_dir.mkdir(parents=True, exist_ok=True)
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+
+    extracted = 0
+
+    # Try to open as a tar archive (gzip'd tar is the .gpkg format)
+    payload = file_bytes
+    # Unwrap gzip if needed
+    if payload[:2] == b"\x1f\x8b":
+        payload = gzip.decompress(payload)
+
+    try:
+        tf = tarfile.open(fileobj=io.BytesIO(payload), mode="r:*")
+    except tarfile.ReadError:
+        # If gzip-decompressed bytes aren't a tar, try original
+        try:
+            tf = tarfile.open(fileobj=io.BytesIO(file_bytes), mode="r:*")
+        except tarfile.ReadError:
+            log.warning("Could not open archive as tar — skipping media extraction")
+            return 0
+
+    try:
+        for member in tf.getmembers():
+            if not member.isfile():
+                continue
+            name = member.name
+            # Skip the data.gramps XML file
+            lower = name.lower()
+            if lower.endswith((".gramps", ".xml", ".xml.gz", ".gramps.gz")):
+                continue
+
+            # Match tar member to a media record
+            rec = media_by_path.get(name)
+            if not rec:
+                basename = name.rsplit("/", 1)[-1] if "/" in name else name
+                rec = media_by_path.get(basename)
+            if not rec:
+                # Try matching by stripping leading path components
+                for key in media_by_path:
+                    if name.endswith(key) or key.endswith(name.rsplit("/", 1)[-1] if "/" in name else name):
+                        rec = media_by_path[key]
+                        break
+            if not rec:
+                continue
+
+            handle = rec["id"]
+            mime = (rec.get("mime") or "").lower()
+            ext = _mime_to_ext(mime) or _ext_from_path(name)
+
+            fh = tf.extractfile(member)
+            if fh is None:
+                continue
+            img_bytes = fh.read()
+            if not img_bytes:
+                continue
+
+            # Save original
+            orig_path = orig_dir / f"{handle}{ext}"
+            orig_path.write_bytes(img_bytes)
+
+            # Update media record with file size
+            rec["file_size"] = len(img_bytes)
+
+            # Generate thumbnail
+            try:
+                _generate_thumbnail(img_bytes, thumb_dir / f"{handle}.jpg", rec)
+            except Exception as e:
+                log.warning("Thumbnail generation failed for %s: %s", handle, e)
+
+            extracted += 1
+    finally:
+        tf.close()
+
+    # Update media.jsonl with file_size/width/height discovered during extraction
+    if extracted > 0:
+        with media_jsonl.open("w", encoding="utf-8") as f:
+            for rec in media_by_id.values():
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    return extracted
+
+
+def _mime_to_ext(mime: str) -> str:
+    """Map MIME type to file extension."""
+    mapping = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/svg+xml": ".svg",
+        "image/webp": ".webp",
+        "image/tiff": ".tiff",
+        "image/bmp": ".bmp",
+    }
+    return mapping.get(mime, "")
+
+
+def _ext_from_path(path: str) -> str:
+    """Extract extension from a file path."""
+    if "." in path:
+        ext = "." + path.rsplit(".", 1)[-1].lower()
+        if len(ext) <= 5:
+            return ext
+    return ".bin"
+
+
+def _generate_thumbnail(img_bytes: bytes, thumb_path: Path, rec: dict[str, Any]) -> None:
+    """Generate a 200x200 JPEG thumbnail using Pillow."""
+    try:
+        from PIL import Image
+    except ImportError:
+        log.warning("Pillow not installed — skipping thumbnail generation")
+        return
+
+    img = Image.open(io.BytesIO(img_bytes))
+
+    # Record dimensions
+    rec["width"] = img.width
+    rec["height"] = img.height
+
+    # Convert RGBA/P to RGB for JPEG
+    if img.mode in ("RGBA", "P", "LA"):
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode == "P":
+            img = img.convert("RGBA")
+        bg.paste(img, mask=img.split()[-1] if "A" in img.mode else None)
+        img = bg
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+
+    img.thumbnail((200, 200))
+    img.save(str(thumb_path), "JPEG", quality=80)
+
+
 def run_import(file_bytes: bytes, filename: str, database_url: str, *, instance_slug: str | None = None) -> None:
     """Run the import pipeline synchronously, updating ``_state`` throughout.
 
@@ -145,6 +326,15 @@ def run_import(file_bytes: bytes, filename: str, database_url: str, *, instance_
                 redact_private=False,
             )
             log.info("Export summary: %s", summary)
+
+            # 3b. Extract media files from archive and generate thumbnails.
+            log.info("Extracting media files …")
+            media_count = _extract_media_files(
+                file_bytes=file_bytes,
+                jsonl_dir=jsonl_dir,
+                instance_slug=instance_slug,
+            )
+            log.info("Extracted %d media files", media_count)
 
             # 4. Load into Postgres (truncate + replace).
             log.info("Loading into Postgres (truncate mode) …")

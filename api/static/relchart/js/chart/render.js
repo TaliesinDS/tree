@@ -612,6 +612,85 @@ function postProcessGraphvizSvg(svg, {
         }
       }
 
+      // Portrait thumbnail (rounded-square on the left side of the card)
+      if (meta.portraitUrl && !node.querySelector('[data-portrait="1"]')) {
+        const shape = node.querySelector('path') || node.querySelector('polygon') || node.querySelector('rect');
+        if (shape && typeof shape.getBBox === 'function') {
+          try {
+            const bb = shape.getBBox();
+            const ns = 'http://www.w3.org/2000/svg';
+            const rimH = 6;  // match rim height
+            const pad = 5;
+            const sz = bb.height - rimH - pad * 2; // fill card height minus rim and padding
+            const imgX = bb.x + pad;
+            const imgY = bb.y + rimH + pad;
+            const cornerR = Math.max(3, Math.min(8, sz * 0.12));
+
+            // Clip rounded-rect
+            const clipId = `portrait-clip-${String(pid).replace(/[^a-zA-Z0-9]/g, '_')}`;
+            let defs = svg.querySelector('defs');
+            if (!defs) { defs = document.createElementNS(ns, 'defs'); svg.insertBefore(defs, svg.firstChild); }
+
+            const clipPath = document.createElementNS(ns, 'clipPath');
+            clipPath.id = clipId;
+            const clipRect = document.createElementNS(ns, 'rect');
+            clipRect.setAttribute('x', String(imgX));
+            clipRect.setAttribute('y', String(imgY));
+            clipRect.setAttribute('width', String(sz));
+            clipRect.setAttribute('height', String(sz));
+            clipRect.setAttribute('rx', String(cornerR));
+            clipRect.setAttribute('ry', String(cornerR));
+            clipPath.appendChild(clipRect);
+            defs.appendChild(clipPath);
+
+            // Border rect (visible frame)
+            const frame = document.createElementNS(ns, 'rect');
+            frame.setAttribute('x', String(imgX - 0.5));
+            frame.setAttribute('y', String(imgY - 0.5));
+            frame.setAttribute('width', String(sz + 1));
+            frame.setAttribute('height', String(sz + 1));
+            frame.setAttribute('rx', String(cornerR + 0.5));
+            frame.setAttribute('ry', String(cornerR + 0.5));
+            frame.setAttribute('fill', 'none');
+            frame.setAttribute('stroke', '#b0b8c8');
+            frame.setAttribute('stroke-width', '1');
+            frame.setAttribute('data-portrait', '1');
+
+            // Image element
+            const img = document.createElementNS(ns, 'image');
+            img.setAttribute('href', meta.portraitUrl);
+            img.setAttribute('x', String(imgX));
+            img.setAttribute('y', String(imgY));
+            img.setAttribute('width', String(sz));
+            img.setAttribute('height', String(sz));
+            img.setAttribute('clip-path', `url(#${clipId})`);
+            img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+            img.setAttribute('data-portrait', '1');
+
+            // Insert after rim elements but before expand indicators
+            const firstExpand = node.querySelector('[data-hidden-parents-for], [data-hidden-children-for]');
+            if (firstExpand) {
+              node.insertBefore(frame, firstExpand);
+              node.insertBefore(img, firstExpand);
+            } else {
+              node.appendChild(frame);
+              node.appendChild(img);
+            }
+
+            // Shift all text right to make room for the portrait
+            const textShift = sz + pad + 2;
+            for (const t of node.querySelectorAll('text')) {
+              try {
+                const curX = Number(t.getAttribute('x'));
+                if (Number.isFinite(curX)) {
+                  t.setAttribute('x', String(curX + textShift));
+                }
+              } catch (_) {}
+            }
+          } catch (_) {}
+        }
+      }
+
       // Expand parents indicator (top tab)
       const parentsFamilyId = (meta.hiddenParentFamilies && meta.hiddenParentFamilies.length)
         ? String(meta.hiddenParentFamilies[0])
@@ -1184,6 +1263,7 @@ export async function renderRelationshipChart({
       hiddenParentFamilies: up,
       hasHiddenChildren: down.length > 0,
       hiddenChildFamilies: down,
+      portraitUrl: n.portrait_url || null,
     });
   }
 

@@ -69,6 +69,7 @@ import { initOptionsFeature } from './features/options.js';
 import { initImportFeature } from './features/import.js';
 import { initAuthFeature } from './features/auth.js';
 import { initGuestsFeature } from './features/guests.js';
+import { initMediaBrowserFeature } from './features/mediaBrowser.js';
 
 function _selectParentFamilyForPersonInSidebar(personApiId) {
   const pid = String(personApiId || '').trim();
@@ -439,6 +440,8 @@ initImportFeature({ loadNeighborhood, setStatus });
 initAuthFeature({ loadNeighborhood });
 
 initGuestsFeature();
+
+initMediaBrowserFeature();
 
 initPeopleFeature();
 

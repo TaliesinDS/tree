@@ -2563,3 +2563,182 @@ html[data-theme="light"] .importOverlay {
   margin-top: 4px;
   justify-content: flex-end;
 }
+
+/* ─── Media tab ─── */
+
+.mediaToolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 4px 0;
+}
+.mediaPickBtn,
+.mediaPickClearBtn {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.mediaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+}
+
+.mediaCell {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.04);
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.15s;
+  border: 2px solid transparent;
+}
+.mediaCell:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  transform: translateY(-1px);
+}
+.mediaCell.isPortrait {
+  border-color: var(--accent);
+}
+.mediaCell.pickMode {
+  cursor: crosshair;
+  border-color: rgba(255,200,50,0.5);
+}
+.mediaCell.pickMode:hover {
+  border-color: rgba(255,200,50,1);
+}
+
+.mediaCell img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+.mediaBadge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.mediaCaption {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 2px 4px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Media overlay / lightbox ─── */
+
+.mediaOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mediaOverlay[hidden] { display: none; }
+
+.mediaOverlayBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+}
+.mediaOverlayContent {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 90vw;
+  max-height: 90vh;
+  background: var(--panel);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+.mediaOverlayHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.mediaOverlayTitle {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mediaOverlayCounter {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mediaOverlayCloseBtn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.mediaOverlayCloseBtn:hover { color: var(--text); }
+
+.mediaOverlayBody {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+.mediaOverlayImageWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 12px;
+}
+.mediaOverlayImage {
+  max-width: 100%;
+  max-height: 75vh;
+  object-fit: contain;
+  border-radius: 4px;
+}
+.mediaOverlayNav {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 36px;
+  cursor: pointer;
+  padding: 16px 12px;
+  line-height: 1;
+  user-select: none;
+  transition: color 0.15s;
+}
+.mediaOverlayNav:hover { color: var(--text); }
+.mediaOverlayNav[hidden] { display: none; }
+
+.mediaOverlayFooter {
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+}
+.mediaOverlayDesc {
+  font-size: 11px;
+  color: var(--muted);
+}

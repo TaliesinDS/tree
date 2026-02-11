@@ -344,6 +344,12 @@ def export_from_xml(
     family_event: list[dict[str, Any]] = []
     parent_edges: set[tuple[str, str]] = set()  # (child, parent)
 
+    # Media
+    media: dict[str, dict[str, Any]] = {}
+    person_media: list[dict[str, Any]] = []
+    event_media: list[dict[str, Any]] = []
+    place_media: list[dict[str, Any]] = []
+
     # Helper maps we populate while parsing
     person_eventrefs: dict[str, list[tuple[str, str | None]]] = {}
     person_min_event_year: dict[str, int] = {}
@@ -375,6 +381,12 @@ def export_from_xml(
                 elif ctag == "placeref" and ch.get("hlink"):
                     # In Gramps XML, placeref points at an enclosing place.
                     enclosed_by_hlink = enclosed_by_hlink or ch.get("hlink")
+                elif ctag == "objref" and ch.get("hlink"):
+                    place_media.append({
+                        "place_id": handle,
+                        "media_id": ch.get("hlink"),
+                        "sort_order": len([x for x in place_media if x["place_id"] == handle]),
+                    })
                 elif ctag in {"coord", "coordinates"}:
                     lat = ch.get("lat") or lat
                     lon = ch.get("long") or ch.get("lon") or lon
@@ -415,6 +427,12 @@ def export_from_xml(
                     ev_date = _format_gramps_date_element(ch) or ev_date
                 elif ctag == "noteref" and ch.get("hlink"):
                     event_note.append({"event_id": handle, "note_id": ch.get("hlink")})
+                elif ctag == "objref" and ch.get("hlink"):
+                    event_media.append({
+                        "event_id": handle,
+                        "media_id": ch.get("hlink"),
+                        "sort_order": len([x for x in event_media if x["event_id"] == handle]),
+                    })
 
             events[handle] = {
                 "id": handle,
@@ -445,6 +463,27 @@ def export_from_xml(
                 "body": body,
                 "is_private": _truthy_int(elem.get("priv")) or _truthy_int(elem.get("private")),
             }
+
+        elif tag == "object":
+            handle = elem.get("handle")
+            if not handle:
+                continue
+            gramps_id = elem.get("id")
+            file_el = None
+            for ch in elem:
+                if _strip_ns(ch.tag) == "file":
+                    file_el = ch
+                    break
+            if file_el is not None:
+                media[handle] = {
+                    "id": handle,
+                    "gramps_id": gramps_id,
+                    "mime": file_el.get("mime"),
+                    "description": file_el.get("description"),
+                    "checksum": file_el.get("checksum"),
+                    "original_path": file_el.get("src"),
+                    "is_private": _truthy_int(elem.get("priv")) or _truthy_int(elem.get("private")),
+                }
 
     # Pass 2: people/families (need event/place/note dicts)
     for elem in root.iter():
@@ -537,6 +576,26 @@ def export_from_xml(
 
                 elif ctag == "noteref" and ch.get("hlink"):
                     person_note.append({"person_id": handle, "note_id": ch.get("hlink")})
+
+                elif ctag == "objref" and ch.get("hlink"):
+                    region = None
+                    for rch in ch:
+                        if _strip_ns(rch.tag) == "region":
+                            region = {
+                                "x1": int(rch.get("corner1_x", 0)),
+                                "y1": int(rch.get("corner1_y", 0)),
+                                "x2": int(rch.get("corner2_x", 100)),
+                                "y2": int(rch.get("corner2_y", 100)),
+                            }
+                            break
+                    entry: dict[str, Any] = {
+                        "person_id": handle,
+                        "media_id": ch.get("hlink"),
+                        "sort_order": len([x for x in person_media if x["person_id"] == handle]),
+                    }
+                    if region:
+                        entry.update(region)
+                    person_media.append(entry)
 
             if given or surname:
                 display_name = " ".join([p for p in [given, surname] if p]).strip() or None
@@ -812,6 +871,10 @@ def export_from_xml(
     write_jsonl(out_dir / "person_note.jsonl", person_note)
     write_jsonl(out_dir / "event_note.jsonl", event_note)
     write_jsonl(out_dir / "family_event.jsonl", family_event)
+    write_jsonl(out_dir / "media.jsonl", media.values())
+    write_jsonl(out_dir / "person_media.jsonl", person_media)
+    write_jsonl(out_dir / "event_media.jsonl", event_media)
+    write_jsonl(out_dir / "place_media.jsonl", place_media)
 
     summary = {
         "counts": {
@@ -825,6 +888,10 @@ def export_from_xml(
             "person_note": len(person_note),
             "event_note": len(event_note),
             "family_event": len(family_event),
+            "media": len(media),
+            "person_media": len(person_media),
+            "event_media": len(event_media),
+            "place_media": len(place_media),
         },
         "redaction": {
             "living_cutoff_years": living_cutoff_years,

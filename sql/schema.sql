@@ -159,3 +159,58 @@ CREATE TABLE IF NOT EXISTS family_event (
 );
 
 CREATE INDEX IF NOT EXISTS idx_family_event_event ON family_event(event_id);
+
+-- Media objects (from Gramps <object> elements)
+CREATE TABLE IF NOT EXISTS media (
+  id TEXT PRIMARY KEY,                          -- Gramps handle
+  gramps_id TEXT NULL,                          -- e.g. O0001
+  mime TEXT NULL,                               -- image/jpeg, image/png, etc.
+  description TEXT NULL,                        -- Gramps description field
+  checksum TEXT NULL,                           -- MD5 from Gramps export
+  original_path TEXT NULL,                      -- original src path from Gramps
+  file_size INTEGER NULL,                       -- bytes (populated during import)
+  width INTEGER NULL,                           -- pixels (populated during import)
+  height INTEGER NULL,                          -- pixels (populated during import)
+  is_private BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_gramps_id ON media(gramps_id);
+
+-- Person ↔ Media link
+CREATE TABLE IF NOT EXISTS person_media (
+  person_id TEXT NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+  media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,        -- preserves Gramps ordering
+  region_x1 SMALLINT NULL,                      -- crop rectangle corner1_x (0-100%)
+  region_y1 SMALLINT NULL,                      -- crop rectangle corner1_y (0-100%)
+  region_x2 SMALLINT NULL,                      -- crop rectangle corner2_x (0-100%)
+  region_y2 SMALLINT NULL,                      -- crop rectangle corner2_y (0-100%)
+  is_portrait BOOLEAN NOT NULL DEFAULT FALSE,   -- user-chosen portrait override
+  PRIMARY KEY (person_id, media_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_person_media_media ON person_media(media_id);
+
+-- Event ↔ Media link
+CREATE TABLE IF NOT EXISTS event_media (
+  event_id TEXT NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+  media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (event_id, media_id)
+);
+
+-- Place ↔ Media link
+CREATE TABLE IF NOT EXISTS place_media (
+  place_id TEXT NOT NULL REFERENCES place(id) ON DELETE CASCADE,
+  media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (place_id, media_id)
+);
+
+-- Family ↔ Media link (future, none in current data)
+CREATE TABLE IF NOT EXISTS family_media (
+  family_id TEXT NOT NULL REFERENCES family(id) ON DELETE CASCADE,
+  media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (family_id, media_id)
+);

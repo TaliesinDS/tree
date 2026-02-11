@@ -17,6 +17,7 @@ function htmlEsc(s) {
 }
 
 const PERSON_CARD_WIDTH_IN = 1.80;
+const PERSON_CARD_WIDTH_PORTRAIT_IN = 2.30;
 const PERSON_CARD_HEIGHT_IN = 1.10;
 
 // Person-card label padding inside Graphviz's HTML-like table.
@@ -262,11 +263,13 @@ export function buildRelationshipDot(payload, { couplePriority = true } = {}) {
     const rim = (gender === 'M') ? '#93A7BF' : (gender === 'F') ? '#C7A0AA' : '#B7B0A3';
     const body = '#d0d5dd';
     const label = personHtmlLabel(p);
+    const hasPortrait = !!(p?.portrait_url);
+    const cardW = hasPortrait ? PERSON_CARD_WIDTH_PORTRAIT_IN : PERSON_CARD_WIDTH_IN;
 
     lines.push(
       `  ${dotId(pid)} [` +
       `shape=box, style="rounded,filled", penwidth=0,` +
-      ` fixedsize=true, width=${PERSON_CARD_WIDTH_IN}, height=${PERSON_CARD_HEIGHT_IN},` +
+      ` fixedsize=true, width=${cardW}, height=${PERSON_CARD_HEIGHT_IN},` +
       ` margin="0.00,0.00", fillcolor="${body}", color="${rim}", label=${label}` +
       `];`
     );

@@ -15,6 +15,7 @@ try:
     from .routes.health import router as health_router
     from .routes.import_tree import router as import_router
     from .routes.instance_members import router as members_router
+    from .routes.media import router as media_router
     from .routes.people import router as people_router
     from .routes.places import router as places_router
     from .routes.relationship import router as relationship_router
@@ -29,6 +30,7 @@ except ImportError:  # pragma: no cover
     from routes.health import router as health_router
     from routes.import_tree import router as import_router
     from routes.instance_members import router as members_router
+    from routes.media import router as media_router
     from routes.people import router as people_router
     from routes.places import router as places_router
     from routes.relationship import router as relationship_router
@@ -64,6 +66,7 @@ app.include_router(people_router)
 app.include_router(import_router)
 app.include_router(user_notes_router)
 app.include_router(members_router)
+app.include_router(media_router)
 
 app.include_router(families_router)
 app.include_router(events_router)

@@ -387,6 +387,38 @@ def graph_neighborhood(
 
         person_node_ids = {n["id"] for n in nodes}
 
+        # Bulk-resolve portrait URLs for all public person nodes
+        public_person_ids = [
+            n["id"] for n in nodes
+            if n.get("type") == "person" and n.get("display_name") != "Private"
+        ]
+        portrait_by_pid: dict[str, str] = {}
+        if public_person_ids:
+            try:
+                port_rows = conn.execute(
+                    """
+                    SELECT pm.person_id, pm.media_id
+                    FROM person_media pm
+                    JOIN media m ON m.id = pm.media_id
+                    WHERE pm.person_id = ANY(%s)
+                      AND (m.is_private = FALSE OR %s)
+                    ORDER BY pm.person_id, pm.is_portrait DESC, pm.sort_order ASC
+                    """.strip(),
+                    (public_person_ids, skip_privacy),
+                ).fetchall()
+                seen: set[str] = set()
+                for ppid, pmid in port_rows:
+                    ppid_s = str(ppid)
+                    if ppid_s not in seen:
+                        seen.add(ppid_s)
+                        portrait_by_pid[ppid_s] = f"/media/file/thumb/{pmid}.jpg"
+            except Exception:
+                pass
+
+        for n in nodes:
+            if n.get("type") == "person":
+                n["portrait_url"] = portrait_by_pid.get(str(n["id"]))
+
         edges: list[dict[str, Any]] = []
 
         if layout == "family":

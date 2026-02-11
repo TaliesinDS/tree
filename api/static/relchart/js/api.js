@@ -176,3 +176,39 @@ export function eventDetails({ eventId }) {
   const u = new URL(`/events/${encodeURIComponent(id)}`, window.location.origin);
   return fetchJson(u.toString());
 }
+
+// ─── Media ───
+
+export function fetchPersonMedia(personId) {
+  const u = new URL(`/people/${encodeURIComponent(personId)}/media`, window.location.origin);
+  return fetchJson(u.toString());
+}
+
+export function fetchMediaList({ limit = 100, offset = 0, q, mime, personId, sort } = {}) {
+  const u = new URL('/media', window.location.origin);
+  u.searchParams.set('limit', String(limit));
+  u.searchParams.set('offset', String(offset));
+  if (q) u.searchParams.set('q', q);
+  if (mime) u.searchParams.set('mime', mime);
+  if (personId) u.searchParams.set('person_id', personId);
+  if (sort) u.searchParams.set('sort', sort);
+  return fetchJson(u.toString());
+}
+
+export function fetchMediaDetail(mediaId) {
+  const u = new URL(`/media/${encodeURIComponent(mediaId)}`, window.location.origin);
+  return fetchJson(u.toString());
+}
+
+export async function setPortrait(personId, mediaId) {
+  const res = await fetch(`/people/${encodeURIComponent(personId)}/portrait`, {
+    method: 'PUT',
+    headers: _csrfHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ media_id: mediaId }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `Set portrait failed (${res.status})`);
+  }
+  return res.json();
+}

@@ -42,6 +42,10 @@ def _apply_schema(conn: psycopg.Connection, schema_sql_path: Path) -> None:
 def _truncate_all(conn: psycopg.Connection) -> None:
     # Order matters due to FKs.
     tables = [
+        "family_media",
+        "place_media",
+        "event_media",
+        "person_media",
         "family_event",
         "family_child",
         "family",
@@ -52,6 +56,7 @@ def _truncate_all(conn: psycopg.Connection) -> None:
         "event",
         "place",
         "note",
+        "media",
         "person",
     ]
     with conn.cursor() as cur:
@@ -158,6 +163,30 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
                 [(r.get("id"), r.get("body"), bool(r.get("is_private", False))) for r in rows],
             )
         counts["note"] = len(rows)
+
+        # Media
+        media_path = export_dir / "media.jsonl"
+        if media_path.exists():
+            rows = list(_iter_jsonl(media_path))
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO media (id, gramps_id, mime, description, checksum,
+                                       original_path, file_size, width, height, is_private)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (id) DO UPDATE SET
+                      gramps_id=EXCLUDED.gramps_id, mime=EXCLUDED.mime,
+                      description=EXCLUDED.description, checksum=EXCLUDED.checksum,
+                      original_path=EXCLUDED.original_path, file_size=EXCLUDED.file_size,
+                      width=EXCLUDED.width, height=EXCLUDED.height,
+                      is_private=EXCLUDED.is_private;
+                    """.strip(),
+                    [(r["id"], r.get("gramps_id"), r.get("mime"), r.get("description"),
+                      r.get("checksum"), r.get("original_path"), r.get("file_size"),
+                      r.get("width"), r.get("height"), bool(r.get("is_private", False)))
+                     for r in rows],
+                )
+            counts["media"] = len(rows)
 
         # People
         people_path = export_dir / "people.jsonl"
@@ -342,6 +371,59 @@ def load_export(export_dir: Path, schema_sql_path: Path, database_url: str, trun
             """.strip(),
             ["family_id", "event_id", "role"],
         )
+
+        # Media link tables (optional — backward compatible with older exports)
+        pm_path = export_dir / "person_media.jsonl"
+        if pm_path.exists():
+            pm_rows = list(_iter_jsonl(pm_path))
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO person_media (person_id, media_id, sort_order,
+                                              region_x1, region_y1, region_x2, region_y2)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (person_id, media_id) DO UPDATE SET
+                      sort_order = EXCLUDED.sort_order,
+                      region_x1 = EXCLUDED.region_x1,
+                      region_y1 = EXCLUDED.region_y1,
+                      region_x2 = EXCLUDED.region_x2,
+                      region_y2 = EXCLUDED.region_y2;
+                    """.strip(),
+                    [(r["person_id"], r["media_id"], r.get("sort_order", 0),
+                      r.get("x1"), r.get("y1"), r.get("x2"), r.get("y2"))
+                     for r in pm_rows],
+                )
+            counts["person_media"] = len(pm_rows)
+
+        em_path = export_dir / "event_media.jsonl"
+        if em_path.exists():
+            em_rows = list(_iter_jsonl(em_path))
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO event_media (event_id, media_id, sort_order)
+                    VALUES (%s,%s,%s)
+                    ON CONFLICT (event_id, media_id) DO NOTHING;
+                    """.strip(),
+                    [(r["event_id"], r["media_id"], r.get("sort_order", 0))
+                     for r in em_rows],
+                )
+            counts["event_media"] = len(em_rows)
+
+        plm_path = export_dir / "place_media.jsonl"
+        if plm_path.exists():
+            plm_rows = list(_iter_jsonl(plm_path))
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO place_media (place_id, media_id, sort_order)
+                    VALUES (%s,%s,%s)
+                    ON CONFLICT (place_id, media_id) DO NOTHING;
+                    """.strip(),
+                    [(r["place_id"], r["media_id"], r.get("sort_order", 0))
+                     for r in plm_rows],
+                )
+            counts["place_media"] = len(plm_rows)
 
         conn.commit()
 
