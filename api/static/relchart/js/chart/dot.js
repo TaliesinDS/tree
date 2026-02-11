@@ -17,7 +17,7 @@ function htmlEsc(s) {
 }
 
 const PERSON_CARD_WIDTH_IN = 1.80;
-const PERSON_CARD_WIDTH_PORTRAIT_IN = 2.30;
+const PERSON_CARD_WIDTH_PORTRAIT_IN = 2.60;
 const PERSON_CARD_HEIGHT_IN = 1.10;
 
 // Person-card label padding inside Graphviz's HTML-like table.

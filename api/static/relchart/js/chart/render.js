@@ -458,8 +458,19 @@ function postProcessGraphvizSvg(svg, {
               .filter(x => Number.isFinite(x.y));
 
             if (texts.length >= 2) {
-              // Align text to the left edge of the card.
-              const xLeft = bb.x + PERSON_CARD_TEXT_LEFT_PAD_PX;
+              // Compute portrait offset — if this card has a portrait, shift text right
+              // by the portrait image width + margins so text stays within the right
+              // portion of the widened card.
+              let portraitTextOffset = 0;
+              if (meta.portraitUrl) {
+                const rimH = 6;
+                const portraitPad = 10;  // left margin doubled
+                const portraitSz = bb.height - rimH - portraitPad * 2;
+                portraitTextOffset = portraitSz + portraitPad + 4;
+              }
+
+              // Align text to the left edge of the card (plus portrait offset).
+              const xLeft = bb.x + PERSON_CARD_TEXT_LEFT_PAD_PX + portraitTextOffset;
               for (const item of texts) {
                 try {
                   item.t.setAttribute('text-anchor', 'start');
@@ -620,7 +631,7 @@ function postProcessGraphvizSvg(svg, {
             const bb = shape.getBBox();
             const ns = 'http://www.w3.org/2000/svg';
             const rimH = 6;  // match rim height
-            const pad = 5;
+            const pad = 10;  // left margin (doubled from original 5)
             const sz = bb.height - rimH - pad * 2; // fill card height minus rim and padding
             const imgX = bb.x + pad;
             const imgY = bb.y + rimH + pad;
@@ -677,16 +688,8 @@ function postProcessGraphvizSvg(svg, {
               node.appendChild(img);
             }
 
-            // Shift all text right to make room for the portrait
-            const textShift = sz + pad + 2;
-            for (const t of node.querySelectorAll('text')) {
-              try {
-                const curX = Number(t.getAttribute('x'));
-                if (Number.isFinite(curX)) {
-                  t.setAttribute('x', String(curX + textShift));
-                }
-              } catch (_) {}
-            }
+            // Text was already shifted right during text repositioning above,
+            // so no additional text movement is needed here.
           } catch (_) {}
         }
       }

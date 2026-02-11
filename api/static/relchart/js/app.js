@@ -441,7 +441,7 @@ initAuthFeature({ loadNeighborhood });
 
 initGuestsFeature();
 
-initMediaBrowserFeature();
+initMediaBrowserFeature({ loadNeighborhood });
 
 initPeopleFeature();
 
