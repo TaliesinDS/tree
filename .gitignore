@@ -13,6 +13,7 @@ api/.env
 # Local data exports/logs (DO NOT COMMIT)
 exports/
 reports/
+kortekaastest.gpkg
 
 # OS
 Thumbs.db
