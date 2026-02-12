@@ -519,7 +519,7 @@ This is a one-line guard added to each route that accepts a `privacy` parameter.
 - [x] CSRF protection (double-submit cookie: `tree_csrf` cookie + `X-CSRF-Token` header)
 - [x] Rate limiting on `/auth/login` (5 attempts / 5 min per IP, in-memory)
 - [x] Password strength validation (≥8 chars, upper+lower+digit)
-- [ ] Admin web panel (optional, lower priority)
+- [x] Admin web panel (optional, lower priority)
 - [x] Documentation update
 
 ---
