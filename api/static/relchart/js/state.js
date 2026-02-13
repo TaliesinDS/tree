@@ -8,6 +8,7 @@ export const els = {
   fitBtn: $('fitBtn'),
   resetBtn: $('resetBtn'),
   graphCullToggle: $('graphCullToggle'),
+  graphLayoutLock: $('graphLayoutLock'),
   status: $('status'),
   chart: $('chart'),
   graphView: $('graphView'),
@@ -71,6 +72,8 @@ export const state = {
   panZoom: null,
   graphUi: {
     cullingEnabled: false,
+    layoutLocked: false,
+    layoutRootPersonId: null,
   },
   people: null,
   peopleLoaded: false,
@@ -177,6 +180,7 @@ export const MAP_SETTINGS = {
 
 export const GRAPH_SETTINGS = {
   cullingEnabled: 'tree_relchart_graph_culling_enabled',
+  layoutLocked: 'tree_relchart_graph_layout_locked',
 };
 
 export function _readBool(key, fallback) {

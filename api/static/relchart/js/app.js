@@ -71,6 +71,43 @@ import { initAuthFeature } from './features/auth.js';
 import { initGuestsFeature } from './features/guests.js';
 import { initMediaBrowserFeature } from './features/mediaBrowser.js';
 
+// ── Layout lock ──
+
+function _applyLayoutLockUi() {
+  const el = els.graphLayoutLock;
+  if (!el) return;
+  const locked = !!state.graphUi?.layoutLocked;
+  el.textContent = locked ? '🔒 Layout' : '🔓 Layout';
+  el.title = locked
+    ? 'Locked – selecting people will not redraw the graph'
+    : 'Unlocked – selecting people redraws the graph';
+  try { el.classList.toggle('active', locked); } catch (_) {}
+}
+
+function setLayoutLocked(locked) {
+  const on = !!locked;
+  if (!state.graphUi) state.graphUi = { cullingEnabled: false, layoutLocked: false, layoutRootPersonId: null };
+  const wasLocked = !!state.graphUi.layoutLocked;
+  state.graphUi.layoutLocked = on;
+
+  if (on && !wasLocked) {
+    // Capture the current layout root (the person ID used for the last render).
+    state.graphUi.layoutRootPersonId = String(els.personId?.value || '').trim() || null;
+  }
+
+  _applyLayoutLockUi();
+
+  // Transition from locked → unlocked: catch up to the current selection.
+  if (wasLocked && !on) {
+    state.graphUi.layoutRootPersonId = null;
+    Promise.resolve(loadNeighborhood()).catch(() => {});
+  }
+}
+
+function toggleLayoutLock() {
+  setLayoutLocked(!state.graphUi?.layoutLocked);
+}
+
 function _selectParentFamilyForPersonInSidebar(personApiId) {
   const pid = String(personApiId || '').trim();
   if (!pid) return;
@@ -190,6 +227,9 @@ function _scheduleAutoLoadFromSelection(next, meta) {
   const source = String(meta?.source || '').trim();
   // Prevent reload loops: `loadNeighborhood()` updates selection with source='load'.
   if (source === 'load') return;
+
+  // ── Layout lock: skip neighborhood reload when locked ──
+  if (state.graphUi?.layoutLocked) return;
 
   const ref = String(next?.grampsId || next?.apiId || next?.key || '').trim();
   if (!ref) return;
@@ -367,6 +407,8 @@ els.fitBtn.addEventListener('click', () => {
 
 // Initial
 setStatus('Ready.');
+_applyLayoutLockUi();
+els.graphLayoutLock?.addEventListener?.('click', () => toggleLayoutLock());
 initOptionsFeature({ renderPeopleList: _renderPeopleList, loadNeighborhood });
 initGraphFeature({
   selection,
