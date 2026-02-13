@@ -15,7 +15,7 @@ flowchart LR
   %% =========================
   %% Frontend shell
   %% =========================
-  subgraph FE[Frontend (api/static/relchart)]
+  subgraph FE[Frontend - api static relchart]
     IDX[index.html]
     APP[js/app.js]
     APIJS[js/api.js]
@@ -118,7 +118,7 @@ flowchart LR
   %% =========================
   %% FastAPI app
   %% =========================
-  subgraph API[Backend (api)]
+  subgraph API[Backend - api]
     MAIN[main.py]
     MID[middleware.py]
     AUTHM[auth.py]
@@ -134,7 +134,7 @@ flowchart LR
       UTL[util.py]
     end
 
-    subgraph ROUTES[api/routes]
+    subgraph ROUTES[api routes]
       RHEALTH[health.py]
       RDEMO[demo.py]
       RAUTH[auth.py]
@@ -225,7 +225,7 @@ flowchart LR
   %% =========================
   %% Export/import scripts
   %% =========================
-  subgraph EXP[Export + loader scripts (export)]
+  subgraph EXP[Export and loader scripts]
     EXPPKG[export_gramps_package.py]
     LOADPG[load_export_to_postgres.py]
     EXPSQL[export_gramps_sqlite.py]
@@ -244,8 +244,8 @@ flowchart LR
     SQL2[sql/schema_core.sql]
     PG[(PostgreSQL)]
     COREDB[_core schema]
-    INSTDB[inst_<slug> schema(s)]
-    MEDIAFS[api/media/<instance>/\noriginal + thumb]
+    INSTDB[inst slug schemas]
+    MEDIAFS[api media instance - original and thumb]
   end
 
   LOADPG --> SQL1
@@ -296,8 +296,8 @@ flowchart TD
   C --> D[api/import_service.py]
   D --> E[export/export_gramps_package.py\nXML -> JSONL]
   D --> F[export/load_export_to_postgres.py\nJSONL -> SQL]
-  D --> G[api/media/<instance>/files + thumbs]
-  F --> H[(PostgreSQL inst_<slug>)]
+  D --> G[api media instance files and thumbs]
+  F --> H[(PostgreSQL inst slug)]
 
   I[Browser Relchart UI\njs/app.js + features/*] -->|GET /graph,/people,/families,/events,/places,/media| J[FastAPI routes/*]
   J --> K[api/db.py + queries/resolve/serialize/privacy modules]
