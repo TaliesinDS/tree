@@ -1,4 +1,4 @@
-import { Graphviz } from 'https://unpkg.com/@hpcc-js/wasm-graphviz@1.18.0/dist/index.js';
+import { Graphviz } from '../vendor/graphviz-wasm.js';
 
 let _graphvizPromise = null;
 

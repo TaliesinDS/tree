@@ -25,5 +25,8 @@
   "homepage": "https://github.com/TaliesinDS/tree#readme",
   "devDependencies": {
     "eslint": "^8.57.0"
+  },
+  "dependencies": {
+    "@hpcc-js/wasm-graphviz": "^1.18.0"
   }
 }
